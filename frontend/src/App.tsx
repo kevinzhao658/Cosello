@@ -59,22 +59,28 @@ export default function App() {
     if (uploadedImages.length === 0) return;
     setIsGenerating(true);
 
-    // TODO: Replace with real AI backend call
-    // This is where you'd send the images to your API
-    // e.g. POST /api/generate-listing with the image files
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const formData = new FormData();
+      uploadedImages.forEach((img) => formData.append("images", img.file));
 
-    // Mock auto-generated product details
-    setProductDetails({
-      title: "Vintage Leather Jacket",
-      description: "Classic brown leather jacket in excellent condition. Genuine leather with brass zipper hardware. Perfect for fall and winter.",
-      price: "85.00",
-      condition: "Like New",
-      location: "Upper East Side, Manhattan",
-      venues: ["Local", "Facebook"],
-    });
+      const res = await fetch("/api/generate-listing", {
+        method: "POST",
+        body: formData,
+      });
 
-    setIsGenerating(false);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Server error" }));
+        throw new Error(err.detail || "Failed to generate listing");
+      }
+
+      const listing: ProductDetails = await res.json();
+      setProductDetails(listing);
+    } catch (err) {
+      console.error("Generate listing failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   useEffect(() => {
