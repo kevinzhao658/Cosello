@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
@@ -16,7 +16,13 @@ interface ProductDetails {
   price: string;
   condition: string;
   location: string;
-  venues: string[];
+  tags: string[];
+}
+
+interface Listing extends ProductDetails {
+  id: string;
+  imageUrl: string;
+  postedAt: number;
 }
 
 export default function App() {
@@ -36,6 +42,13 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [newTag, setNewTag] = useState("");
+  const [page, setPage] = useState<"home" | "market">("home");
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [marketSearch, setMarketSearch] = useState("");
+  const [marketTag, setMarketTag] = useState("All");
+  const [marketSort, setMarketSort] = useState("newest");
+  const [allTags, setAllTags] = useState<string[]>([]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -82,6 +95,56 @@ export default function App() {
       setIsGenerating(false);
     }
   };
+
+  const handlePostListing = async () => {
+    if (!productDetails || uploadedImages.length === 0) return;
+
+    try {
+      const formData = new FormData();
+      formData.append("image", uploadedImages[0].file);
+      formData.append("data", JSON.stringify(productDetails));
+
+      const res = await fetch("/api/listings", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error("Failed to post listing");
+
+      setProductDetails(null);
+      setUploadedImages([]);
+      setTradeMode("buy");
+      setPage("market");
+    } catch (err) {
+      console.error("Post listing failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    }
+  };
+
+  const fetchListings = async () => {
+    const params = new URLSearchParams();
+    if (marketSearch) params.set("search", marketSearch);
+    if (marketTag && marketTag !== "All") params.set("tag", marketTag);
+    params.set("sort", marketSort);
+
+    try {
+      const res = await fetch(`/api/listings?${params}`);
+      if (res.ok) {
+        const data: Listing[] = await res.json();
+        setListings(data);
+        // Collect unique tags across all listings for the filter
+        const tags = new Set<string>();
+        data.forEach((l) => l.tags.forEach((t) => tags.add(t)));
+        setAllTags(Array.from(tags).sort());
+      }
+    } catch (err) {
+      console.error("Failed to fetch listings:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (page === "market") fetchListings();
+  }, [page, marketSearch, marketTag, marketSort]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -132,16 +195,16 @@ export default function App() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center gap-8">
-              <div className="flex items-center gap-2">
+              <button onClick={() => setPage("home")} className="flex items-center gap-2 bg-transparent border-none cursor-pointer">
                 <div className="relative">
                   <DollarSign className="size-8 text-fuchsia-400 absolute top-0 left-0" />
                   <DollarSign className="size-8 text-cyan-400 relative" style={{ transform: 'translate(8px, 0)' }} />
                 </div>
-              </div>
+              </button>
               
               {/* Desktop Navigation */}
               <div className="hidden md:flex gap-6">
-                <button className="text-white/60 hover:text-white transition-colors bg-transparent border-none cursor-pointer">
+                <button onClick={() => setPage("market")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "market" ? "text-white" : "text-white/60"}`}>
                   Market
                 </button>
                 <button className="text-white/60 hover:text-white transition-colors bg-transparent border-none cursor-pointer">
@@ -166,6 +229,8 @@ export default function App() {
         </div>
       </nav>
 
+      {page === "home" ? (
+        <>
       {/* Hero Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -408,29 +473,54 @@ export default function App() {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-white/40 uppercase tracking-wider">Venues</label>
-                        <div className="flex gap-2 mt-1">
-                          {["Local", "Facebook"].map((venue) => (
-                            <button
-                              key={venue}
-                              onClick={() => {
-                                const venues = productDetails.venues.includes(venue)
-                                  ? productDetails.venues.filter((v) => v !== venue)
-                                  : [...productDetails.venues, venue];
-                                setProductDetails({ ...productDetails, venues });
-                              }}
-                              className={`px-3 py-1.5 rounded-md text-sm border transition-all ${
-                                productDetails.venues.includes(venue)
-                                  ? "bg-fuchsia-500/20 border-fuchsia-400/60 text-fuchsia-400"
-                                  : "bg-white/5 border-white/20 text-white/60 hover:text-white"
-                              }`}
+                        <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {productDetails.tags.map((tag, index) => (
+                            <span
+                              key={index}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-fuchsia-500/15 border border-fuchsia-400/30 text-fuchsia-300"
                             >
-                              {venue}
-                            </button>
+                              {tag}
+                              <button
+                                onClick={() =>
+                                  setProductDetails({
+                                    ...productDetails,
+                                    tags: productDetails.tags.filter((_, i) => i !== index),
+                                  })
+                                }
+                                className="hover:text-white transition-colors"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </span>
                           ))}
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              const trimmed = newTag.trim();
+                              if (trimmed && !productDetails.tags.includes(trimmed)) {
+                                setProductDetails({
+                                  ...productDetails,
+                                  tags: [...productDetails.tags, trimmed],
+                                });
+                                setNewTag("");
+                              }
+                            }}
+                            className="inline-flex"
+                          >
+                            <input
+                              value={newTag}
+                              onChange={(e) => setNewTag(e.target.value)}
+                              placeholder="Add tag..."
+                              className="w-20 px-2 py-1 rounded-full text-xs bg-white/5 border border-white/20 text-white placeholder:text-white/30 focus:outline-none focus:border-fuchsia-400 transition-colors"
+                            />
+                          </form>
                         </div>
                       </div>
-                      <Button className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2">
+                      <Button
+                        onClick={handlePostListing}
+                        className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2"
+                      >
                         Post Listing
                       </Button>
                     </div>
@@ -512,6 +602,105 @@ export default function App() {
           </div>
         </div>
       </section>
+        </>
+      ) : (
+        /* Market Page */
+        <section className="py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-3xl font-light tracking-wider mb-8" style={{ fontFamily: "'Courier Prime', monospace" }}>
+              Marketplace
+            </h2>
+
+            {/* Search, Filter & Sort Bar */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-8">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 size-4" />
+                <input
+                  type="text"
+                  value={marketSearch}
+                  onChange={(e) => setMarketSearch(e.target.value)}
+                  placeholder="Search items..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-cyan-400 transition-colors"
+                />
+              </div>
+
+              <select
+                value={marketTag}
+                onChange={(e) => setMarketTag(e.target.value)}
+                className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
+              >
+                <option value="All">All Tags</option>
+                {allTags.map((tag) => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+              </select>
+
+              <select
+                value={marketSort}
+                onChange={(e) => setMarketSort(e.target.value)}
+                className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
+              >
+                <option value="newest">Newest</option>
+                <option value="best_match">Best Match</option>
+                <option value="price_low">Price: Low to High</option>
+                <option value="price_high">Price: High to Low</option>
+              </select>
+            </div>
+
+            {/* Listings */}
+            {listings.length === 0 ? (
+              <div className="text-center py-20">
+                <p className="text-white/40 text-lg">{marketSearch || marketTag !== "All" ? "No matching listings" : "No listings yet"}</p>
+                {!marketSearch && marketTag === "All" && (
+                  <Button
+                    onClick={() => { setPage("home"); setTradeMode("sell"); }}
+                    className="mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                  >
+                    Create your first listing
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {listings.map((listing) => (
+                  <div
+                    key={listing.id}
+                    className="flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors"
+                  >
+                    <img
+                      src={listing.imageUrl}
+                      alt={listing.title}
+                      className="w-28 h-28 object-cover rounded-lg border border-white/10 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-lg font-medium truncate">{listing.title}</h3>
+                        <span className="text-lg font-semibold text-fuchsia-400 shrink-0">${listing.price}</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
+                        <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{listing.condition}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="size-3" />
+                          {listing.location}
+                        </span>
+                      </div>
+                      {listing.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                          {listing.tags.map((tag, i) => (
+                            <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

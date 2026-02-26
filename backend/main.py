@@ -2,10 +2,15 @@ import base64
 import io
 import json
 import os
+import time
+import uuid
+from pathlib import Path
+from typing import Optional
 
 import anthropic
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 app = FastAPI()
@@ -17,7 +22,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Create uploads directory
+UPLOADS_DIR = Path(__file__).parent / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+
+# In-memory listings store
+listings_db: list[dict] = []
 
 
 @app.post("/api/generate-listing")
@@ -65,7 +78,7 @@ async def generate_listing(images: list[UploadFile] = File(...)):
             '  "price": "estimated fair market price as a number string like 85.00",\n'
             '  "condition": "one of: New, Like New, Good, Fair, Poor",\n'
             '  "location": "suggest a Manhattan neighborhood",\n'
-            '  "venues": ["Local", "Facebook"]\n'
+            '  "tags": ["3-5 short relevant tags like Electronics, Vintage, Nike, etc."]\n'
             "}\n"
             "Be realistic with pricing. No markdown, no code fences, just the JSON object."
         ),
@@ -92,3 +105,72 @@ async def generate_listing(images: list[UploadFile] = File(...)):
         raise HTTPException(status_code=502, detail="AI returned invalid JSON")
     except anthropic.APIError as e:
         raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
+
+
+@app.post("/api/listings")
+async def create_listing(
+    image: UploadFile = File(...),
+    data: str = Form(...),
+):
+    # Parse the JSON product details
+    try:
+        details = json.loads(data)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in data field")
+
+    # Save uploaded image to disk
+    ext = image.filename.rsplit(".", 1)[-1] if image.filename and "." in image.filename else "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = UPLOADS_DIR / filename
+    contents = await image.read()
+    filepath.write_bytes(contents)
+
+    listing = {
+        "id": uuid.uuid4().hex[:12],
+        "title": details.get("title", ""),
+        "description": details.get("description", ""),
+        "price": details.get("price", "0"),
+        "condition": details.get("condition", "Good"),
+        "location": details.get("location", ""),
+        "tags": details.get("tags", []),
+        "imageUrl": f"/uploads/{filename}",
+        "postedAt": time.time(),
+    }
+
+    listings_db.insert(0, listing)
+    return listing
+
+
+@app.get("/api/listings")
+async def get_listings(
+    search: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+    sort: Optional[str] = Query("newest"),
+):
+    results = list(listings_db)
+
+    # Filter by search query (matches title or description)
+    if search:
+        q = search.lower()
+        results = [
+            l for l in results
+            if q in l["title"].lower() or q in l["description"].lower()
+        ]
+
+    # Filter by tag
+    if tag and tag != "All":
+        results = [
+            l for l in results
+            if tag.lower() in [t.lower() for t in l.get("tags", [])]
+        ]
+
+    # Sort
+    if sort == "price_low":
+        results.sort(key=lambda l: float(l.get("price", 0)))
+    elif sort == "price_high":
+        results.sort(key=lambda l: float(l.get("price", 0)), reverse=True)
+    elif sort == "newest":
+        results.sort(key=lambda l: l.get("postedAt", 0), reverse=True)
+    # "best_match" keeps the filtered order (search relevance)
+
+    return results
