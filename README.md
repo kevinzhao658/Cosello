@@ -38,6 +38,8 @@ Access the site at: http://localhost:5173
 
 ### Backend
 - **FastAPI** + **Uvicorn**
+- **SQLAlchemy** + **SQLite** (user database)
+- **PyJWT** (authentication tokens)
 - **Anthropic SDK** (Claude Vision API)
 - **Pillow** (image resizing for large uploads)
 
@@ -71,6 +73,22 @@ Grand-Exchange/
             ├── tailwind.css   # Tailwind directives + custom animations
             └── theme.css      # CSS variables for colors, radii, typography
 ```
+
+## Authentication
+
+Phone-based OTP authentication. Currently uses a **mock OTP** that prints the code to the backend console (no SMS sent).
+
+### Upgrade Options for Production SMS
+
+| Provider | Free Tier | Cost | Notes |
+|----------|-----------|------|-------|
+| **Firebase Auth** | 10,000 verifications/month | Free (Spark plan) | Google-managed, easiest free option |
+| **Supabase Auth** | Included in free tier | Free | Open-source, self-hostable |
+| **Twilio Verify** | ~$15 trial credits | ~$0.05/verification | Industry standard, most reliable |
+| **Twilio SMS** | ~$15 trial credits | ~$0.008/message + $1.15/mo for number | DIY OTP over raw SMS |
+| **AWS SNS** | 100 free SMS/month | ~$0.01/message after | Good if already on AWS |
+
+To upgrade, replace the `send_otp()` function in `backend/auth.py` with the chosen provider's SDK call. The rest of the auth flow (OTP storage, verification, JWT issuance) remains unchanged.
 
 ## How Sell Mode Works
 

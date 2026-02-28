@@ -1,7 +1,6 @@
-import { TrendingUp, TrendingDown, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +8,9 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import { useState, useEffect, useRef } from "react";
+import { useAuth } from "./contexts/AuthContext";
+import SignInPage from "./pages/SignInPage";
+import SignUpPage from "./pages/SignUpPage";
 
 interface ProductDetails {
   title: string;
@@ -25,7 +27,11 @@ interface Listing extends ProductDetails {
   postedAt: number;
 }
 
+type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup";
+
 export default function App() {
+  const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
+
   const [selectedGroup, setSelectedGroup] = useState("All Groups");
   const [displayText, setDisplayText] = useState("");
   const fullText = "GRAND EXCHANGE";
@@ -35,7 +41,6 @@ export default function App() {
 
   const sellPrompt = "Upload a picture and we'll do the rest";
   const [sellDisplayText, setSellDisplayText] = useState("");
-  const [isSellTypingComplete, setIsSellTypingComplete] = useState(false);
   const [sellLetterIndex, setSellLetterIndex] = useState(-1);
 
   const [uploadedImages, setUploadedImages] = useState<{ file: File; preview: string }[]>([]);
@@ -43,12 +48,34 @@ export default function App() {
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newTag, setNewTag] = useState("");
-  const [page, setPage] = useState<"home" | "market">("home");
+  const [page, setPage] = useState<Page>("home");
+  const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
   const [marketSearch, setMarketSearch] = useState("");
   const [marketTag, setMarketTag] = useState("All");
   const [marketSort, setMarketSort] = useState("newest");
   const [allTags, setAllTags] = useState<string[]>([]);
+  const userNeighborhood = user?.neighborhood || "Chelsea";
+  const userCommunities = [
+    { name: "My Neighborhood", pickup: userNeighborhood },
+  ];
+  const [selectedCommunities, setSelectedCommunities] = useState<string[]>(["My Neighborhood"]);
+
+  // Profile dropdown state (custom, not Radix)
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  // Close profile dropdown on outside click
+  useEffect(() => {
+    if (!profileOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [profileOpen]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -99,6 +126,11 @@ export default function App() {
   const handlePostListing = async () => {
     if (!productDetails || uploadedImages.length === 0) return;
 
+    if (!isAuthenticated) {
+      setPage("signin");
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append("image", uploadedImages[0].file);
@@ -106,6 +138,7 @@ export default function App() {
 
       const res = await fetch("/api/listings", {
         method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -121,6 +154,20 @@ export default function App() {
     }
   };
 
+  const handleLogout = async () => {
+    setProfileOpen(false);
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // ignore
+    }
+    logout();
+    setPage("home");
+  };
+
   const fetchListings = async () => {
     const params = new URLSearchParams();
     if (marketSearch) params.set("search", marketSearch);
@@ -132,7 +179,6 @@ export default function App() {
       if (res.ok) {
         const data: Listing[] = await res.json();
         setListings(data);
-        // Collect unique tags across all listings for the filter
         const tags = new Set<string>();
         data.forEach((l) => l.tags.forEach((t) => tags.add(t)));
         setAllTags(Array.from(tags).sort());
@@ -166,7 +212,6 @@ export default function App() {
   useEffect(() => {
     if (tradeMode !== "sell") {
       setSellDisplayText("");
-      setIsSellTypingComplete(false);
       setSellLetterIndex(-1);
       return;
     }
@@ -179,13 +224,19 @@ export default function App() {
         currentIndex++;
       } else {
         clearInterval(typingInterval);
-        setIsSellTypingComplete(true);
         setSellLetterIndex(-1);
       }
     }, 50);
 
     return () => clearInterval(typingInterval);
   }, [tradeMode]);
+
+  // If user needs registration, redirect to signup
+  useEffect(() => {
+    if (needsRegistration && page !== "signup") {
+      setPage("signup");
+    }
+  }, [needsRegistration]);
 
   return (
     <div className="size-full bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white overflow-auto">
@@ -201,7 +252,7 @@ export default function App() {
                   <DollarSign className="size-8 text-cyan-400 relative" style={{ transform: 'translate(8px, 0)' }} />
                 </div>
               </button>
-              
+
               {/* Desktop Navigation */}
               <div className="hidden md:flex gap-6">
                 <button onClick={() => setPage("market")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "market" ? "text-white" : "text-white/60"}`}>
@@ -218,9 +269,71 @@ export default function App() {
 
             {/* Right Side */}
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" className="text-white/60 hover:text-white">
-                <User className="size-5" />
-              </Button>
+              {isAuthenticated ? (
+                <div className="relative" ref={profileRef}>
+                  <button
+                    onClick={() => setProfileOpen((prev) => !prev)}
+                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10"
+                  >
+                    <User className="size-4 text-white/80" />
+                  </button>
+
+                  {profileOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-52 rounded-lg border border-white/15 shadow-xl overflow-hidden z-50" style={{ backgroundColor: '#18181b' }}>
+                      {user?.display_name && (
+                        <div className="px-4 py-3 border-b border-white/10">
+                          <p className="text-sm font-medium truncate">{user.display_name}</p>
+                          <p className="text-xs text-white/40 truncate">{user.neighborhood}</p>
+                        </div>
+                      )}
+
+                      <div className="py-1">
+                        <button
+                          onClick={() => { setProfileOpen(false); /* TODO: account page */ }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                        >
+                          <User className="size-4" />
+                          My Account
+                        </button>
+                        <button
+                          onClick={() => { setProfileOpen(false); setPage("settings"); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                        >
+                          <Settings className="size-4" />
+                          Settings
+                        </button>
+                        <button
+                          onClick={() => { setProfileOpen(false); /* TODO: help page */ }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                        >
+                          <HelpCircle className="size-4" />
+                          Help & Support
+                        </button>
+                      </div>
+
+                      <div className="border-t border-white/10 py-1">
+                        <button
+                          onClick={handleLogout}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors text-left"
+                        >
+                          <LogOut className="size-4" />
+                          Log Out
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Button
+                  onClick={() => setPage("signin")}
+                  variant="outline"
+                  size="sm"
+                  className="bg-white/5 border-white/20 text-white hover:bg-white/10 text-sm"
+                >
+                  Log In
+                </Button>
+              )}
+
               <Button variant="ghost" size="icon" className="md:hidden text-white/60 hover:text-white">
                 <Menu className="size-5" />
               </Button>
@@ -229,7 +342,27 @@ export default function App() {
         </div>
       </nav>
 
-      {page === "home" ? (
+      {/* Sign In Page */}
+      {page === "signin" && (
+        <SignInPage
+          onSuccess={(newToken, userExists, newUser) => {
+            login(newToken, newUser);
+            if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
+              setPage("signup");
+            } else {
+              setPage("home");
+            }
+          }}
+          onCancel={() => setPage("home")}
+        />
+      )}
+
+      {/* Sign Up Page */}
+      {page === "signup" && (
+        <SignUpPage onComplete={() => setPage("home")} />
+      )}
+
+      {page === "home" && (
         <>
       {/* Hero Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8">
@@ -465,14 +598,6 @@ export default function App() {
                         </div>
                       </div>
                       <div>
-                        <label className="text-xs text-white/40 uppercase tracking-wider">Location</label>
-                        <Input
-                          value={productDetails.location}
-                          onChange={(e) => setProductDetails({ ...productDetails, location: e.target.value })}
-                          className="mt-1 bg-white/5 border-white/20 text-white"
-                        />
-                      </div>
-                      <div>
                         <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
                         <div className="flex flex-wrap gap-2 mt-1">
                           {productDetails.tags.map((tag, index) => (
@@ -517,9 +642,44 @@ export default function App() {
                           </form>
                         </div>
                       </div>
+                      {/* Post To */}
+                      <div>
+                        <label className="text-xs text-white/40 uppercase tracking-wider">Post to</label>
+                        <div className="mt-2 space-y-2">
+                          {userCommunities.map((community) => {
+                            const isSelected = selectedCommunities.includes(community.name);
+                            return (
+                              <button
+                                key={community.name}
+                                onClick={() =>
+                                  setSelectedCommunities((prev) =>
+                                    isSelected
+                                      ? prev.filter((c) => c !== community.name)
+                                      : [...prev, community.name]
+                                  )
+                                }
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                                  isSelected
+                                    ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
+                                    : "bg-white/5 border-white/20 text-white/40"
+                                }`}
+                              >
+                                <Globe className="size-4 shrink-0" />
+                                <span className="flex-1">{community.name}</span>
+                                <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
+                                  <MapPin className="size-3" />
+                                  {community.pickup}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       <Button
-                        onClick={handlePostListing}
-                        className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2"
+                        onClick={() => setShowPostConfirm(true)}
+                        disabled={selectedCommunities.length === 0}
+                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${selectedCommunities.length === 0 ? "opacity-40 cursor-not-allowed" : ""}`}
                       >
                         Post Listing
                       </Button>
@@ -564,7 +724,7 @@ export default function App() {
       <section className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <h3 className="text-3xl text-center mb-12">Why Choose Grand Exchange?</h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
               <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
@@ -603,9 +763,10 @@ export default function App() {
         </div>
       </section>
         </>
-      ) : (
-        /* Market Page */
-        <section className="py-12 px-4 sm:px-6 lg:px-8">
+      )}
+
+      {page === "market" && (
+        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
           <div className="max-w-4xl mx-auto">
             <h2 className="text-3xl font-light tracking-wider mb-8" style={{ fontFamily: "'Courier Prime', monospace" }}>
               Marketplace
@@ -700,6 +861,262 @@ export default function App() {
             )}
           </div>
         </section>
+      )}
+
+      {/* Terms & Conditions Page */}
+      {page === "terms" && (
+        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
+          <div className="max-w-3xl mx-auto">
+            <button
+              onClick={() => setPage("settings")}
+              className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
+            >
+              <ChevronRight className="size-3 rotate-180" />
+              Back to Settings
+            </button>
+
+            <div className="flex items-center gap-3 mb-8">
+              <Scale className="size-7 text-fuchsia-400" />
+              <h2 className="text-3xl font-light tracking-wider" style={{ fontFamily: "'Courier Prime', monospace" }}>
+                Terms & Conditions
+              </h2>
+            </div>
+
+            <div className="space-y-8 text-sm text-white/70 leading-relaxed">
+              <p className="text-white/40 text-xs">Last updated: February 27, 2026</p>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <FileText className="size-4 text-cyan-400" />
+                  1. Acceptance of Terms
+                </h3>
+                <p>
+                  By accessing or using Grand Exchange ("the Platform"), you agree to be bound by these Terms & Conditions.
+                  If you do not agree, you may not use the Platform. Grand Exchange reserves the right to modify these terms
+                  at any time, and continued use constitutes acceptance of any changes.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <UserCheck className="size-4 text-cyan-400" />
+                  2. Eligibility
+                </h3>
+                <p>
+                  You must be at least 18 years old to use Grand Exchange. By creating an account, you represent that you are
+                  of legal age and have the legal capacity to enter into a binding agreement. Accounts are limited to one per
+                  individual and are non-transferable.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <Shield className="size-4 text-cyan-400" />
+                  3. User Accounts & Responsibilities
+                </h3>
+                <ul className="list-disc list-inside space-y-1.5 ml-2">
+                  <li>You are responsible for maintaining the confidentiality of your account credentials.</li>
+                  <li>All activity under your account is your responsibility.</li>
+                  <li>You must provide accurate, current, and complete information during registration and in all listings.</li>
+                  <li>You agree to promptly update your account information if it changes.</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <CreditCard className="size-4 text-cyan-400" />
+                  4. Listings & Transactions
+                </h3>
+                <ul className="list-disc list-inside space-y-1.5 ml-2">
+                  <li>Sellers must accurately describe items including condition, defects, and any relevant details.</li>
+                  <li>Prices listed must be in US Dollars and reflect the actual asking price.</li>
+                  <li>By posting a listing, you confirm that you legally own the item or are authorized to sell it.</li>
+                  <li>Sellers agree to make items available for pickup within <strong className="text-white">7 days</strong> of posting.</li>
+                  <li>Grand Exchange is a platform connecting buyers and sellers — it is not a party to any transaction between users.</li>
+                  <li>All sales are final unless both parties mutually agree to a return or exchange.</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <MapPin className="size-4 text-cyan-400" />
+                  5. Pickup & Delivery
+                </h3>
+                <ul className="list-disc list-inside space-y-1.5 ml-2">
+                  <li>All transactions default to local pickup at the seller's designated pickup location.</li>
+                  <li>Sellers and buyers must agree on a mutually convenient and safe meeting location.</li>
+                  <li>Grand Exchange recommends meeting in well-lit, public spaces during daytime hours.</li>
+                  <li>Grand Exchange is not responsible for any incidents during pickup or delivery.</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <Eye className="size-4 text-cyan-400" />
+                  6. Community Guidelines
+                </h3>
+                <ul className="list-disc list-inside space-y-1.5 ml-2">
+                  <li>Treat all users with respect. Harassment, threats, or abusive behavior will result in account suspension.</li>
+                  <li>Do not post misleading, fraudulent, or deceptive listings.</li>
+                  <li>Respect community-specific rules and norms when posting to private communities.</li>
+                  <li>Spam, duplicate listings, or manipulative behavior (fake reviews, price manipulation) is prohibited.</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <Ban className="size-4 text-cyan-400" />
+                  7. Prohibited Items
+                </h3>
+                <p className="mb-2">The following may not be listed or sold on Grand Exchange:</p>
+                <ul className="list-disc list-inside space-y-1.5 ml-2">
+                  <li>Illegal substances, drugs, or drug paraphernalia</li>
+                  <li>Weapons, firearms, ammunition, or explosives</li>
+                  <li>Stolen property or items you do not have the right to sell</li>
+                  <li>Counterfeit, replica, or knockoff goods</li>
+                  <li>Hazardous materials or recalled products</li>
+                  <li>Living animals (pet adoption services excluded)</li>
+                  <li>Any item prohibited by local, state, or federal law</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <MessageSquare className="size-4 text-cyan-400" />
+                  8. Dispute Resolution
+                </h3>
+                <p>
+                  Grand Exchange encourages buyers and sellers to resolve disputes directly. If a resolution cannot be reached,
+                  users may submit a dispute through our support channel. Grand Exchange may mediate but is not obligated to
+                  resolve disputes and shall not be held liable for the outcome of any transaction. Any unresolved legal disputes
+                  shall be governed by the laws of the State of New York.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <AlertTriangle className="size-4 text-cyan-400" />
+                  9. Limitation of Liability
+                </h3>
+                <p>
+                  Grand Exchange is provided "as is" without warranties of any kind. To the fullest extent permitted by law,
+                  Grand Exchange shall not be liable for any indirect, incidental, special, consequential, or punitive damages
+                  arising from your use of the Platform, including but not limited to loss of profits, data, or goodwill.
+                  Our total liability for any claim shall not exceed the amount you paid to Grand Exchange (if any) in the
+                  12 months preceding the claim.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-lg text-white mb-3 flex items-center gap-2">
+                  <RefreshCw className="size-4 text-cyan-400" />
+                  10. Modifications & Termination
+                </h3>
+                <p>
+                  Grand Exchange reserves the right to modify, suspend, or discontinue any part of the Platform at any time.
+                  We may terminate or suspend your account at our discretion if you violate these terms. Upon termination,
+                  your right to use the Platform ceases immediately, but sections regarding liability, disputes, and
+                  intellectual property survive termination.
+                </p>
+              </div>
+
+              <div className="pt-4 border-t border-white/10">
+                <p className="text-white/40">
+                  If you have questions about these terms, contact us at <span className="text-cyan-400">support@grandexchange.app</span>.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Settings Page */}
+      {page === "settings" && (
+        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
+          <div className="max-w-2xl mx-auto">
+            <h2 className="text-3xl font-light tracking-wider mb-8" style={{ fontFamily: "'Courier Prime', monospace" }}>
+              Settings
+            </h2>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => setPage("terms")}
+                className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <Scale className="size-5 text-fuchsia-400" />
+                  <span className="text-sm">Terms & Conditions</span>
+                </div>
+                <ChevronRight className="size-4 text-white/30" />
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Post Listing Confirmation Modal */}
+      {showPostConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowPostConfirm(false)}
+          />
+          <div className="relative bg-zinc-900 border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <button
+              onClick={() => setShowPostConfirm(false)}
+              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
+            >
+              <X className="size-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
+                <AlertTriangle className="size-5 text-fuchsia-400" />
+              </div>
+              <h3 className="text-lg font-medium">Confirm Listing</h3>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <p className="text-sm text-white/80">
+                <strong><em>By posting you agree to make this item available for pickup within the next 7 days.</em></strong>
+              </p>
+
+              <p className="text-sm text-white/60">
+                By posting this listing, you agree to adhere to the{" "}
+                <button
+                  onClick={() => {
+                    setShowPostConfirm(false);
+                    setPage("terms");
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors inline-flex items-center gap-1"
+                >
+                  Terms & Conditions
+                  <ExternalLink className="size-3" />
+                </button>{" "}
+                of Grand Exchange.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                onClick={() => setShowPostConfirm(false)}
+                variant="outline"
+                className="flex-1 border-white/20 text-white/60 hover:text-white hover:bg-white/5"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowPostConfirm(false);
+                  handlePostListing();
+                }}
+                className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+              >
+                Confirm & Post
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

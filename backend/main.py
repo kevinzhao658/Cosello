@@ -8,10 +8,19 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from sqlalchemy.orm import Session
+
+from database import engine, Base, get_db
+from models import User
+from auth import get_current_user
+from routers.auth import router as auth_router
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -22,6 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include auth routes
+app.include_router(auth_router)
+
 # Create uploads directory
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -29,7 +41,7 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
-# In-memory listings store
+# In-memory listings store (keep for now — can migrate to DB later)
 listings_db: list[dict] = []
 
 
@@ -111,6 +123,7 @@ async def generate_listing(images: list[UploadFile] = File(...)):
 async def create_listing(
     image: UploadFile = File(...),
     data: str = Form(...),
+    current_user: User = Depends(get_current_user),
 ):
     # Parse the JSON product details
     try:
@@ -127,6 +140,7 @@ async def create_listing(
 
     listing = {
         "id": uuid.uuid4().hex[:12],
+        "userId": current_user.id,
         "title": details.get("title", ""),
         "description": details.get("description", ""),
         "price": details.get("price", "0"),

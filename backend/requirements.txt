@@ -3,3 +3,5 @@ uvicorn
 anthropic
 python-multipart
 Pillow
+sqlalchemy
+pyjwt
