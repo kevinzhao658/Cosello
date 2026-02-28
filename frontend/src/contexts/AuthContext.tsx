@@ -5,6 +5,7 @@ export interface AuthUser {
   phone_number: string;
   display_name: string | null;
   neighborhood: string | null;
+  profile_picture: string | null;
 }
 
 interface AuthContextValue {

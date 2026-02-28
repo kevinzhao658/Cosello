@@ -1,0 +1,173 @@
+import uuid
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from pydantic import BaseModel
+from sqlalchemy import func as sa_func
+from sqlalchemy.orm import Session
+
+from database import get_db
+from models import Community, CommunityMember, User
+from auth import get_current_user
+
+UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
+
+router = APIRouter(prefix="/api/communities", tags=["communities"])
+
+
+# ---------- Response schemas ----------
+
+class CommunityOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    neighborhood: Optional[str] = None
+    image: Optional[str] = None
+    is_public: bool
+    invite_code: str
+    created_by: int
+    member_count: int = 0
+    role: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class JoinRequest(BaseModel):
+    invite_code: str
+
+
+# ---------- Helpers ----------
+
+def _generate_invite_code() -> str:
+    return uuid.uuid4().hex[:8].upper()
+
+
+def _community_to_out(community: Community, db: Session, user_id: int) -> dict:
+    member_count = (
+        db.query(sa_func.count(CommunityMember.id))
+        .filter(CommunityMember.community_id == community.id)
+        .scalar()
+    )
+    membership = (
+        db.query(CommunityMember)
+        .filter(CommunityMember.community_id == community.id, CommunityMember.user_id == user_id)
+        .first()
+    )
+    return {
+        "id": community.id,
+        "name": community.name,
+        "description": community.description,
+        "neighborhood": community.neighborhood,
+        "image": community.image,
+        "is_public": community.is_public,
+        "invite_code": community.invite_code,
+        "created_by": community.created_by,
+        "member_count": member_count,
+        "role": membership.role if membership else None,
+    }
+
+
+# ---------- Endpoints ----------
+
+@router.post("/", response_model=CommunityOut)
+async def create_community(
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    neighborhood: Optional[str] = Form(None),
+    is_public: bool = Form(True),
+    image: Optional[UploadFile] = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Save image if provided
+    image_path = None
+    if image and image.filename:
+        content_type = image.content_type or ""
+        if not content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        ext = image.filename.rsplit(".", 1)[-1] if "." in image.filename else "jpg"
+        filename = f"community_{uuid.uuid4().hex[:8]}.{ext}"
+        filepath = UPLOADS_DIR / filename
+        contents = await image.read()
+        filepath.write_bytes(contents)
+        image_path = f"/uploads/{filename}"
+
+    community = Community(
+        name=name,
+        description=description,
+        neighborhood=neighborhood,
+        image=image_path,
+        is_public=is_public,
+        invite_code=_generate_invite_code(),
+        created_by=current_user.id,
+    )
+    db.add(community)
+    db.commit()
+    db.refresh(community)
+
+    # Add creator as owner
+    membership = CommunityMember(
+        community_id=community.id,
+        user_id=current_user.id,
+        role="owner",
+    )
+    db.add(membership)
+    db.commit()
+
+    return _community_to_out(community, db, current_user.id)
+
+
+@router.get("/mine", response_model=list[CommunityOut])
+async def my_communities(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    memberships = (
+        db.query(CommunityMember)
+        .filter(CommunityMember.user_id == current_user.id)
+        .all()
+    )
+    result = []
+    for m in memberships:
+        community = db.query(Community).filter(Community.id == m.community_id).first()
+        if community:
+            result.append(_community_to_out(community, db, current_user.id))
+    return result
+
+
+@router.post("/join", response_model=CommunityOut)
+async def join_community(
+    req: JoinRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = (
+        db.query(Community)
+        .filter(Community.invite_code == req.invite_code.strip().upper())
+        .first()
+    )
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found with that invite code")
+
+    existing = (
+        db.query(CommunityMember)
+        .filter(
+            CommunityMember.community_id == community.id,
+            CommunityMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="You are already a member of this community")
+
+    membership = CommunityMember(
+        community_id=community.id,
+        user_id=current_user.id,
+        role="member",
+    )
+    db.add(membership)
+    db.commit()
+
+    return _community_to_out(community, db, current_user.id)

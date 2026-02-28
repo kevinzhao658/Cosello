@@ -11,6 +11,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
+import MyAccountPage from "./pages/MyAccountPage";
 
 interface ProductDetails {
   title: string;
@@ -27,7 +28,7 @@ interface Listing extends ProductDetails {
   postedAt: number;
 }
 
-type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup";
+type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account";
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
@@ -69,9 +70,8 @@ export default function App() {
   useEffect(() => {
     if (!profileOpen) return;
     const handleClick = (e: MouseEvent) => {
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setProfileOpen(false);
-      }
+      if (profileRef.current?.contains(e.target as Node)) return;
+      setProfileOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -273,50 +273,54 @@ export default function App() {
                 <div className="relative" ref={profileRef}>
                   <button
                     onClick={() => setProfileOpen((prev) => !prev)}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10"
+                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10 overflow-hidden"
                   >
-                    <User className="size-4 text-white/80" />
+                    {user?.profile_picture ? (
+                      <img src={user.profile_picture} alt="" className="size-full object-cover" />
+                    ) : (
+                      <User className="size-4 text-white/80" />
+                    )}
                   </button>
 
                   {profileOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-52 rounded-lg border border-white/15 shadow-xl overflow-hidden z-50" style={{ backgroundColor: '#18181b' }}>
+                    <div className="absolute right-0 top-full mt-1.5 w-44 rounded-md border border-white/15 shadow-xl overflow-hidden z-50" style={{ backgroundColor: '#18181b' }}>
                       {user?.display_name && (
-                        <div className="px-4 py-3 border-b border-white/10">
-                          <p className="text-sm font-medium truncate">{user.display_name}</p>
-                          <p className="text-xs text-white/40 truncate">{user.neighborhood}</p>
+                        <div className="px-3 py-2 border-b border-white/10">
+                          <p className="text-xs font-medium truncate">{user.display_name}</p>
+                          <p className="text-[11px] text-white/40 truncate">{user.neighborhood}</p>
                         </div>
                       )}
 
-                      <div className="py-1">
+                      <div className="py-0.5">
                         <button
-                          onClick={() => { setProfileOpen(false); /* TODO: account page */ }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          onClick={() => { setProfileOpen(false); setPage("account"); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
                         >
-                          <User className="size-4" />
+                          <User className="size-3.5" />
                           My Account
                         </button>
                         <button
                           onClick={() => { setProfileOpen(false); setPage("settings"); }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
                         >
-                          <Settings className="size-4" />
+                          <Settings className="size-3.5" />
                           Settings
                         </button>
                         <button
                           onClick={() => { setProfileOpen(false); /* TODO: help page */ }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
                         >
-                          <HelpCircle className="size-4" />
+                          <HelpCircle className="size-3.5" />
                           Help & Support
                         </button>
                       </div>
 
-                      <div className="border-t border-white/10 py-1">
+                      <div className="border-t border-white/10 py-0.5">
                         <button
                           onClick={handleLogout}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors text-left"
                         >
-                          <LogOut className="size-4" />
+                          <LogOut className="size-3.5" />
                           Log Out
                         </button>
                       </div>
@@ -359,14 +363,14 @@ export default function App() {
 
       {/* Sign Up Page */}
       {page === "signup" && (
-        <SignUpPage onComplete={() => setPage("home")} />
+        <SignUpPage onComplete={() => setPage("account")} />
       )}
 
       {page === "home" && (
         <>
       {/* Hero Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
+      <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 -mt-8">
+        <div className="max-w-7xl mx-auto w-full">
           <div className="text-center mb-12">
             <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
               {displayText.split('').map((letter, index) => (
@@ -701,7 +705,7 @@ export default function App() {
       </section>
 
       {/* Stats Section */}
-      <section className="py-16 px-4 sm:px-6 lg:px-8 bg-black/20 backdrop-blur-sm">
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-black/20 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center">
@@ -1052,6 +1056,11 @@ export default function App() {
             </div>
           </div>
         </section>
+      )}
+
+      {/* My Account Page */}
+      {page === "account" && (
+        <MyAccountPage onNavigate={(p) => setPage(p as Page)} />
       )}
 
       {/* Post Listing Confirmation Modal */}

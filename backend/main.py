@@ -18,6 +18,7 @@ from database import engine, Base, get_db
 from models import User
 from auth import get_current_user
 from routers.auth import router as auth_router
+from routers.communities import router as communities_router
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -31,8 +32,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include auth routes
+# Include routes
 app.include_router(auth_router)
+app.include_router(communities_router)
 
 # Create uploads directory
 UPLOADS_DIR = Path(__file__).parent / "uploads"
