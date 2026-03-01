@@ -56,7 +56,8 @@ interface SignUpPageProps {
 
 export default function SignUpPage({ onComplete }: SignUpPageProps) {
   const { token, updateUser } = useAuth();
-  const [displayName, setDisplayName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -88,8 +89,8 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
   }, [showSuggestions]);
 
   const handleRegister = async () => {
-    if (!displayName.trim()) {
-      setError("Please enter your name");
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("Please enter your first and last name");
       return;
     }
     if (!isValidNeighborhood) {
@@ -108,7 +109,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          display_name: displayName.trim(),
+          display_name: `${firstName.trim()} ${lastName.trim()}`,
           neighborhood: neighborhood.trim(),
         }),
       });
@@ -143,17 +144,31 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
           </div>
 
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                Display Name
-              </label>
-              <Input
-                type="text"
-                placeholder="Your name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                  First Name
+                </label>
+                <Input
+                  type="text"
+                  placeholder="First"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                  Last Name
+                </label>
+                <Input
+                  type="text"
+                  placeholder="Last"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                />
+              </div>
             </div>
 
             <div className="relative">
@@ -216,7 +231,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
 
             <Button
               onClick={handleRegister}
-              disabled={isLoading || !isValidNeighborhood || !displayName.trim()}
+              disabled={isLoading || !isValidNeighborhood || !firstName.trim() || !lastName.trim()}
               className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isLoading ? (

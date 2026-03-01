@@ -15,10 +15,11 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from database import engine, Base, get_db
-from models import User
+from models import User, CommunityMember
 from auth import get_current_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
+from routers.friends import router as friends_router
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -35,6 +36,7 @@ app.add_middleware(
 # Include routes
 app.include_router(auth_router)
 app.include_router(communities_router)
+app.include_router(friends_router)
 
 # Create uploads directory
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -43,8 +45,7 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
-# In-memory listings store (keep for now — can migrate to DB later)
-listings_db: list[dict] = []
+from listings_store import listings_db
 
 
 @app.post("/api/generate-listing")
@@ -162,8 +163,31 @@ async def get_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     sort: Optional[str] = Query("newest"),
+    community: Optional[str] = Query(None),
+    neighborhood: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
 ):
     results = list(listings_db)
+
+    # Filter by community (supports comma-separated values)
+    if community and community != "All":
+        parts = [c.strip() for c in community.split(",") if c.strip()]
+        user_ids: set[int] = set()
+        for part in parts:
+            if part == "neighborhood" and neighborhood:
+                user_ids.update(
+                    u.id for u in db.query(User).filter(User.neighborhood == neighborhood).all()
+                )
+            else:
+                try:
+                    cid = int(part)
+                    user_ids.update(
+                        m.user_id for m in db.query(CommunityMember).filter(CommunityMember.community_id == cid).all()
+                    )
+                except ValueError:
+                    pass
+        if parts:
+            results = [l for l in results if l.get("userId") in user_ids]
 
     # Filter by search query (matches title or description)
     if search:
@@ -190,3 +214,10 @@ async def get_listings(
     # "best_match" keeps the filtered order (search relevance)
 
     return results
+
+
+@app.get("/api/listings/mine")
+async def get_my_listings(
+    current_user: User = Depends(get_current_user),
+):
+    return [l for l in listings_db if l.get("userId") == current_user.id]

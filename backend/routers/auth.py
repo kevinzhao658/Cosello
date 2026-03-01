@@ -32,6 +32,11 @@ class RegisterRequest(BaseModel):
     neighborhood: str = Field(..., min_length=1, max_length=100)
 
 
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    neighborhood: Optional[str] = Field(None, min_length=1, max_length=100)
+
+
 class UserOut(BaseModel):
     id: int
     phone_number: str
@@ -132,6 +137,21 @@ async def register(
 ):
     current_user.display_name = req.display_name
     current_user.neighborhood = req.neighborhood
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.put("/profile", response_model=UserOut)
+async def update_profile(
+    req: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if req.display_name is not None:
+        current_user.display_name = req.display_name
+    if req.neighborhood is not None:
+        current_user.neighborhood = req.neighborhood
     db.commit()
     db.refresh(current_user)
     return current_user

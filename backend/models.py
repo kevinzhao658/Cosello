@@ -52,3 +52,17 @@ class CommunityMember(Base):
     __table_args__ = (
         UniqueConstraint("community_id", "user_id", name="uq_community_user"),
     )
+
+
+class Friendship(Base):
+    __tablename__ = "friendships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    friend_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(20), default="accepted")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "friend_id", name="uq_friendship"),
+    )

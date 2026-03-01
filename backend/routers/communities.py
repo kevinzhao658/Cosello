@@ -38,6 +38,21 @@ class JoinRequest(BaseModel):
     invite_code: str
 
 
+class UserSearchOut(BaseModel):
+    id: int
+    display_name: Optional[str] = None
+    neighborhood: Optional[str] = None
+    profile_picture: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class InviteRequest(BaseModel):
+    community_id: int
+    user_ids: list[int]
+
+
 # ---------- Helpers ----------
 
 def _generate_invite_code() -> str:
@@ -71,7 +86,57 @@ def _community_to_out(community: Community, db: Session, user_id: int) -> dict:
 
 # ---------- Endpoints ----------
 
-@router.post("/", response_model=CommunityOut)
+
+@router.get("/search")
+async def search_communities(
+    q: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not q or len(q.strip()) < 1:
+        return []
+    query = q.strip().lower()
+
+    # Find public communities matching the search
+    communities = (
+        db.query(Community)
+        .filter(
+            Community.is_public == True,
+            Community.name.ilike(f"%{query}%"),
+        )
+        .limit(10)
+        .all()
+    )
+
+    # Check which ones the user is already a member of
+    my_membership_ids = {
+        m.community_id
+        for m in db.query(CommunityMember)
+        .filter(CommunityMember.user_id == current_user.id)
+        .all()
+    }
+
+    results = []
+    for c in communities:
+        member_count = (
+            db.query(sa_func.count(CommunityMember.id))
+            .filter(CommunityMember.community_id == c.id)
+            .scalar()
+        )
+        results.append({
+            "id": c.id,
+            "name": c.name,
+            "description": c.description,
+            "neighborhood": c.neighborhood,
+            "image": c.image,
+            "invite_code": c.invite_code,
+            "member_count": member_count,
+            "is_member": c.id in my_membership_ids,
+        })
+    return results
+
+
+@router.post("", response_model=CommunityOut)
 async def create_community(
     name: str = Form(...),
     description: Optional[str] = Form(None),
@@ -117,6 +182,37 @@ async def create_community(
     db.commit()
 
     return _community_to_out(community, db, current_user.id)
+
+
+@router.get("/mine-with-neighborhood")
+async def my_communities_with_neighborhood(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Virtual "My Neighborhood" community
+    result = []
+    if current_user.neighborhood:
+        result.append({
+            "id": "neighborhood",
+            "name": "My Neighborhood",
+            "neighborhood": current_user.neighborhood,
+        })
+
+    # Real communities
+    memberships = (
+        db.query(CommunityMember)
+        .filter(CommunityMember.user_id == current_user.id)
+        .all()
+    )
+    for m in memberships:
+        community = db.query(Community).filter(Community.id == m.community_id).first()
+        if community:
+            result.append({
+                "id": community.id,
+                "name": community.name,
+                "neighborhood": community.neighborhood,
+            })
+    return result
 
 
 @router.get("/mine", response_model=list[CommunityOut])
@@ -171,3 +267,50 @@ async def join_community(
     db.commit()
 
     return _community_to_out(community, db, current_user.id)
+
+
+@router.get("/users/search", response_model=list[UserSearchOut])
+async def search_users(
+    q: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not q or len(q.strip()) < 1:
+        return []
+    query = q.strip().lower()
+    users = (
+        db.query(User)
+        .filter(
+            User.display_name.isnot(None),
+            User.display_name != "",
+            User.id != current_user.id,
+            User.display_name.ilike(f"%{query}%"),
+        )
+        .limit(10)
+        .all()
+    )
+    return users
+
+
+@router.post("/invite")
+async def invite_users(
+    req: InviteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == req.community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+
+    added = 0
+    for uid in req.user_ids:
+        existing = (
+            db.query(CommunityMember)
+            .filter(CommunityMember.community_id == community.id, CommunityMember.user_id == uid)
+            .first()
+        )
+        if not existing:
+            db.add(CommunityMember(community_id=community.id, user_id=uid, role="member"))
+            added += 1
+    db.commit()
+    return {"added": added}

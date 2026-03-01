@@ -1,12 +1,6 @@
 import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./components/ui/dropdown-menu";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
@@ -33,7 +27,9 @@ type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "ac
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
 
-  const [selectedGroup, setSelectedGroup] = useState("All Groups");
+  const [selectedHomeCommunities, setSelectedHomeCommunities] = useState<string[]>([]);
+  const [homeCommunityOpen, setHomeCommunityOpen] = useState(false);
+  const homeCommunityRef = useRef<HTMLDivElement>(null);
   const [displayText, setDisplayText] = useState("");
   const fullText = "GRAND EXCHANGE";
   const [isTypingComplete, setIsTypingComplete] = useState(false);
@@ -51,20 +47,41 @@ export default function App() {
   const [newTag, setNewTag] = useState("");
   const [page, setPage] = useState<Page>("home");
   const [showPostConfirm, setShowPostConfirm] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
   const [marketSearch, setMarketSearch] = useState("");
-  const [marketTag, setMarketTag] = useState("All");
+  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
+  const [marketCommunityOpen, setMarketCommunityOpen] = useState(false);
+  const marketCommunityRef = useRef<HTMLDivElement>(null);
   const [marketSort, setMarketSort] = useState("newest");
-  const [allTags, setAllTags] = useState<string[]>([]);
-  const userNeighborhood = user?.neighborhood || "Chelsea";
-  const userCommunities = [
-    { name: "My Neighborhood", pickup: userNeighborhood },
-  ];
+  const [filterCommunities, setFilterCommunities] = useState<{ id: string | number; name: string; neighborhood?: string }[]>([]);
   const [selectedCommunities, setSelectedCommunities] = useState<string[]>(["My Neighborhood"]);
 
   // Profile dropdown state (custom, not Radix)
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Close home community dropdown on outside click
+  useEffect(() => {
+    if (!homeCommunityOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (homeCommunityRef.current?.contains(e.target as Node)) return;
+      setHomeCommunityOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [homeCommunityOpen]);
+
+  // Close market community dropdown on outside click
+  useEffect(() => {
+    if (!marketCommunityOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (marketCommunityRef.current?.contains(e.target as Node)) return;
+      setMarketCommunityOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [marketCommunityOpen]);
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -168,10 +185,34 @@ export default function App() {
     setPage("home");
   };
 
+  const fetchFilterCommunities = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/communities/mine-with-neighborhood", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFilterCommunities(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch communities:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) fetchFilterCommunities();
+  }, [isAuthenticated]);
+
   const fetchListings = async () => {
     const params = new URLSearchParams();
     if (marketSearch) params.set("search", marketSearch);
-    if (marketTag && marketTag !== "All") params.set("tag", marketTag);
+    if (selectedMarketCommunities.length > 0) {
+      params.set("community", selectedMarketCommunities.join(","));
+      if (selectedMarketCommunities.includes("neighborhood") && user?.neighborhood) {
+        params.set("neighborhood", user.neighborhood);
+      }
+    }
     params.set("sort", marketSort);
 
     try {
@@ -179,9 +220,6 @@ export default function App() {
       if (res.ok) {
         const data: Listing[] = await res.json();
         setListings(data);
-        const tags = new Set<string>();
-        data.forEach((l) => l.tags.forEach((t) => tags.add(t)));
-        setAllTags(Array.from(tags).sort());
       }
     } catch (err) {
       console.error("Failed to fetch listings:", err);
@@ -190,7 +228,7 @@ export default function App() {
 
   useEffect(() => {
     if (page === "market") fetchListings();
-  }, [page, marketSearch, marketTag, marketSort]);
+  }, [page, marketSearch, selectedMarketCommunities, marketSort]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -226,7 +264,7 @@ export default function App() {
         clearInterval(typingInterval);
         setSellLetterIndex(-1);
       }
-    }, 50);
+    }, 25);
 
     return () => clearInterval(typingInterval);
   }, [tradeMode]);
@@ -369,7 +407,7 @@ export default function App() {
       {page === "home" && (
         <>
       {/* Hero Section */}
-      <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 -mt-8">
+      <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-7xl mx-auto w-full">
           <div className="text-center mb-12">
             <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
@@ -398,28 +436,45 @@ export default function App() {
                       />
                     </div>
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-[52px] w-[52px] bg-white/5 border-white/20 hover:bg-white/10 text-white"
-                        >
-                          <Filter className="size-5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="bg-zinc-900 border-white/20 text-white">
-                        {["All Groups", "Weapons", "Armor", "Potions", "Materials", "Food", "Tools"].map((group) => (
-                          <DropdownMenuItem
-                            key={group}
-                            onClick={() => setSelectedGroup(group)}
-                            className="hover:bg-white/10 focus:bg-white/10"
+                    <div className="relative" ref={homeCommunityRef}>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setHomeCommunityOpen((prev) => !prev)}
+                        className="h-[52px] w-[52px] bg-white/5 border-white/20 hover:bg-white/10 text-white"
+                      >
+                        <Filter className="size-5" />
+                      </Button>
+                      {homeCommunityOpen && (
+                        <div className="absolute right-0 top-full mt-1 min-w-[180px] rounded-lg border border-white/20 shadow-xl z-50 py-1 max-h-52 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
+                          <button
+                            onClick={() => setSelectedHomeCommunities([])}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
                           >
-                            {group}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                            <span className={`text-xs ${selectedHomeCommunities.length === 0 ? "opacity-100" : "opacity-0"}`}>✓</span>
+                            All
+                          </button>
+                          {filterCommunities.map((c) => {
+                            const cid = String(c.id);
+                            const checked = selectedHomeCommunities.includes(cid);
+                            return (
+                              <button
+                                key={cid}
+                                onClick={() =>
+                                  setSelectedHomeCommunities((prev) =>
+                                    checked ? prev.filter((x) => x !== cid) : [...prev, cid]
+                                  )
+                                }
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
+                              >
+                                <span className={`text-xs ${checked ? "opacity-100" : "opacity-0"}`}>✓</span>
+                                {c.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Buy/Sell Toggle */}
                     <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
@@ -457,7 +512,12 @@ export default function App() {
                   </div>
 
                   <p className="text-sm text-white/60 text-center">
-                    Buying • Filter: {selectedGroup}
+                    Buying • {selectedHomeCommunities.length === 0
+                      ? "All Communities"
+                      : filterCommunities
+                          .filter((c) => selectedHomeCommunities.includes(String(c.id)))
+                          .map((c) => c.name)
+                          .join(", ")}
                   </p>
                 </>
               ) : (
@@ -650,11 +710,11 @@ export default function App() {
                       <div>
                         <label className="text-xs text-white/40 uppercase tracking-wider">Post to</label>
                         <div className="mt-2 space-y-2">
-                          {userCommunities.map((community) => {
+                          {filterCommunities.map((community) => {
                             const isSelected = selectedCommunities.includes(community.name);
                             return (
                               <button
-                                key={community.name}
+                                key={String(community.id)}
                                 onClick={() =>
                                   setSelectedCommunities((prev) =>
                                     isSelected
@@ -670,10 +730,12 @@ export default function App() {
                               >
                                 <Globe className="size-4 shrink-0" />
                                 <span className="flex-1">{community.name}</span>
-                                <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
-                                  <MapPin className="size-3" />
-                                  {community.pickup}
-                                </span>
+                                {community.neighborhood && (
+                                  <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
+                                    <MapPin className="size-3" />
+                                    {community.neighborhood}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -777,46 +839,88 @@ export default function App() {
             </h2>
 
             {/* Search, Filter & Sort Bar */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-8">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 size-4" />
-                <input
-                  type="text"
-                  value={marketSearch}
-                  onChange={(e) => setMarketSearch(e.target.value)}
-                  placeholder="Search items..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-cyan-400 transition-colors"
-                />
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-8">
+              <div className="flex flex-col flex-1">
+                <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Search</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 size-4" />
+                  <input
+                    type="text"
+                    value={marketSearch}
+                    onChange={(e) => setMarketSearch(e.target.value)}
+                    placeholder="Search items..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-cyan-400 transition-colors"
+                  />
+                </div>
               </div>
 
-              <select
-                value={marketTag}
-                onChange={(e) => setMarketTag(e.target.value)}
-                className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
-              >
-                <option value="All">All Tags</option>
-                {allTags.map((tag) => (
-                  <option key={tag} value={tag}>{tag}</option>
-                ))}
-              </select>
+              <div className="flex flex-col relative" ref={marketCommunityRef}>
+                <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Community</label>
+                <button
+                  onClick={() => setMarketCommunityOpen((prev) => !prev)}
+                  className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white text-left min-w-[160px] focus:outline-none focus:border-cyan-400 transition-colors flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">
+                    {selectedMarketCommunities.length === 0
+                      ? "All"
+                      : filterCommunities
+                          .filter((c) => selectedMarketCommunities.includes(String(c.id)))
+                          .map((c) => c.name)
+                          .join(", ") || "All"}
+                  </span>
+                  <ChevronRight className="size-3 text-white/40 rotate-90 shrink-0" />
+                </button>
+                {marketCommunityOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-full min-w-[180px] rounded-lg border border-white/20 shadow-xl z-50 py-1 max-h-52 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
+                    <button
+                      onClick={() => setSelectedMarketCommunities([])}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
+                    >
+                      <span className={`text-xs ${selectedMarketCommunities.length === 0 ? "opacity-100" : "opacity-0"}`}>✓</span>
+                      All
+                    </button>
+                    {filterCommunities.map((c) => {
+                      const cid = String(c.id);
+                      const checked = selectedMarketCommunities.includes(cid);
+                      return (
+                        <button
+                          key={cid}
+                          onClick={() =>
+                            setSelectedMarketCommunities((prev) =>
+                              checked ? prev.filter((x) => x !== cid) : [...prev, cid]
+                            )
+                          }
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
+                        >
+                          <span className={`text-xs ${checked ? "opacity-100" : "opacity-0"}`}>✓</span>
+                          {c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
-              <select
-                value={marketSort}
-                onChange={(e) => setMarketSort(e.target.value)}
-                className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
-              >
-                <option value="newest">Newest</option>
-                <option value="best_match">Best Match</option>
-                <option value="price_low">Price: Low to High</option>
-                <option value="price_high">Price: High to Low</option>
-              </select>
+              <div className="flex flex-col">
+                <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Sort By</label>
+                <select
+                  value={marketSort}
+                  onChange={(e) => setMarketSort(e.target.value)}
+                  className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="best_match">Best Match</option>
+                  <option value="price_low">Price: Low to High</option>
+                  <option value="price_high">Price: High to Low</option>
+                </select>
+              </div>
             </div>
 
             {/* Listings */}
             {listings.length === 0 ? (
               <div className="text-center py-20">
-                <p className="text-white/40 text-lg">{marketSearch || marketTag !== "All" ? "No matching listings" : "No listings yet"}</p>
-                {!marketSearch && marketTag === "All" && (
+                <p className="text-white/40 text-lg">{marketSearch || selectedMarketCommunities.length > 0 ? "No matching listings" : "No listings yet"}</p>
+                {!marketSearch && selectedMarketCommunities.length === 0 && (
                   <Button
                     onClick={() => { setPage("home"); setTradeMode("sell"); }}
                     className="mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
@@ -1060,7 +1164,7 @@ export default function App() {
 
       {/* My Account Page */}
       {page === "account" && (
-        <MyAccountPage onNavigate={(p) => setPage(p as Page)} />
+        <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} />
       )}
 
       {/* Post Listing Confirmation Modal */}
@@ -1068,11 +1172,11 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowPostConfirm(false)}
+            onClick={() => { setShowPostConfirm(false); setAcceptedTerms(false); }}
           />
           <div className="relative bg-zinc-900 border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
             <button
-              onClick={() => setShowPostConfirm(false)}
+              onClick={() => { setShowPostConfirm(false); setAcceptedTerms(false); }}
               className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
             >
               <X className="size-5" />
@@ -1086,40 +1190,55 @@ export default function App() {
             </div>
 
             <div className="space-y-4 mb-6">
-              <p className="text-sm text-white/80">
-                <strong><em>By posting you agree to make this item available for pickup within the next 7 days.</em></strong>
+              <p className="text-sm text-white/70">
+                Please review before posting.
               </p>
 
-              <p className="text-sm text-white/60">
-                By posting this listing, you agree to adhere to the{" "}
-                <button
-                  onClick={() => {
-                    setShowPostConfirm(false);
-                    setPage("terms");
-                  }}
-                  className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors inline-flex items-center gap-1"
-                >
-                  Terms & Conditions
-                  <ExternalLink className="size-3" />
-                </button>{" "}
-                of Grand Exchange.
+              <p className="text-sm text-white/60 italic">
+                This item must be available for pickup within 7 days of posting.
               </p>
+
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-0.5 size-4 rounded border-white/30 bg-white/5 accent-fuchsia-500 cursor-pointer"
+                />
+                <span className="text-sm text-white/60 group-hover:text-white/80 transition-colors">
+                  I agree to the{" "}
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setShowPostConfirm(false);
+                      setAcceptedTerms(false);
+                      setPage("terms");
+                    }}
+                    className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors inline-flex items-center gap-1"
+                  >
+                    Terms & Conditions
+                    <ExternalLink className="size-3" />
+                  </button>
+                </span>
+              </label>
             </div>
 
             <div className="flex gap-3">
               <Button
-                onClick={() => setShowPostConfirm(false)}
+                onClick={() => { setShowPostConfirm(false); setAcceptedTerms(false); }}
                 variant="outline"
                 className="flex-1 border-white/20 text-white/60 hover:text-white hover:bg-white/5"
               >
                 Cancel
               </Button>
               <Button
+                disabled={!acceptedTerms}
                 onClick={() => {
                   setShowPostConfirm(false);
+                  setAcceptedTerms(false);
                   handlePostListing();
                 }}
-                className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Confirm & Post
               </Button>
