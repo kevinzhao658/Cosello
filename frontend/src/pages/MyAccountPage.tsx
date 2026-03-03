@@ -23,6 +23,10 @@ import {
   UserPlus,
   Trash2,
   ShoppingBag,
+  Pencil,
+  LogOut,
+  AlertTriangle,
+  Users,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -99,7 +103,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
   const [isUploading, setIsUploading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -171,6 +174,24 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
   const [friendsList, setFriendsList] = useState<FriendSearchUser[]>([]);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
   const [removingFriendId, setRemovingFriendId] = useState<number | null>(null);
+
+  // Community detail modal state
+  const [showCommunityDetail, setShowCommunityDetail] = useState(false);
+  const [selectedCommunity, setSelectedCommunity] = useState<CommunityData | null>(null);
+  const [communityMembers, setCommunityMembers] = useState<{ id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null; role: string }[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [isEditingCommunity, setIsEditingCommunity] = useState(false);
+  const [editCommunityName, setEditCommunityName] = useState("");
+  const [editCommunityDescription, setEditCommunityDescription] = useState("");
+  const [editCommunityNeighborhood, setEditCommunityNeighborhood] = useState("");
+  const [editCommunityIsPublic, setEditCommunityIsPublic] = useState(true);
+  const [isSavingCommunity, setIsSavingCommunity] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingCommunity, setIsDeletingCommunity] = useState(false);
+  const [isLeavingCommunity, setIsLeavingCommunity] = useState(false);
+  const [editCommunityShowSuggestions, setEditCommunityShowSuggestions] = useState(false);
+  const editCommunityNeighborhoodRef = useRef<HTMLInputElement>(null);
+  const editCommunitySuggestionsRef = useRef<HTMLDivElement>(null);
 
   // Profile stats
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0 });
@@ -468,16 +489,137 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
     reader.readAsDataURL(file);
   };
 
-  const copyInviteCode = (code: string, communityId: number) => {
-    navigator.clipboard.writeText(code);
-    setCopiedId(communityId);
-    setTimeout(() => setCopiedId(null), 2000);
+  const shareCommunity = async (community: CommunityData) => {
+    const shareText = `Join ${community.name} on Grand Exchange! Use invite code: ${community.invite_code}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: community.name, text: shareText });
+      } catch {
+        // User cancelled — silently ignore
+      }
+    } else {
+      navigator.clipboard.writeText(shareText);
+    }
   };
 
   const copyConfirmCode = (code: string) => {
     navigator.clipboard.writeText(code);
     setCopiedConfirm(true);
     setTimeout(() => setCopiedConfirm(false), 2000);
+  };
+
+  const openCommunityDetail = async (community: CommunityData) => {
+    setSelectedCommunity(community);
+    setShowCommunityDetail(true);
+    setIsEditingCommunity(false);
+    setShowDeleteConfirm(false);
+    setIsLoadingMembers(true);
+    try {
+      const res = await fetch(`/api/communities/${community.id}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCommunityMembers(data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingMembers(false);
+    }
+  };
+
+  const startEditCommunity = () => {
+    if (!selectedCommunity) return;
+    setEditCommunityName(selectedCommunity.name);
+    setEditCommunityDescription(selectedCommunity.description || "");
+    setEditCommunityNeighborhood(selectedCommunity.neighborhood || "");
+    setEditCommunityIsPublic(selectedCommunity.is_public);
+    setIsEditingCommunity(true);
+  };
+
+  const editCommunityFilteredNeighborhoods = editCommunityNeighborhood.trim()
+    ? MANHATTAN_NEIGHBORHOODS.filter((n) =>
+        n.toLowerCase().includes(editCommunityNeighborhood.trim().toLowerCase())
+      )
+    : MANHATTAN_NEIGHBORHOODS;
+
+  const editCommunityIsValidNeighborhood =
+    !editCommunityNeighborhood.trim() ||
+    MANHATTAN_NEIGHBORHOODS.some(
+      (n) => n.toLowerCase() === editCommunityNeighborhood.trim().toLowerCase()
+    );
+
+  const handleSaveCommunity = async () => {
+    if (!selectedCommunity || !token) return;
+    setIsSavingCommunity(true);
+    try {
+      const res = await fetch(`/api/communities/${selectedCommunity.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editCommunityName.trim(),
+          description: editCommunityDescription.trim() || null,
+          neighborhood: editCommunityNeighborhood.trim() || null,
+          is_public: editCommunityIsPublic,
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSelectedCommunity(updated);
+        setCommunities((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        setIsEditingCommunity(false);
+        onCommunitiesChanged?.();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsSavingCommunity(false);
+    }
+  };
+
+  const handleDeleteCommunity = async () => {
+    if (!selectedCommunity || !token) return;
+    setIsDeletingCommunity(true);
+    try {
+      const res = await fetch(`/api/communities/${selectedCommunity.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
+        setShowCommunityDetail(false);
+        setShowDeleteConfirm(false);
+        onCommunitiesChanged?.();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsDeletingCommunity(false);
+    }
+  };
+
+  const handleLeaveCommunity = async () => {
+    if (!selectedCommunity || !token) return;
+    setIsLeavingCommunity(true);
+    try {
+      const res = await fetch(`/api/communities/${selectedCommunity.id}/leave`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
+        setShowCommunityDetail(false);
+        onCommunitiesChanged?.();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLeavingCommunity(false);
+    }
   };
 
   // Cached friends list for invite search
@@ -726,6 +868,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
     return () => document.removeEventListener("mousedown", handleClick);
   }, [editShowSuggestions]);
 
+  // Close edit community neighborhood suggestions on click outside
+  useEffect(() => {
+    if (!editCommunityShowSuggestions) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (editCommunityNeighborhoodRef.current?.contains(target)) return;
+      if (editCommunitySuggestionsRef.current?.contains(target)) return;
+      setEditCommunityShowSuggestions(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [editCommunityShowSuggestions]);
+
   return (
     <section className="py-10 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
       <div className="max-w-5xl mx-auto">
@@ -829,36 +984,52 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
         {/* Communities Section */}
         <div className="mb-10">
           <h2 className="text-lg font-light tracking-wider mb-4 text-white/80">Communities</h2>
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 gap-2">
+            {/* My Neighborhood Virtual Tile */}
+            {user?.neighborhood && (
+              <div
+                className="relative bg-gradient-to-br from-cyan-500/10 to-fuchsia-500/10 border border-cyan-400/20 rounded-lg p-2 hover:from-cyan-500/15 hover:to-fuchsia-500/15 transition-colors aspect-square flex flex-col items-center justify-center gap-1.5 cursor-default"
+              >
+                <div className="size-10 rounded-full bg-cyan-500/20 flex items-center justify-center shrink-0">
+                  <MapPin className="size-5 text-cyan-400" />
+                </div>
+                <div className="min-w-0 w-full text-center">
+                  <h3 className="text-[11px] font-medium truncate leading-tight">My Neighborhood</h3>
+                  <p className="text-[9px] text-white/30 truncate mt-0.5">{user.neighborhood}</p>
+                </div>
+              </div>
+            )}
+
             {/* Community Tiles */}
             {communities.map((community) => (
               <div
                 key={community.id}
-                className="bg-white/5 border border-white/10 rounded-xl p-3 hover:bg-white/[0.07] transition-colors aspect-square flex flex-col justify-between"
+                onClick={() => openCommunityDetail(community)}
+                className="relative bg-white/5 border border-white/10 rounded-lg p-2 hover:bg-white/[0.07] transition-colors aspect-square flex flex-col items-center justify-center gap-1.5 cursor-pointer"
               >
-                <div className="flex items-start justify-between">
-                  <div className="size-8 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
-                    {community.image ? (
-                      <img src={community.image} alt={community.name} className="size-full object-cover rounded-lg" />
-                    ) : (
-                      <Globe className="size-4 text-cyan-400" />
-                    )}
-                  </div>
-                  <button
-                    onClick={() => copyInviteCode(community.invite_code, community.id)}
-                    className="text-white/25 hover:text-white/60 transition-colors p-0.5"
-                    title="Copy invite code"
-                  >
-                    {copiedId === community.id ? (
-                      <Check className="size-3 text-green-400" />
-                    ) : (
-                      <Copy className="size-3" />
-                    )}
-                  </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); shareCommunity(community); }}
+                  className="absolute top-1.5 right-1.5 text-white/25 hover:text-white/60 transition-colors p-0.5"
+                  title="Share community"
+                >
+                  <Send className="size-3" />
+                </button>
+                <div className="size-10 rounded-full bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
+                  {community.image ? (
+                    <img src={community.image} alt={community.name} className="size-full object-cover" />
+                  ) : (
+                    <Globe className="size-5 text-cyan-400" />
+                  )}
                 </div>
-                <div className="mt-auto">
-                  <h3 className="text-xs font-medium truncate">{community.name}</h3>
-                  <p className="text-[10px] text-white/30 mt-0.5">
+                <div className="min-w-0 w-full text-center">
+                  <h3 className="text-[11px] font-medium truncate leading-tight">{community.name}</h3>
+                  {community.neighborhood && (
+                    <div className="flex items-center justify-center gap-0.5 mt-0.5">
+                      <MapPin className="size-2.5 text-white/30 shrink-0" />
+                      <span className="text-[9px] text-white/30 truncate">{community.neighborhood}</span>
+                    </div>
+                  )}
+                  <p className="text-[9px] text-white/25 mt-0.5">
                     {community.member_count} {community.member_count === 1 ? "member" : "members"}
                   </p>
                 </div>
@@ -868,12 +1039,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
             {/* Join / Create Community Tile */}
             <button
               onClick={() => setShowJoinModal(true)}
-              className="bg-white/[0.02] border border-dashed border-white/15 rounded-xl p-3 hover:bg-white/5 hover:border-white/25 transition-all flex flex-col items-center justify-center gap-1.5 aspect-square cursor-pointer"
+              className="bg-white/[0.02] border border-dashed border-white/15 rounded-lg p-2 hover:bg-white/5 hover:border-white/25 transition-all flex flex-col items-center justify-center gap-1.5 aspect-square cursor-pointer"
             >
-              <div className="size-8 rounded-lg bg-white/5 flex items-center justify-center">
+              <div className="size-10 rounded-full bg-white/5 flex items-center justify-center">
                 <Plus className="size-4 text-white/40" />
               </div>
-              <span className="text-[10px] text-white/40">Join or Create</span>
+              <span className="text-[9px] text-white/40">Join or Create</span>
             </button>
           </div>
         </div>
@@ -1051,59 +1222,66 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
                 )}
               </div>
 
-              {/* Search Results */}
-              {communitySearchResults.length > 0 && (
-                <div className="mt-2 space-y-2 max-h-52 overflow-y-auto">
-                  {communitySearchResults.map((c) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors"
-                    >
-                      <div className="size-10 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
-                        {c.image ? (
-                          <img src={c.image} alt={c.name} className="size-full object-cover rounded-lg" />
-                        ) : (
-                          <Globe className="size-5 text-cyan-400" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white/80 truncate">{c.name}</p>
-                        <div className="flex items-center gap-2">
-                          {c.neighborhood && (
-                            <p className="text-[10px] text-white/30 truncate flex items-center gap-0.5">
-                              <MapPin className="size-2.5" />
-                              {c.neighborhood}
-                            </p>
-                          )}
-                          <p className="text-[10px] text-white/20">
-                            {c.member_count} {c.member_count === 1 ? "member" : "members"}
-                          </p>
-                        </div>
-                      </div>
-                      {c.is_member ? (
-                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 shrink-0">
-                          Joined
-                        </span>
-                      ) : (
-                        <Button
-                          onClick={() => handleJoinBySearch(c.invite_code, c.id)}
-                          disabled={joiningCommunityId === c.id}
-                          size="sm"
-                          className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs px-3 h-7 shrink-0"
-                        >
-                          {joiningCommunityId === c.id ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            "Join"
-                          )}
-                        </Button>
-                      )}
+              {/* Search Results — stable container to prevent layout shift */}
+              {communitySearch.trim() && (
+                <div className="mt-2 min-h-[48px]">
+                  {isSearchingCommunities ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="size-4 text-white/30 animate-spin" />
                     </div>
-                  ))}
+                  ) : communitySearchResults.length > 0 ? (
+                    <div className="space-y-2 max-h-52 overflow-y-auto">
+                      {communitySearchResults.map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors"
+                        >
+                          <div className="size-10 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
+                            {c.image ? (
+                              <img src={c.image} alt={c.name} className="size-full object-cover rounded-lg" />
+                            ) : (
+                              <Globe className="size-5 text-cyan-400" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white/80 truncate">{c.name}</p>
+                            <div className="flex items-center gap-2">
+                              {c.neighborhood && (
+                                <p className="text-[10px] text-white/30 truncate flex items-center gap-0.5">
+                                  <MapPin className="size-2.5" />
+                                  {c.neighborhood}
+                                </p>
+                              )}
+                              <p className="text-[10px] text-white/20">
+                                {c.member_count} {c.member_count === 1 ? "member" : "members"}
+                              </p>
+                            </div>
+                          </div>
+                          {c.is_member ? (
+                            <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 shrink-0">
+                              Joined
+                            </span>
+                          ) : (
+                            <Button
+                              onClick={() => handleJoinBySearch(c.invite_code, c.id)}
+                              disabled={joiningCommunityId === c.id}
+                              size="sm"
+                              className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs px-3 h-7 shrink-0"
+                            >
+                              {joiningCommunityId === c.id ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                "Join"
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-center text-xs text-white/30 py-4">No public communities found</p>
+                  )}
                 </div>
-              )}
-              {communitySearch.trim() && !isSearchingCommunities && communitySearchResults.length === 0 && (
-                <p className="text-center text-xs text-white/30 py-4">No communities found</p>
               )}
             </div>
 
@@ -1983,6 +2161,298 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Community Detail Modal */}
+      {showCommunityDetail && selectedCommunity && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
+          />
+          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
+            <button
+              onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
+              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
+            >
+              <X className="size-5" />
+            </button>
+
+            {/* Delete Confirmation Overlay */}
+            {showDeleteConfirm && (
+              <div className="absolute inset-0 z-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: "rgba(24, 24, 27, 0.95)" }}>
+                <div className="text-center px-6">
+                  <div className="size-12 bg-red-500/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertTriangle className="size-6 text-red-400" />
+                  </div>
+                  <h3 className="text-lg font-medium mb-2">Delete Community</h3>
+                  <p className="text-sm text-white/50 mb-6">
+                    Are you sure you want to delete <span className="text-white/80 font-medium">{selectedCommunity.name}</span>? This action cannot be undone and all members will be removed.
+                  </p>
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex-1 bg-white/10 hover:bg-white/15 text-white border-0"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleDeleteCommunity}
+                      disabled={isDeletingCommunity}
+                      className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0"
+                    >
+                      {isDeletingCommunity ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isEditingCommunity ? (
+              /* Edit Mode */
+              <>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
+                    <Pencil className="size-5 text-fuchsia-400" />
+                  </div>
+                  <h3 className="text-lg font-medium">Edit Community</h3>
+                </div>
+
+                <div className="flex-1 overflow-y-auto min-h-0 space-y-4">
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Name</label>
+                    <Input
+                      value={editCommunityName}
+                      onChange={(e) => setEditCommunityName(e.target.value)}
+                      className="bg-white/5 border-white/20 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Description</label>
+                    <textarea
+                      value={editCommunityDescription}
+                      onChange={(e) => setEditCommunityDescription(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-md bg-white/5 border border-white/20 text-white text-sm px-3 py-2 resize-none focus:outline-none focus:border-white/40"
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <label className="text-xs text-white/40 mb-1 block">Primary Pickup Location</label>
+                    <Input
+                      ref={editCommunityNeighborhoodRef}
+                      value={editCommunityNeighborhood}
+                      onChange={(e) => {
+                        setEditCommunityNeighborhood(e.target.value);
+                        setEditCommunityShowSuggestions(true);
+                      }}
+                      onFocus={() => setEditCommunityShowSuggestions(true)}
+                      placeholder="e.g. Upper West Side"
+                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                    />
+                    {editCommunityShowSuggestions && editCommunityFilteredNeighborhoods.length > 0 && (
+                      <div
+                        ref={editCommunitySuggestionsRef}
+                        className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-white/20 shadow-lg"
+                        style={{ backgroundColor: "#18181b" }}
+                      >
+                        {editCommunityFilteredNeighborhoods.map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-sm text-white/70 hover:bg-white/10 transition-colors"
+                            onClick={() => {
+                              setEditCommunityNeighborhood(n);
+                              setEditCommunityShowSuggestions(false);
+                            }}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {editCommunityIsPublic ? (
+                        <Unlock className="size-4 text-green-400" />
+                      ) : (
+                        <Lock className="size-4 text-amber-400" />
+                      )}
+                      <span className="text-sm text-white/70">
+                        {editCommunityIsPublic ? "Public" : "Private"}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setEditCommunityIsPublic(!editCommunityIsPublic)}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${
+                        editCommunityIsPublic ? "bg-green-500/30" : "bg-white/10"
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
+                          editCommunityIsPublic ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Delete Community */}
+                  <div className="pt-4 border-t border-white/10">
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="flex items-center gap-2 text-red-400/70 hover:text-red-400 transition-colors text-sm"
+                    >
+                      <Trash2 className="size-4" />
+                      Delete Community
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-5">
+                  <Button
+                    onClick={() => setIsEditingCommunity(false)}
+                    className="flex-1 bg-white/10 hover:bg-white/15 text-white border-0"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSaveCommunity}
+                    disabled={isSavingCommunity || !editCommunityName.trim() || !editCommunityIsValidNeighborhood}
+                    className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
+                  >
+                    {isSavingCommunity ? <Loader2 className="size-4 animate-spin" /> : "Save"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              /* View Mode */
+              <>
+                {/* Header */}
+                <div className="flex items-start gap-3 mb-5 pr-8">
+                  <div className="size-12 rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
+                    {selectedCommunity.image ? (
+                      <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover rounded-xl" />
+                    ) : (
+                      <Globe className="size-6 text-cyan-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-medium truncate">{selectedCommunity.name}</h3>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {selectedCommunity.neighborhood && (
+                        <div className="flex items-center gap-1">
+                          <MapPin className="size-3 text-white/30" />
+                          <span className="text-xs text-white/40">{selectedCommunity.neighborhood}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <Users className="size-3 text-white/30" />
+                        <span className="text-xs text-white/40">{selectedCommunity.member_count} members</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedCommunity.description && (
+                  <p className="text-sm text-white/50 mb-4">{selectedCommunity.description}</p>
+                )}
+
+                {/* Invite Code */}
+                <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2 mb-4">
+                  <span className="text-xs text-white/30">Invite Code:</span>
+                  <span className="text-xs text-white/70 font-mono tracking-wider">{selectedCommunity.invite_code}</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedCommunity.invite_code);
+                    }}
+                    className="ml-auto text-white/30 hover:text-white/60 transition-colors"
+                    title="Copy invite code"
+                  >
+                    <Copy className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Members List */}
+                <div className="mb-4">
+                  <h4 className="text-xs text-white/40 mb-2 uppercase tracking-wider">Members</h4>
+                  <div className="flex-1 overflow-y-auto max-h-48 min-h-0">
+                    {isLoadingMembers ? (
+                      <div className="flex justify-center py-6">
+                        <Loader2 className="size-5 text-white/30 animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {communityMembers.map((member) => (
+                          <div
+                            key={member.id}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
+                          >
+                            <div className="size-8 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
+                              {member.profile_picture ? (
+                                <img src={member.profile_picture} alt="" className="size-full object-cover" />
+                              ) : (
+                                <User className="size-3.5 text-white/50" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white/80 truncate">{member.display_name}</p>
+                              {member.neighborhood && (
+                                <p className="text-[10px] text-white/30 truncate">{member.neighborhood}</p>
+                              )}
+                            </div>
+                            {member.role === "owner" && (
+                              <span className="text-[10px] text-fuchsia-400/70 bg-fuchsia-500/10 px-1.5 py-0.5 rounded-full border border-fuchsia-400/20">
+                                Creator
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 mt-auto pt-4 border-t border-white/10">
+                  <Button
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); shareCommunity(selectedCommunity); }}
+                    className="flex-1 bg-white/10 hover:bg-white/15 text-white border-0 gap-2"
+                  >
+                    <Send className="size-4" />
+                    Share
+                  </Button>
+                  {selectedCommunity.created_by === user?.id ? (
+                    <Button
+                      onClick={startEditCommunity}
+                      className="flex-1 bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 gap-2"
+                    >
+                      <Pencil className="size-4" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleLeaveCommunity}
+                      disabled={isLeavingCommunity}
+                      className="flex-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-400/20 gap-2"
+                    >
+                      {isLeavingCommunity ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <>
+                          <LogOut className="size-4" />
+                          Leave
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

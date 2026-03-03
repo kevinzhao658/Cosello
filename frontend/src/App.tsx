@@ -1,6 +1,7 @@
-import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
+import { useSettings } from "./contexts/SettingsContext";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
@@ -16,18 +17,69 @@ interface ProductDetails {
   tags: string[];
 }
 
+interface BulkItemDetails extends ProductDetails {
+  imageIndices: number[];
+}
+
 interface Listing extends ProductDetails {
   id: string;
   imageUrl: string;
+  imageUrls?: string[];
   postedAt: number;
 }
 
-type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account";
+type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
+
+function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }) {
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    if (images.length <= 1) return;
+    const timer = setInterval(() => {
+      setCurrent((prev) => (prev + 1) % images.length);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [images.length]);
+
+  if (images.length <= 1) {
+    return (
+      <img
+        src={images[0]}
+        alt={alt}
+        className="w-28 h-28 object-cover rounded-lg border border-white/10 shrink-0"
+      />
+    );
+  }
+
+  return (
+    <div className="relative w-28 h-28 rounded-lg border border-white/10 shrink-0 overflow-hidden">
+      {images.map((url, i) => (
+        <img
+          key={url}
+          src={url}
+          alt={`${alt} ${i + 1}`}
+          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out"
+          style={{ opacity: i === current ? 1 : 0 }}
+        />
+      ))}
+      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1">
+        {images.map((_, i) => (
+          <span
+            key={i}
+            className={`block size-1.5 rounded-full transition-colors ${i === current ? "bg-white" : "bg-white/40"}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
+  const { settings, updateSetting } = useSettings();
 
   const [selectedHomeCommunities, setSelectedHomeCommunities] = useState<string[]>([]);
+  const [homeShowAll, setHomeShowAll] = useState(true);
   const [homeCommunityOpen, setHomeCommunityOpen] = useState(false);
   const homeCommunityRef = useRef<HTMLDivElement>(null);
   const [displayText, setDisplayText] = useState("");
@@ -43,18 +95,29 @@ export default function App() {
   const [uploadedImages, setUploadedImages] = useState<{ file: File; preview: string }[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
+  const [listingMode, setListingMode] = useState<"single" | "bulk">("single");
+  const [bulkItems, setBulkItems] = useState<BulkItemDetails[]>([]);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [bulkReviewPhase, setBulkReviewPhase] = useState<"cards" | "summary" | null>(null);
+  const [isPostingBulk, setIsPostingBulk] = useState(false);
+  const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newTag, setNewTag] = useState("");
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<Page>(() => {
+    const hash = window.location.hash.replace("#", "");
+    const validPages: Page[] = ["home", "market", "terms", "settings", "signin", "signup", "account", "help", "mission"];
+    return validPages.includes(hash as Page) ? (hash as Page) : "home";
+  });
   const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
   const [marketSearch, setMarketSearch] = useState("");
   const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
+  const [marketShowAll, setMarketShowAll] = useState(true);
   const [marketCommunityOpen, setMarketCommunityOpen] = useState(false);
   const marketCommunityRef = useRef<HTMLDivElement>(null);
   const [marketSort, setMarketSort] = useState("newest");
-  const [filterCommunities, setFilterCommunities] = useState<{ id: string | number; name: string; neighborhood?: string }[]>([]);
+  const [filterCommunities, setFilterCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const [selectedCommunities, setSelectedCommunities] = useState<string[]>(["My Neighborhood"]);
 
   // Profile dropdown state (custom, not Radix)
@@ -94,6 +157,16 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [profileOpen]);
 
+  // Reset bulk state when switching away from sell mode
+  useEffect(() => {
+    if (tradeMode !== "sell") {
+      setBulkItems([]);
+      setBulkReviewPhase(null);
+      setCurrentCardIndex(0);
+      setListingMode("single");
+    }
+  }, [tradeMode]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -112,6 +185,53 @@ export default function App() {
     });
   };
 
+  const updateBulkItem = (index: number, field: string, value: unknown) => {
+    setBulkItems((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const deleteBulkItem = (index: number) => {
+    setBulkItems((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
+      if (updated.length === 0) {
+        setBulkReviewPhase(null);
+        setCurrentCardIndex(0);
+      } else if (currentCardIndex >= updated.length) {
+        setCurrentCardIndex(updated.length - 1);
+      }
+      return updated;
+    });
+  };
+
+  const addPhotoToBulkItem = (index: number, files: FileList) => {
+    const newImages = Array.from(files).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    const startIdx = uploadedImages.length;
+    setUploadedImages((prev) => [...prev, ...newImages]);
+    setBulkItems((prev) => {
+      const updated = [...prev];
+      const newIndices = newImages.map((_, i) => startIdx + i);
+      updated[index] = {
+        ...updated[index],
+        imageIndices: [...updated[index].imageIndices, ...newIndices],
+      };
+      return updated;
+    });
+  };
+
+  const handleListingModeChange = (mode: "single" | "bulk") => {
+    setListingMode(mode);
+    setProductDetails(null);
+    setBulkItems([]);
+    setBulkReviewPhase(null);
+    setCurrentCardIndex(0);
+  };
+
   const handleSellSubmit = async () => {
     if (uploadedImages.length === 0) return;
     setIsGenerating(true);
@@ -120,18 +240,31 @@ export default function App() {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
 
-      const res = await fetch("/api/generate-listing", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Server error" }));
-        throw new Error(err.detail || "Failed to generate listing");
+      if (listingMode === "bulk") {
+        const res = await fetch("/api/generate-bulk-listing", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: "Server error" }));
+          throw new Error(err.detail || "Failed to generate bulk listing");
+        }
+        const items: BulkItemDetails[] = await res.json();
+        setBulkItems(items);
+        setCurrentCardIndex(0);
+        setBulkReviewPhase("cards");
+      } else {
+        const res = await fetch("/api/generate-listing", {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: "Server error" }));
+          throw new Error(err.detail || "Failed to generate listing");
+        }
+        const listing: ProductDetails = await res.json();
+        setProductDetails(listing);
       }
-
-      const listing: ProductDetails = await res.json();
-      setProductDetails(listing);
     } catch (err) {
       console.error("Generate listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -150,8 +283,17 @@ export default function App() {
 
     try {
       const formData = new FormData();
-      formData.append("image", uploadedImages[0].file);
+      uploadedImages.forEach((img) => formData.append("images", img.file));
       formData.append("data", JSON.stringify(productDetails));
+
+      // Map selected community names to IDs
+      const communityIds = selectedCommunities
+        .map((name) => {
+          const match = filterCommunities.find((c) => c.name === name);
+          return match ? String(match.id) : null;
+        })
+        .filter(Boolean);
+      formData.append("communities", communityIds.join(","));
 
       const res = await fetch("/api/listings", {
         method: "POST",
@@ -168,6 +310,60 @@ export default function App() {
     } catch (err) {
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
+    }
+  };
+
+  const handleBulkPostListing = async () => {
+    if (bulkItems.length === 0 || uploadedImages.length === 0) return;
+
+    if (!isAuthenticated) {
+      setPage("signin");
+      return;
+    }
+
+    setIsPostingBulk(true);
+
+    try {
+      const communityIds = selectedCommunities
+        .map((name) => {
+          const match = filterCommunities.find((c) => c.name === name);
+          return match ? String(match.id) : null;
+        })
+        .filter(Boolean);
+
+      for (const item of bulkItems) {
+        const formData = new FormData();
+        for (const imgIdx of item.imageIndices) {
+          if (uploadedImages[imgIdx]) {
+            formData.append("images", uploadedImages[imgIdx].file);
+          }
+        }
+        const { imageIndices: _, ...productData } = item;
+        formData.append("data", JSON.stringify(productData));
+        formData.append("communities", communityIds.join(","));
+
+        const res = await fetch("/api/listings", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+
+        if (!res.ok) throw new Error(`Failed to post listing: ${item.title}`);
+      }
+
+      setBulkItems([]);
+      setBulkReviewPhase(null);
+      setCurrentCardIndex(0);
+      setProductDetails(null);
+      setUploadedImages([]);
+      setListingMode("single");
+      setTradeMode("buy");
+      setPage("market");
+    } catch (err) {
+      console.error("Bulk post failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsPostingBulk(false);
     }
   };
 
@@ -194,6 +390,12 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setFilterCommunities(data);
+        // Auto-select all communities and default to "All" mode
+        const allIds = data.map((c: { id: string | number }) => String(c.id));
+        setSelectedMarketCommunities(allIds);
+        setSelectedHomeCommunities(allIds);
+        setHomeShowAll(true);
+        setMarketShowAll(true);
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
@@ -205,9 +407,13 @@ export default function App() {
   }, [isAuthenticated]);
 
   const fetchListings = async () => {
+    if (!token) return;
     const params = new URLSearchParams();
     if (marketSearch) params.set("search", marketSearch);
-    if (selectedMarketCommunities.length > 0) {
+    if (marketShowAll) {
+      // "All" mode: don't send community filter — backend shows all public + user's private
+      if (user?.neighborhood) params.set("neighborhood", user.neighborhood);
+    } else if (selectedMarketCommunities.length > 0) {
       params.set("community", selectedMarketCommunities.join(","));
       if (selectedMarketCommunities.includes("neighborhood") && user?.neighborhood) {
         params.set("neighborhood", user.neighborhood);
@@ -216,7 +422,9 @@ export default function App() {
     params.set("sort", marketSort);
 
     try {
-      const res = await fetch(`/api/listings?${params}`);
+      const res = await fetch(`/api/listings?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const data: Listing[] = await res.json();
         setListings(data);
@@ -228,7 +436,7 @@ export default function App() {
 
   useEffect(() => {
     if (page === "market") fetchListings();
-  }, [page, marketSearch, selectedMarketCommunities, marketSort]);
+  }, [page, marketSearch, selectedMarketCommunities, marketShowAll, marketSort]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -345,7 +553,7 @@ export default function App() {
                           Settings
                         </button>
                         <button
-                          onClick={() => { setProfileOpen(false); /* TODO: help page */ }}
+                          onClick={() => { setProfileOpen(false); setPage("help"); }}
                           className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
                         >
                           <HelpCircle className="size-3.5" />
@@ -445,35 +653,101 @@ export default function App() {
                       >
                         <Filter className="size-5" />
                       </Button>
-                      {homeCommunityOpen && (
-                        <div className="absolute right-0 top-full mt-1 min-w-[180px] rounded-lg border border-white/20 shadow-xl z-50 py-1 max-h-52 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
-                          <button
-                            onClick={() => setSelectedHomeCommunities([])}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
-                          >
-                            <span className={`text-xs ${selectedHomeCommunities.length === 0 ? "opacity-100" : "opacity-0"}`}>✓</span>
-                            All
-                          </button>
-                          {filterCommunities.map((c) => {
-                            const cid = String(c.id);
-                            const checked = selectedHomeCommunities.includes(cid);
-                            return (
-                              <button
-                                key={cid}
-                                onClick={() =>
-                                  setSelectedHomeCommunities((prev) =>
-                                    checked ? prev.filter((x) => x !== cid) : [...prev, cid]
-                                  )
-                                }
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
-                              >
-                                <span className={`text-xs ${checked ? "opacity-100" : "opacity-0"}`}>✓</span>
-                                {c.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                      {homeCommunityOpen && (() => {
+                        const allIds = filterCommunities.map((c) => String(c.id));
+                        const myCommunitiesSelected = allIds.length > 0 && allIds.every((id) => selectedHomeCommunities.includes(id));
+                        const publicCommunities = filterCommunities.filter((c) => c.id === "neighborhood" || c.is_public !== false);
+                        const privateCommunities = filterCommunities.filter((c) => c.id !== "neighborhood" && c.is_public === false);
+                        return (
+                          <div className="absolute right-0 top-full mt-1 min-w-[200px] rounded-lg border border-white/20 shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
+                            {/* All: My Communities + All Public */}
+                            <label className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer font-medium">
+                              <input
+                                type="checkbox"
+                                checked={homeShowAll}
+                                onChange={() => {
+                                  if (homeShowAll) {
+                                    setHomeShowAll(false);
+                                  } else {
+                                    setHomeShowAll(true);
+                                    setSelectedHomeCommunities(allIds);
+                                  }
+                                }}
+                                className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                              />
+                              All
+                            </label>
+                            {/* My Communities: select/deselect all user's communities */}
+                            <label className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={myCommunitiesSelected}
+                                onChange={() => {
+                                  if (myCommunitiesSelected) {
+                                    setSelectedHomeCommunities([]);
+                                  } else {
+                                    setSelectedHomeCommunities(allIds);
+                                  }
+                                  setHomeShowAll(false);
+                                }}
+                                className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                              />
+                              My Communities
+                            </label>
+                            <div className="border-t border-white/10 my-1" />
+                            {publicCommunities.length > 0 && (
+                              <>
+                                <div className="px-3 pt-2 pb-1">
+                                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Public</span>
+                                </div>
+                                {publicCommunities.map((c) => {
+                                  const cid = String(c.id);
+                                  const checked = selectedHomeCommunities.includes(cid);
+                                  return (
+                                    <label key={cid} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => {
+                                          setSelectedHomeCommunities((prev) => checked ? prev.filter((x) => x !== cid) : [...prev, cid]);
+                                          setHomeShowAll(false);
+                                        }}
+                                        className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                                      />
+                                      {c.name}
+                                    </label>
+                                  );
+                                })}
+                              </>
+                            )}
+                            {privateCommunities.length > 0 && (
+                              <>
+                                <div className="px-3 pt-2 pb-1">
+                                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Private</span>
+                                </div>
+                                {privateCommunities.map((c) => {
+                                  const cid = String(c.id);
+                                  const checked = selectedHomeCommunities.includes(cid);
+                                  return (
+                                    <label key={cid} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => {
+                                          setSelectedHomeCommunities((prev) => checked ? prev.filter((x) => x !== cid) : [...prev, cid]);
+                                          setHomeShowAll(false);
+                                        }}
+                                        className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                                      />
+                                      {c.name}
+                                    </label>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Buy/Sell Toggle */}
@@ -512,12 +786,16 @@ export default function App() {
                   </div>
 
                   <p className="text-sm text-white/60 text-center">
-                    Buying • {selectedHomeCommunities.length === 0
-                      ? "All Communities"
-                      : filterCommunities
-                          .filter((c) => selectedHomeCommunities.includes(String(c.id)))
-                          .map((c) => c.name)
-                          .join(", ")}
+                    Buying • {homeShowAll
+                      ? "All"
+                      : selectedHomeCommunities.length === 0
+                        ? "No communities selected"
+                        : selectedHomeCommunities.length === filterCommunities.length
+                          ? "My Communities"
+                          : filterCommunities
+                              .filter((c) => selectedHomeCommunities.includes(String(c.id)))
+                              .map((c) => c.name)
+                              .join(", ")}
                   </p>
                 </>
               ) : (
@@ -607,6 +885,35 @@ export default function App() {
                       >
                         <Plus className="size-5" />
                       </button>
+                    </div>
+                  )}
+
+                  {/* Single / Bulk Toggle */}
+                  {!productDetails && !bulkReviewPhase && !isGenerating && uploadedImages.length > 0 && (
+                    <div className="flex items-center gap-2 mt-1 mb-1">
+                      <span className="text-[10px] text-white/40 uppercase tracking-wider">Mode:</span>
+                      <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => handleListingModeChange("single")}
+                          className={`px-3 py-1.5 text-xs transition-all ${
+                            listingMode === "single"
+                              ? "bg-fuchsia-500/20 text-fuchsia-400"
+                              : "text-white/50 hover:text-white/70"
+                          }`}
+                        >
+                          Single
+                        </button>
+                        <button
+                          onClick={() => handleListingModeChange("bulk")}
+                          className={`px-3 py-1.5 text-xs transition-all ${
+                            listingMode === "bulk"
+                              ? "bg-fuchsia-500/20 text-fuchsia-400"
+                              : "text-white/50 hover:text-white/70"
+                          }`}
+                        >
+                          Bulk
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -752,10 +1059,309 @@ export default function App() {
                     </div>
                   )}
 
-                  {!productDetails && !isGenerating && (
+                  {/* Bulk Card Review (TikTok-style) */}
+                  {bulkReviewPhase === "cards" && !isGenerating && bulkItems.length > 0 && (
+                    <div className="mt-6 space-y-4">
+                      {/* Progress indicator */}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-white/40">
+                          Item {currentCardIndex + 1} of {bulkItems.length}
+                        </span>
+                        <div className="flex gap-1">
+                          {bulkItems.map((_, i) => (
+                            <div
+                              key={i}
+                              className={`w-2 h-2 rounded-full transition-all ${
+                                i === currentCardIndex
+                                  ? "bg-fuchsia-400 scale-125"
+                                  : i < currentCardIndex
+                                  ? "bg-fuchsia-400/40"
+                                  : "bg-white/20"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Card content */}
+                      <div className="p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
+                        {/* Item images + add photo */}
+                        <div className="flex items-center gap-2 mb-1">
+                          {bulkItems[currentCardIndex].imageIndices.map((imgIdx) => (
+                            <img
+                              key={imgIdx}
+                              src={uploadedImages[imgIdx]?.preview}
+                              alt="Item"
+                              className="size-16 object-cover rounded-lg border border-white/20"
+                            />
+                          ))}
+                          <button
+                            onClick={() => bulkPhotoInputRef.current?.click()}
+                            className="size-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
+                          >
+                            <Plus className="size-5" />
+                          </button>
+                          <input
+                            ref={bulkPhotoInputRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                addPhotoToBulkItem(currentCardIndex, e.target.files);
+                                e.target.value = "";
+                              }
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
+                          <Input
+                            value={bulkItems[currentCardIndex].title}
+                            onChange={(e) => updateBulkItem(currentCardIndex, "title", e.target.value)}
+                            className="mt-1 bg-white/5 border-white/20 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 uppercase tracking-wider">Description</label>
+                          <textarea
+                            value={bulkItems[currentCardIndex].description}
+                            onChange={(e) => updateBulkItem(currentCardIndex, "description", e.target.value)}
+                            rows={3}
+                            className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 resize-none"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs text-white/40 uppercase tracking-wider">Price ($)</label>
+                            <Input
+                              value={bulkItems[currentCardIndex].price}
+                              onChange={(e) => updateBulkItem(currentCardIndex, "price", e.target.value)}
+                              className="mt-1 bg-white/5 border-white/20 text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-white/40 uppercase tracking-wider">Condition</label>
+                            <select
+                              value={bulkItems[currentCardIndex].condition}
+                              onChange={(e) => updateBulkItem(currentCardIndex, "condition", e.target.value)}
+                              className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9"
+                            >
+                              <option value="New">New</option>
+                              <option value="Like New">Like New</option>
+                              <option value="Good">Good</option>
+                              <option value="Fair">Fair</option>
+                              <option value="Poor">Poor</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {bulkItems[currentCardIndex].tags.map((tag, index) => (
+                              <span
+                                key={index}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-fuchsia-500/15 border border-fuchsia-400/30 text-fuchsia-300"
+                              >
+                                {tag}
+                                <button
+                                  onClick={() =>
+                                    updateBulkItem(currentCardIndex, "tags", bulkItems[currentCardIndex].tags.filter((_, i) => i !== index))
+                                  }
+                                  className="hover:text-white transition-colors"
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              </span>
+                            ))}
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                const trimmed = newTag.trim();
+                                if (trimmed && !bulkItems[currentCardIndex].tags.includes(trimmed)) {
+                                  updateBulkItem(currentCardIndex, "tags", [...bulkItems[currentCardIndex].tags, trimmed]);
+                                  setNewTag("");
+                                }
+                              }}
+                              className="inline-flex"
+                            >
+                              <input
+                                value={newTag}
+                                onChange={(e) => setNewTag(e.target.value)}
+                                placeholder="Add tag..."
+                                className="w-20 px-2 py-1 rounded-full text-xs bg-white/5 border border-white/20 text-white placeholder:text-white/30 focus:outline-none focus:border-fuchsia-400 transition-colors"
+                              />
+                            </form>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Navigation buttons */}
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={() => setCurrentCardIndex((prev) => Math.max(0, prev - 1))}
+                          disabled={currentCardIndex === 0}
+                          variant="outline"
+                          className="flex-1 border-white/20 text-white/60 hover:text-white disabled:opacity-30"
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          onClick={() => deleteBulkItem(currentCardIndex)}
+                          variant="outline"
+                          className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 px-3"
+                          title="Remove this item"
+                        >
+                          <X className="size-4" />
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            if (currentCardIndex < bulkItems.length - 1) {
+                              setCurrentCardIndex((prev) => prev + 1);
+                            } else {
+                              setBulkReviewPhase("summary");
+                            }
+                          }}
+                          className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                        >
+                          {currentCardIndex < bulkItems.length - 1 ? "Next Item" : "Review All"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bulk Summary View */}
+                  {bulkReviewPhase === "summary" && !isGenerating && bulkItems.length > 0 && (
+                    <div className="mt-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-medium text-white/80">
+                          {bulkItems.length} items ready to post
+                        </h3>
+                        <button
+                          onClick={() => { setBulkReviewPhase("cards"); setCurrentCardIndex(0); }}
+                          className="text-xs text-fuchsia-400 hover:text-fuchsia-300 transition-colors"
+                        >
+                          Edit Items
+                        </button>
+                      </div>
+
+                      <div className="space-y-3 max-h-80 overflow-y-auto">
+                        {bulkItems.map((item, idx) => {
+                          const itemImages = item.imageIndices
+                            .map((imgIdx) => uploadedImages[imgIdx]?.preview)
+                            .filter(Boolean);
+                          return (
+                            <div
+                              key={idx}
+                              className="flex gap-4 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors group"
+                            >
+                              <div
+                                className="cursor-pointer shrink-0"
+                                onClick={() => { setCurrentCardIndex(idx); setBulkReviewPhase("cards"); }}
+                              >
+                                <ListingImageCarousel
+                                  images={itemImages.length > 0 ? itemImages : [""]}
+                                  alt={item.title}
+                                />
+                              </div>
+                              <div
+                                className="flex-1 min-w-0 cursor-pointer"
+                                onClick={() => { setCurrentCardIndex(idx); setBulkReviewPhase("cards"); }}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <h3 className="text-sm font-medium truncate">{item.title}</h3>
+                                  <span className="text-sm font-semibold text-fuchsia-400 shrink-0">${item.price}</span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-1 text-xs text-white/50">
+                                  <span className="px-1.5 py-0.5 rounded bg-white/10">{item.condition}</span>
+                                  {item.location && (
+                                    <span className="inline-flex items-center gap-1">
+                                      <MapPin className="size-3" />
+                                      {item.location}
+                                    </span>
+                                  )}
+                                </div>
+                                {item.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {item.tags.slice(0, 3).map((tag, i) => (
+                                      <span key={i} className="px-1.5 py-0.5 rounded-full text-[10px] bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
+                                        {tag}
+                                      </span>
+                                    ))}
+                                    {item.tags.length > 3 && (
+                                      <span className="text-[10px] text-white/30">+{item.tags.length - 3}</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => deleteBulkItem(idx)}
+                                className="self-center opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all p-1"
+                                title="Remove item"
+                              >
+                                <X className="size-4" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Community selector */}
+                      <div>
+                        <label className="text-xs text-white/40 uppercase tracking-wider">Post all to</label>
+                        <div className="mt-2 space-y-2">
+                          {filterCommunities.map((community) => {
+                            const isSelected = selectedCommunities.includes(community.name);
+                            return (
+                              <button
+                                key={String(community.id)}
+                                onClick={() =>
+                                  setSelectedCommunities((prev) =>
+                                    isSelected
+                                      ? prev.filter((c) => c !== community.name)
+                                      : [...prev, community.name]
+                                  )
+                                }
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                                  isSelected
+                                    ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
+                                    : "bg-white/5 border-white/20 text-white/40"
+                                }`}
+                              >
+                                <Globe className="size-4 shrink-0" />
+                                <span className="flex-1">{community.name}</span>
+                                {community.neighborhood && (
+                                  <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
+                                    <MapPin className="size-3" />
+                                    {community.neighborhood}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <Button
+                        onClick={() => setShowPostConfirm(true)}
+                        disabled={selectedCommunities.length === 0 || isPostingBulk}
+                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${selectedCommunities.length === 0 ? "opacity-40 cursor-not-allowed" : ""}`}
+                      >
+                        {isPostingBulk ? (
+                          <Loader2 className="size-5 animate-spin" />
+                        ) : (
+                          `Post All ${bulkItems.length} Listings`
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {!productDetails && !isGenerating && !bulkReviewPhase && (
                     <p className="text-sm text-white/60 text-center mt-2">
                       {uploadedImages.length > 0
-                        ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate listing`
+                        ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate ${listingMode === "bulk" ? "bulk " : ""}listing`
                         : "Selling • Click above to upload photos"}
                     </p>
                   )}
@@ -861,44 +1467,114 @@ export default function App() {
                   className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white text-left min-w-[160px] focus:outline-none focus:border-cyan-400 transition-colors flex items-center justify-between gap-2"
                 >
                   <span className="truncate">
-                    {selectedMarketCommunities.length === 0
+                    {marketShowAll
                       ? "All"
-                      : filterCommunities
-                          .filter((c) => selectedMarketCommunities.includes(String(c.id)))
-                          .map((c) => c.name)
-                          .join(", ") || "All"}
+                      : selectedMarketCommunities.length === 0
+                        ? "None selected"
+                        : selectedMarketCommunities.length === filterCommunities.length
+                          ? "My Communities"
+                          : filterCommunities
+                              .filter((c) => selectedMarketCommunities.includes(String(c.id)))
+                              .map((c) => c.name)
+                              .join(", ")}
                   </span>
                   <ChevronRight className="size-3 text-white/40 rotate-90 shrink-0" />
                 </button>
-                {marketCommunityOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-full min-w-[180px] rounded-lg border border-white/20 shadow-xl z-50 py-1 max-h-52 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
-                    <button
-                      onClick={() => setSelectedMarketCommunities([])}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
-                    >
-                      <span className={`text-xs ${selectedMarketCommunities.length === 0 ? "opacity-100" : "opacity-0"}`}>✓</span>
-                      All
-                    </button>
-                    {filterCommunities.map((c) => {
-                      const cid = String(c.id);
-                      const checked = selectedMarketCommunities.includes(cid);
-                      return (
-                        <button
-                          key={cid}
-                          onClick={() =>
-                            setSelectedMarketCommunities((prev) =>
-                              checked ? prev.filter((x) => x !== cid) : [...prev, cid]
-                            )
-                          }
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-white/10 transition-colors text-white"
-                        >
-                          <span className={`text-xs ${checked ? "opacity-100" : "opacity-0"}`}>✓</span>
-                          {c.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {marketCommunityOpen && (() => {
+                  const allIds = filterCommunities.map((c) => String(c.id));
+                  const myCommunitiesSelected = allIds.length > 0 && allIds.every((id) => selectedMarketCommunities.includes(id));
+                  const publicCommunities = filterCommunities.filter((c) => c.id === "neighborhood" || c.is_public !== false);
+                  const privateCommunities = filterCommunities.filter((c) => c.id !== "neighborhood" && c.is_public === false);
+                  return (
+                    <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] rounded-lg border border-white/20 shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
+                      {/* All: My Communities + All Public */}
+                      <label className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer font-medium">
+                        <input
+                          type="checkbox"
+                          checked={marketShowAll}
+                          onChange={() => {
+                            if (marketShowAll) {
+                              setMarketShowAll(false);
+                            } else {
+                              setMarketShowAll(true);
+                              setSelectedMarketCommunities(allIds);
+                            }
+                          }}
+                          className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                        />
+                        All
+                      </label>
+                      {/* My Communities: select/deselect all user's communities */}
+                      <label className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={myCommunitiesSelected}
+                          onChange={() => {
+                            if (myCommunitiesSelected) {
+                              setSelectedMarketCommunities([]);
+                            } else {
+                              setSelectedMarketCommunities(allIds);
+                            }
+                            setMarketShowAll(false);
+                          }}
+                          className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                        />
+                        My Communities
+                      </label>
+                      <div className="border-t border-white/10 my-1" />
+                      {publicCommunities.length > 0 && (
+                        <>
+                          <div className="px-3 pt-2 pb-1">
+                            <span className="text-[10px] text-white/30 uppercase tracking-wider">Public</span>
+                          </div>
+                          {publicCommunities.map((c) => {
+                            const cid = String(c.id);
+                            const checked = selectedMarketCommunities.includes(cid);
+                            return (
+                              <label key={cid} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    setSelectedMarketCommunities((prev) => checked ? prev.filter((x) => x !== cid) : [...prev, cid]);
+                                    setMarketShowAll(false);
+                                  }}
+                                  className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                                />
+                                {c.name}
+                              </label>
+                            );
+                          })}
+                        </>
+                      )}
+                      {privateCommunities.length > 0 && (
+                        <>
+                          <div className="px-3 pt-2 pb-1">
+                            <span className="text-[10px] text-white/30 uppercase tracking-wider">Private</span>
+                          </div>
+                          {privateCommunities.map((c) => {
+                            const cid = String(c.id);
+                            const checked = selectedMarketCommunities.includes(cid);
+                            return (
+                              <label key={cid} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => {
+                                    setSelectedMarketCommunities((prev) => checked ? prev.filter((x) => x !== cid) : [...prev, cid]);
+                                    setMarketShowAll(false);
+                                  }}
+                                  className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
+                                />
+                                {c.name}
+                              </label>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex flex-col">
@@ -936,10 +1612,9 @@ export default function App() {
                     key={listing.id}
                     className="flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors"
                   >
-                    <img
-                      src={listing.imageUrl}
+                    <ListingImageCarousel
+                      images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
                       alt={listing.title}
-                      className="w-28 h-28 object-cover rounded-lg border border-white/10 shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-3">
@@ -1146,17 +1821,319 @@ export default function App() {
               Settings
             </h2>
 
-            <div className="space-y-2">
-              <button
-                onClick={() => setPage("terms")}
-                className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <Scale className="size-5 text-fuchsia-400" />
-                  <span className="text-sm">Terms & Conditions</span>
+            {/* Display */}
+            <div className="mb-8">
+              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">Display</h3>
+              <div className="space-y-1">
+                {/* Font Size */}
+                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Type className="size-5 text-cyan-400" />
+                    <div>
+                      <span className="text-sm">Font Size</span>
+                      <p className="text-[10px] text-white/30 mt-0.5">Adjust text size across the app</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
+                    {([
+                      { value: "default" as const, label: "A", title: "Default" },
+                      { value: "large" as const, label: "A", title: "Large" },
+                      { value: "extra-large" as const, label: "A", title: "Extra Large" },
+                    ]).map((opt, i) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => updateSetting("fontSize", opt.value)}
+                        title={opt.title}
+                        className={`px-2.5 py-1 rounded-md transition-colors ${
+                          settings.fontSize === opt.value
+                            ? "bg-cyan-500/20 text-cyan-400"
+                            : "text-white/40 hover:text-white/60"
+                        }`}
+                        style={{ fontSize: `${12 + i * 3}px` }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <ChevronRight className="size-4 text-white/30" />
-              </button>
+
+                {/* High Contrast */}
+                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Contrast className="size-5 text-cyan-400" />
+                    <div>
+                      <span className="text-sm">High Contrast</span>
+                      <p className="text-[10px] text-white/30 mt-0.5">Increase text and border visibility</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => updateSetting("highContrast", !settings.highContrast)}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      settings.highContrast ? "bg-cyan-500/30" : "bg-white/10"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
+                        settings.highContrast ? "translate-x-5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Compact Mode */}
+                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Minimize2 className="size-5 text-cyan-400" />
+                    <div>
+                      <span className="text-sm">Compact Mode</span>
+                      <p className="text-[10px] text-white/30 mt-0.5">Reduce spacing for denser layout</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => updateSetting("compactMode", !settings.compactMode)}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      settings.compactMode ? "bg-cyan-500/30" : "bg-white/10"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
+                        settings.compactMode ? "translate-x-5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Accessibility */}
+            <div className="mb-8">
+              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">Accessibility</h3>
+              <div className="space-y-1">
+                {/* Reduce Motion */}
+                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Zap className="size-5 text-fuchsia-400" />
+                    <div>
+                      <span className="text-sm">Reduce Motion</span>
+                      <p className="text-[10px] text-white/30 mt-0.5">Disable animations and transitions</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => updateSetting("reduceMotion", !settings.reduceMotion)}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      settings.reduceMotion ? "bg-fuchsia-500/30" : "bg-white/10"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
+                        settings.reduceMotion ? "translate-x-5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* About */}
+            <div className="mb-8">
+              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">About</h3>
+              <div className="space-y-1">
+                <button
+                  onClick={() => setPage("terms")}
+                  className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <Scale className="size-5 text-fuchsia-400" />
+                    <span className="text-sm">Terms & Conditions</span>
+                  </div>
+                  <ChevronRight className="size-4 text-white/30" />
+                </button>
+                <button
+                  onClick={() => setPage("mission")}
+                  className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="size-5 text-fuchsia-400" />
+                    <span className="text-sm">Our Mission</span>
+                  </div>
+                  <ChevronRight className="size-4 text-white/30" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Help & Support Page */}
+      {page === "help" && (
+        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
+          <div className="max-w-3xl mx-auto">
+            <button
+              onClick={() => setPage("settings")}
+              className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
+            >
+              <ChevronRight className="size-3 rotate-180" />
+              Back to Settings
+            </button>
+
+            <div className="flex items-center gap-3 mb-8">
+              <HelpCircle className="size-7 text-cyan-400" />
+              <h2 className="text-3xl font-light tracking-wider" style={{ fontFamily: "'Courier Prime', monospace" }}>
+                Help & Support
+              </h2>
+            </div>
+
+            {/* Contact */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
+              <h3 className="text-lg font-medium mb-2">Contact Us</h3>
+              <p className="text-sm text-white/60 leading-relaxed">
+                Have a question, concern, or feedback? We'd love to hear from you. Reach out to our support team and we'll get back to you as soon as possible.
+              </p>
+              <div className="mt-4 flex items-center gap-2 bg-white/5 rounded-lg px-4 py-3">
+                <MessageSquare className="size-4 text-cyan-400 shrink-0" />
+                <span className="text-sm text-cyan-400">support@grandexchange.app</span>
+              </div>
+            </div>
+
+            {/* FAQ */}
+            <div>
+              <h3 className="text-lg font-medium mb-4">Frequently Asked Questions</h3>
+              <div className="space-y-3">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">What is Grand Exchange?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    Grand Exchange is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">What is a community?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    A community is a group of users who share a common bond — whether it's a neighborhood, a school, a workplace, or any other group. Communities let you browse and post listings exclusively within your trusted circles. Public communities are open for anyone to join, while private communities require an invite code. Every user also gets a virtual "My Neighborhood" community that automatically connects them with others in the same area.
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I post a listing?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    From the homepage, switch to "Sell" mode and upload a photo of your item. Our AI will automatically generate a title, description, price suggestion, and tags. You can edit any of these details, select which communities to post to, and hit "Post Listing" when you're ready.
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I join a community?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    Go to your Account page and click the "Join or Create" tile in the Communities section. You can join by entering an invite code shared by a friend, or search for public communities by name. You can also create your own community and invite others.
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">Who can see my listings?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    When you post a listing, you choose which communities to post it to. Listings posted to public communities are visible to all users. Listings posted to private communities are only visible to members of those communities. This gives you full control over who sees your items.
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">Is it free to use?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    Yes! Grand Exchange is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I stay safe when meeting a buyer or seller?</h4>
+                  <p className="text-sm text-white/50 leading-relaxed">
+                    Always meet in a public, well-lit location. We recommend using your community's designated pickup location when available. Let someone know where you're going, and trust your instincts — if something feels off, don't proceed with the transaction.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Our Mission Page */}
+      {page === "mission" && (
+        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
+          <div className="max-w-3xl mx-auto">
+            <button
+              onClick={() => setPage("settings")}
+              className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
+            >
+              <ChevronRight className="size-3 rotate-180" />
+              Back to Settings
+            </button>
+
+            <div className="flex items-center gap-3 mb-8">
+              <Sparkles className="size-7 text-fuchsia-400" />
+              <h2 className="text-3xl font-light tracking-wider" style={{ fontFamily: "'Courier Prime', monospace" }}>
+                Our Mission
+              </h2>
+            </div>
+
+            {/* Hero Statement */}
+            <div className="bg-gradient-to-br from-fuchsia-500/10 to-cyan-500/10 border border-white/10 rounded-2xl p-8 mb-8 text-center">
+              <p className="text-xl font-light leading-relaxed text-white/90" style={{ fontFamily: "'Courier Prime', monospace" }}>
+                "To become the safest and fastest second-hand marketplace in the world."
+              </p>
+            </div>
+
+            <p className="text-sm text-white/60 leading-relaxed mb-8">
+              At Grand Exchange, we believe that every item deserves a second life and every community deserves a marketplace it can trust. We're building more than an app — we're building a movement toward more sustainable, connected, and responsible consumption.
+            </p>
+
+            {/* Pillars */}
+            <h3 className="text-lg font-medium mb-5">What Drives Us</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="size-10 rounded-full bg-green-500/15 flex items-center justify-center mb-3">
+                  <Leaf className="size-5 text-green-400" />
+                </div>
+                <h4 className="text-sm font-medium mb-1.5">Reducing Waste on Our Streets</h4>
+                <p className="text-xs text-white/50 leading-relaxed">
+                  Every year, millions of perfectly good items end up in landfills or left on sidewalks. We give these items a new home by making it effortless to list, discover, and trade within your neighborhood. Less waste on the streets means cleaner, healthier communities for everyone.
+                </p>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="size-10 rounded-full bg-cyan-500/15 flex items-center justify-center mb-3">
+                  <Recycle className="size-5 text-cyan-400" />
+                </div>
+                <h4 className="text-sm font-medium mb-1.5">Maximizing the Utility of Every Good</h4>
+                <p className="text-xs text-white/50 leading-relaxed">
+                  A jacket sitting unused in your closet could be keeping someone warm. A textbook you've finished could help another student succeed. We believe every item has unrealized value, and our platform ensures goods are used to their fullest potential before being discarded.
+                </p>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="size-10 rounded-full bg-fuchsia-500/15 flex items-center justify-center mb-3">
+                  <Users className="size-5 text-fuchsia-400" />
+                </div>
+                <h4 className="text-sm font-medium mb-1.5">Bringing Communities Closer</h4>
+                <p className="text-xs text-white/50 leading-relaxed">
+                  Trading with your neighbors builds trust, sparks conversation, and strengthens the social fabric of your community. Grand Exchange is designed around communities — not algorithms — so every transaction feels personal, local, and meaningful.
+                </p>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="size-10 rounded-full bg-amber-500/15 flex items-center justify-center mb-3">
+                  <Heart className="size-5 text-amber-400" />
+                </div>
+                <h4 className="text-sm font-medium mb-1.5">Reducing Our Carbon Footprint</h4>
+                <p className="text-xs text-white/50 leading-relaxed">
+                  Every second-hand purchase is one less item manufactured and shipped across the globe. By keeping trade hyper-local — within neighborhoods and communities — we cut down on transportation emissions too. Small trades, big impact.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center">
+              <p className="text-sm text-white/50 leading-relaxed">
+                We're just getting started. Every listing posted, every community created, and every item that finds a new home brings us one step closer to a world where nothing goes to waste.
+              </p>
+              <p className="text-sm text-white/70 mt-3 font-medium">
+                Join us in building a better marketplace.
+              </p>
             </div>
           </div>
         </section>
@@ -1186,16 +2163,14 @@ export default function App() {
               <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
                 <AlertTriangle className="size-5 text-fuchsia-400" />
               </div>
-              <h3 className="text-lg font-medium">Confirm Listing</h3>
+              <h3 className="text-lg font-medium">Confirm {bulkReviewPhase === "summary" ? "Bulk " : ""}Listing</h3>
             </div>
 
             <div className="space-y-4 mb-6">
-              <p className="text-sm text-white/70">
-                Please review before posting.
-              </p>
-
-              <p className="text-sm text-white/60 italic">
-                This item must be available for pickup within 7 days of posting.
+              <p className="text-sm text-white/90 font-semibold">
+                By confirming, you agree to make {bulkReviewPhase === "summary"
+                  ? `these ${bulkItems.length} items`
+                  : "this item"} available for pickup within 7 days.
               </p>
 
               <label className="flex items-start gap-3 cursor-pointer group">
@@ -1207,18 +2182,15 @@ export default function App() {
                 />
                 <span className="text-sm text-white/60 group-hover:text-white/80 transition-colors">
                   I agree to the{" "}
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setShowPostConfirm(false);
-                      setAcceptedTerms(false);
-                      setPage("terms");
-                    }}
+                  <a
+                    href="#terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors inline-flex items-center gap-1"
                   >
                     Terms & Conditions
                     <ExternalLink className="size-3" />
-                  </button>
+                  </a>
                 </span>
               </label>
             </div>
@@ -1236,11 +2208,15 @@ export default function App() {
                 onClick={() => {
                   setShowPostConfirm(false);
                   setAcceptedTerms(false);
-                  handlePostListing();
+                  if (bulkReviewPhase === "summary") {
+                    handleBulkPostListing();
+                  } else {
+                    handlePostListing();
+                  }
                 }}
                 className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Confirm & Post
+                {bulkReviewPhase === "summary" ? `Confirm & Post All (${bulkItems.length})` : "Confirm & Post"}
               </Button>
             </div>
           </div>

@@ -53,6 +53,13 @@ class InviteRequest(BaseModel):
     user_ids: list[int]
 
 
+class UpdateCommunityRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    neighborhood: Optional[str] = None
+    is_public: Optional[bool] = None
+
+
 # ---------- Helpers ----------
 
 def _generate_invite_code() -> str:
@@ -211,6 +218,7 @@ async def my_communities_with_neighborhood(
                 "id": community.id,
                 "name": community.name,
                 "neighborhood": community.neighborhood,
+                "is_public": community.is_public,
             })
     return result
 
@@ -314,3 +322,112 @@ async def invite_users(
             added += 1
     db.commit()
     return {"added": added}
+
+
+@router.get("/{community_id}", response_model=CommunityOut)
+async def get_community(
+    community_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    return _community_to_out(community, db, current_user.id)
+
+
+@router.get("/{community_id}/members")
+async def get_community_members(
+    community_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+
+    memberships = (
+        db.query(CommunityMember)
+        .filter(CommunityMember.community_id == community_id)
+        .all()
+    )
+    members = []
+    for m in memberships:
+        u = db.query(User).filter(User.id == m.user_id).first()
+        if u:
+            members.append({
+                "id": u.id,
+                "display_name": u.display_name,
+                "neighborhood": u.neighborhood,
+                "profile_picture": u.profile_picture,
+                "role": m.role,
+            })
+    return members
+
+
+@router.put("/{community_id}", response_model=CommunityOut)
+async def update_community(
+    community_id: int,
+    req: UpdateCommunityRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can edit this community")
+
+    if req.name is not None:
+        community.name = req.name
+    if req.description is not None:
+        community.description = req.description
+    if req.neighborhood is not None:
+        community.neighborhood = req.neighborhood
+    if req.is_public is not None:
+        community.is_public = req.is_public
+
+    db.commit()
+    db.refresh(community)
+    return _community_to_out(community, db, current_user.id)
+
+
+@router.delete("/{community_id}")
+async def delete_community(
+    community_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can delete this community")
+
+    # Delete all memberships first
+    db.query(CommunityMember).filter(CommunityMember.community_id == community_id).delete()
+    db.delete(community)
+    db.commit()
+    return {"deleted": True}
+
+
+@router.delete("/{community_id}/leave")
+async def leave_community(
+    community_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    membership = (
+        db.query(CommunityMember)
+        .filter(
+            CommunityMember.community_id == community_id,
+            CommunityMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="Not a member of this community")
+
+    db.delete(membership)
+    db.commit()
+    return {"left": True}
