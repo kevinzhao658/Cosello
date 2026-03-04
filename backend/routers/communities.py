@@ -8,7 +8,8 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Community, CommunityMember, User
+from models import Community, CommunityMember, User, Notification
+from models import JoinRequest as JoinRequestModel
 from auth import get_current_user
 
 UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
@@ -34,7 +35,7 @@ class CommunityOut(BaseModel):
         from_attributes = True
 
 
-class JoinRequest(BaseModel):
+class JoinByCodeRequest(BaseModel):
     invite_code: str
 
 
@@ -58,6 +59,10 @@ class UpdateCommunityRequest(BaseModel):
     description: Optional[str] = None
     neighborhood: Optional[str] = None
     is_public: Optional[bool] = None
+
+
+class JoinRequestBody(BaseModel):
+    community_id: int
 
 
 # ---------- Helpers ----------
@@ -104,13 +109,10 @@ async def search_communities(
         return []
     query = q.strip().lower()
 
-    # Find public communities matching the search
+    # Find communities matching the search (both public and private)
     communities = (
         db.query(Community)
-        .filter(
-            Community.is_public == True,
-            Community.name.ilike(f"%{query}%"),
-        )
+        .filter(Community.name.ilike(f"%{query}%"))
         .limit(10)
         .all()
     )
@@ -120,6 +122,17 @@ async def search_communities(
         m.community_id
         for m in db.query(CommunityMember)
         .filter(CommunityMember.user_id == current_user.id)
+        .all()
+    }
+
+    # Check which ones the user has pending join requests for
+    my_pending_request_ids = {
+        r.community_id
+        for r in db.query(JoinRequestModel)
+        .filter(
+            JoinRequestModel.user_id == current_user.id,
+            JoinRequestModel.status == "pending",
+        )
         .all()
     }
 
@@ -139,6 +152,8 @@ async def search_communities(
             "invite_code": c.invite_code,
             "member_count": member_count,
             "is_member": c.id in my_membership_ids,
+            "is_public": c.is_public,
+            "has_requested": c.id in my_pending_request_ids,
         })
     return results
 
@@ -243,7 +258,7 @@ async def my_communities(
 
 @router.post("/join", response_model=CommunityOut)
 async def join_community(
-    req: JoinRequest,
+    req: JoinByCodeRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -275,6 +290,152 @@ async def join_community(
     db.commit()
 
     return _community_to_out(community, db, current_user.id)
+
+
+@router.post("/request-join")
+async def request_join_community(
+    req: JoinRequestBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == req.community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.is_public:
+        raise HTTPException(status_code=400, detail="Public communities can be joined directly")
+
+    existing_member = (
+        db.query(CommunityMember)
+        .filter(CommunityMember.community_id == community.id, CommunityMember.user_id == current_user.id)
+        .first()
+    )
+    if existing_member:
+        raise HTTPException(status_code=400, detail="You are already a member")
+
+    existing_request = (
+        db.query(JoinRequestModel)
+        .filter(
+            JoinRequestModel.community_id == community.id,
+            JoinRequestModel.user_id == current_user.id,
+            JoinRequestModel.status == "pending",
+        )
+        .first()
+    )
+    if existing_request:
+        raise HTTPException(status_code=400, detail="You already have a pending request")
+
+    join_request = JoinRequestModel(
+        community_id=community.id,
+        user_id=current_user.id,
+        status="pending",
+    )
+    db.add(join_request)
+
+    # Notify the community owner
+    requester_name = current_user.display_name or "Someone"
+    db.add(Notification(
+        user_id=community.created_by,
+        type="join_request",
+        title="Join Request",
+        message=f"{requester_name} wants to join {community.name}",
+        community_id=community.id,
+    ))
+    db.commit()
+    return {"requested": True}
+
+
+@router.get("/{community_id}/requests")
+async def get_join_requests(
+    community_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can view join requests")
+
+    requests = (
+        db.query(JoinRequestModel)
+        .filter(JoinRequestModel.community_id == community_id, JoinRequestModel.status == "pending")
+        .all()
+    )
+    result = []
+    for r in requests:
+        user = db.query(User).filter(User.id == r.user_id).first()
+        if user:
+            result.append({
+                "id": r.id,
+                "user_id": user.id,
+                "display_name": user.display_name,
+                "neighborhood": user.neighborhood,
+                "profile_picture": user.profile_picture,
+                "created_at": r.created_at,
+            })
+    return result
+
+
+@router.post("/{community_id}/requests/{request_id}/accept")
+async def accept_join_request(
+    community_id: int,
+    request_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can accept requests")
+
+    join_request = (
+        db.query(JoinRequestModel)
+        .filter(JoinRequestModel.id == request_id, JoinRequestModel.community_id == community_id)
+        .first()
+    )
+    if not join_request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    join_request.status = "accepted"
+    db.add(CommunityMember(community_id=community_id, user_id=join_request.user_id, role="member"))
+
+    # Notify the requester that they were accepted
+    db.add(Notification(
+        user_id=join_request.user_id,
+        type="request_accepted",
+        title="Request Accepted",
+        message=f"You've been accepted into {community.name}",
+        community_id=community_id,
+    ))
+    db.commit()
+    return {"accepted": True}
+
+
+@router.post("/{community_id}/requests/{request_id}/reject")
+async def reject_join_request(
+    community_id: int,
+    request_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the owner can reject requests")
+
+    join_request = (
+        db.query(JoinRequestModel)
+        .filter(JoinRequestModel.id == request_id, JoinRequestModel.community_id == community_id)
+        .first()
+    )
+    if not join_request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    db.delete(join_request)
+    db.commit()
+    return {"rejected": True}
 
 
 @router.get("/users/search", response_model=list[UserSearchOut])
@@ -409,6 +570,34 @@ async def delete_community(
     db.delete(community)
     db.commit()
     return {"deleted": True}
+
+
+@router.delete("/{community_id}/members/{user_id}")
+async def kick_member(
+    community_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can remove members")
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot kick yourself")
+
+    membership = (
+        db.query(CommunityMember)
+        .filter(CommunityMember.community_id == community_id, CommunityMember.user_id == user_id)
+        .first()
+    )
+    if not membership:
+        raise HTTPException(status_code=404, detail="User is not a member")
+
+    db.delete(membership)
+    db.commit()
+    return {"kicked": True}
 
 
 @router.delete("/{community_id}/leave")

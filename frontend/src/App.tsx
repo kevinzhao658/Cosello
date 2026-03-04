@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
@@ -26,6 +26,7 @@ interface Listing extends ProductDetails {
   imageUrl: string;
   imageUrls?: string[];
   postedAt: number;
+  mutualCommunityNames?: string[];
 }
 
 type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
@@ -88,7 +89,7 @@ export default function App() {
   const [currentLetterIndex, setCurrentLetterIndex] = useState(-1);
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
 
-  const sellPrompt = "Upload a picture and we'll do the rest";
+  const sellPrompt = "Upload single or multiple items, and we'll do the rest";
   const [sellDisplayText, setSellDisplayText] = useState("");
   const [sellLetterIndex, setSellLetterIndex] = useState(-1);
 
@@ -100,6 +101,8 @@ export default function App() {
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [bulkReviewPhase, setBulkReviewPhase] = useState<"cards" | "summary" | null>(null);
   const [isPostingBulk, setIsPostingBulk] = useState(false);
+  const [dragImageState, setDragImageState] = useState<{ imageIndex: number; sourceGroup: number } | null>(null);
+  const [dragOverGroup, setDragOverGroup] = useState<number | null>(null);
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newTag, setNewTag] = useState("");
@@ -120,9 +123,19 @@ export default function App() {
   const [filterCommunities, setFilterCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const [selectedCommunities, setSelectedCommunities] = useState<string[]>(["My Neighborhood"]);
 
+  // Wishlist state
+  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  const [wishlistItems, setWishlistItems] = useState<Listing[]>([]);
+
   // Profile dropdown state (custom, not Radix)
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Notifications state
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsRef = useRef<HTMLDivElement>(null);
+  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; created_at: string | null }[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Close home community dropdown on outside click
   useEffect(() => {
@@ -156,6 +169,62 @@ export default function App() {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [profileOpen]);
+
+  // Close notifications dropdown on outside click
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (notificationsRef.current?.contains(e.target as Node)) return;
+      setNotificationsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [notificationsOpen]);
+
+  // Fetch unread notification count periodically
+  const fetchUnreadCount = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/notifications/unread-count", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.count);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const fetchNotifications = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/notifications", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setNotifications(await res.json());
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!token) return;
+    try {
+      await fetch("/api/notifications/mark-read", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, token]);
 
   // Reset bulk state when switching away from sell mode
   useEffect(() => {
@@ -222,6 +291,41 @@ export default function App() {
       };
       return updated;
     });
+  };
+
+  const handleDragStart = (imageIndex: number, sourceGroup: number) => {
+    setDragImageState({ imageIndex, sourceGroup });
+  };
+
+  const handleGroupDragOver = (e: React.DragEvent, groupIndex: number) => {
+    e.preventDefault();
+    setDragOverGroup(groupIndex);
+  };
+
+  const handleDrop = (targetGroup: number) => {
+    setDragOverGroup(null);
+    if (!dragImageState) return;
+    const { imageIndex, sourceGroup } = dragImageState;
+    setDragImageState(null);
+    if (sourceGroup === targetGroup) return;
+    if (bulkItems[sourceGroup].imageIndices.length <= 1) return;
+
+    setBulkItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx === sourceGroup) {
+          return { ...item, imageIndices: item.imageIndices.filter((i) => i !== imageIndex) };
+        }
+        if (idx === targetGroup) {
+          return { ...item, imageIndices: [...item.imageIndices, imageIndex] };
+        }
+        return item;
+      })
+    );
+  };
+
+  const handleDragEnd = () => {
+    setDragImageState(null);
+    setDragOverGroup(null);
   };
 
   const handleListingModeChange = (mode: "single" | "bulk") => {
@@ -434,9 +538,63 @@ export default function App() {
     }
   };
 
+  const fetchWishlist = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/wishlist", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const ids: string[] = await res.json();
+        setWishlist(new Set(ids));
+      }
+    } catch (err) {
+      console.error("Failed to fetch wishlist:", err);
+    }
+  };
+
+  const fetchWishlistItems = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/wishlist/listings", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data: Listing[] = await res.json();
+        setWishlistItems(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch wishlist listings:", err);
+    }
+  };
+
+  const toggleWishlist = async (listingId: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/api/wishlist/${listingId}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const { wishlisted } = await res.json();
+        setWishlist((prev) => {
+          const next = new Set(prev);
+          wishlisted ? next.add(listingId) : next.delete(listingId);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error("Failed to toggle wishlist:", err);
+    }
+  };
+
   useEffect(() => {
     if (page === "market") fetchListings();
   }, [page, marketSearch, selectedMarketCommunities, marketShowAll, marketSort]);
+
+  useEffect(() => {
+    if (token) fetchWishlist();
+  }, [token]);
+
+  useEffect(() => {
+    if (page === "account" && token) fetchWishlistItems();
+  }, [page, token]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -487,7 +645,7 @@ export default function App() {
   return (
     <div className="size-full bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white overflow-auto">
       {/* Navigation */}
-      <nav className="border-b border-white/10 bg-black/20 backdrop-blur-sm">
+      <nav className="border-b border-white/10 bg-black/20 backdrop-blur-sm relative z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
@@ -514,8 +672,85 @@ export default function App() {
             </div>
 
             {/* Right Side */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {isAuthenticated ? (
+                <>
+                {/* Notifications Bell */}
+                <div className="relative" ref={notificationsRef}>
+                  <button
+                    onClick={() => {
+                      setNotificationsOpen((prev) => {
+                        if (!prev) fetchNotifications();
+                        return !prev;
+                      });
+                    }}
+                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10 relative"
+                  >
+                    <Bell className="size-4 text-white/80" />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 size-4 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {notificationsOpen && (
+                    <div className="absolute right-0 top-full mt-1.5 w-80 rounded-md border border-white/15 shadow-xl overflow-hidden z-[100]" style={{ backgroundColor: '#18181b' }}>
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+                        <p className="text-xs font-medium">Notifications</p>
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={handleMarkAllRead}
+                            className="text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-72 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <div className="py-8 text-center">
+                            <Bell className="size-5 text-white/15 mx-auto mb-2" />
+                            <p className="text-xs text-white/30">No notifications</p>
+                          </div>
+                        ) : (
+                          notifications.map((n) => (
+                            <div
+                              key={n.id}
+                              className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${
+                                n.is_read ? "opacity-50" : "bg-white/[0.03]"
+                              }`}
+                            >
+                              <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                n.type === "join_request"
+                                  ? "bg-amber-500/15"
+                                  : "bg-green-500/15"
+                              }`}>
+                                {n.type === "join_request" ? (
+                                  <UserPlus className="size-3.5 text-amber-400" />
+                                ) : (
+                                  <CheckCircle className="size-3.5 text-green-400" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-white/80 leading-relaxed">{n.message}</p>
+                                {n.created_at && (
+                                  <p className="text-[10px] text-white/25 mt-0.5">
+                                    {new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                  </p>
+                                )}
+                              </div>
+                              {!n.is_read && (
+                                <div className="size-2 rounded-full bg-cyan-400 shrink-0 mt-1.5" />
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="relative" ref={profileRef}>
                   <button
                     onClick={() => setProfileOpen((prev) => !prev)}
@@ -573,6 +808,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                </>
               ) : (
                 <Button
                   onClick={() => setPage("signin")}
@@ -863,29 +1099,88 @@ export default function App() {
 
                   {/* Thumbnail Previews */}
                   {uploadedImages.length > 0 && (
-                    <div className="flex items-center gap-2 mt-3 mb-2">
-                      {uploadedImages.map((img, index) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={img.preview}
-                            alt={`Upload ${index + 1}`}
-                            className="size-16 object-cover rounded-lg border border-white/20"
-                          />
+                    <>
+                      {bulkReviewPhase && bulkItems.length > 0 ? (
+                        /* Grouped view — single scrollable row with white outlines per group */
+                        <div className="flex items-center gap-3 mt-3 mb-2 overflow-x-auto pb-2 pt-3 pl-2 scrollbar-thin">
+                          {bulkItems.map((item, groupIdx) => {
+                            const isDropTarget = dragOverGroup === groupIdx;
+                            return (
+                              <div
+                                key={groupIdx}
+                                className={`relative flex items-center gap-1.5 rounded-lg px-1.5 py-1 border border-white/30 shrink-0 transition-all ${
+                                  isDropTarget ? "bg-white/10 ring-1 ring-white/40" : ""
+                                }`}
+                                onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
+                                onDragLeave={() => setDragOverGroup(null)}
+                                onDrop={() => handleDrop(groupIdx)}
+                              >
+                                <span className="absolute -top-1.5 -left-1.5 size-4 rounded-full bg-white/90 flex items-center justify-center text-[8px] font-bold text-black z-10">
+                                  {groupIdx + 1}
+                                </span>
+                                {item.imageIndices.map((imgIdx) => {
+                                  const img = uploadedImages[imgIdx];
+                                  if (!img) return null;
+                                  const isDragging = dragImageState?.imageIndex === imgIdx;
+                                  return (
+                                    <div
+                                      key={imgIdx}
+                                      draggable
+                                      onDragStart={() => handleDragStart(imgIdx, groupIdx)}
+                                      onDragEnd={handleDragEnd}
+                                      className={`relative size-16 rounded-lg overflow-hidden border border-white/20 cursor-grab active:cursor-grabbing transition-opacity ${
+                                        isDragging ? "opacity-40" : "opacity-100"
+                                      }`}
+                                    >
+                                      <img
+                                        src={img.preview}
+                                        alt={`Upload ${imgIdx + 1}`}
+                                        className="size-full object-cover"
+                                        draggable={false}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        /* Flat view — default upload thumbnails */
+                        <div className="flex items-center gap-2 mt-3 mb-2">
+                          {uploadedImages.map((img, index) => (
+                            <div key={index} className="relative group">
+                              <img
+                                src={img.preview}
+                                alt={`Upload ${index + 1}`}
+                                className="size-16 object-cover rounded-lg border border-white/20"
+                              />
+                              <button
+                                onClick={() => removeImage(index)}
+                                className="absolute -top-1.5 -right-1.5 size-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="size-3 text-white" />
+                              </button>
+                            </div>
+                          ))}
                           <button
-                            onClick={() => removeImage(index)}
-                            className="absolute -top-1.5 -right-1.5 size-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="size-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
                           >
-                            <X className="size-3 text-white" />
+                            <Plus className="size-5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
+                              setUploadedImages([]);
+                            }}
+                            className="ml-auto text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                          >
+                            Clear all
                           </button>
                         </div>
-                      ))}
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="size-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
-                      >
-                        <Plus className="size-5" />
-                      </button>
-                    </div>
+                      )}
+                    </>
                   )}
 
                   {/* Single / Bulk Toggle */}
@@ -1064,9 +1359,17 @@ export default function App() {
                     <div className="mt-6 space-y-4">
                       {/* Progress indicator */}
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-white/40">
-                          Item {currentCardIndex + 1} of {bulkItems.length}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-white/40">
+                            Item {currentCardIndex + 1} of {bulkItems.length}
+                          </span>
+                          <button
+                            onClick={() => setBulkReviewPhase(null)}
+                            className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
+                          >
+                            + Add Photos
+                          </button>
+                        </div>
                         <div className="flex gap-1">
                           {bulkItems.map((_, i) => (
                             <div
@@ -1239,12 +1542,20 @@ export default function App() {
                         <h3 className="text-sm font-medium text-white/80">
                           {bulkItems.length} items ready to post
                         </h3>
-                        <button
-                          onClick={() => { setBulkReviewPhase("cards"); setCurrentCardIndex(0); }}
-                          className="text-xs text-fuchsia-400 hover:text-fuchsia-300 transition-colors"
-                        >
-                          Edit Items
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setBulkReviewPhase(null)}
+                            className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+                          >
+                            + Add Photos
+                          </button>
+                          <button
+                            onClick={() => { setBulkReviewPhase("cards"); setCurrentCardIndex(0); }}
+                            className="text-xs text-fuchsia-400 hover:text-fuchsia-300 transition-colors"
+                          >
+                            Edit Items
+                          </button>
+                        </div>
                       </div>
 
                       <div className="space-y-3 max-h-80 overflow-y-auto">
@@ -1610,13 +1921,21 @@ export default function App() {
                 {listings.map((listing) => (
                   <div
                     key={listing.id}
-                    className="flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors"
+                    className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors"
                   >
+                    <button
+                      onClick={() => toggleWishlist(listing.id)}
+                      className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
+                    >
+                      <Heart
+                        className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
+                      />
+                    </button>
                     <ListingImageCarousel
                       images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
                       alt={listing.title}
                     />
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 pr-6">
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="text-lg font-medium truncate">{listing.title}</h3>
                         <span className="text-lg font-semibold text-fuchsia-400 shrink-0">${listing.price}</span>
@@ -1633,6 +1952,15 @@ export default function App() {
                           {listing.tags.map((tag, i) => (
                             <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
                               {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {listing.mutualCommunityNames && listing.mutualCommunityNames.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {listing.mutualCommunityNames.map((name, i) => (
+                            <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-white/5 border border-white/10 text-white/40 inline-flex items-center gap-1">
+                              <Users className="size-2.5" />{name}
                             </span>
                           ))}
                         </div>

@@ -162,7 +162,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
     invite_code: string;
     member_count: number;
     is_member: boolean;
+    is_public: boolean;
+    has_requested: boolean;
   }[]>([]);
+  const [requestingCommunityId, setRequestingCommunityId] = useState<number | null>(null);
   const [isSearchingCommunities, setIsSearchingCommunities] = useState(false);
   const [joiningCommunityId, setJoiningCommunityId] = useState<number | null>(null);
   const communitySearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,6 +195,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
   const [editCommunityShowSuggestions, setEditCommunityShowSuggestions] = useState(false);
   const editCommunityNeighborhoodRef = useRef<HTMLInputElement>(null);
   const editCommunitySuggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Pending join requests state (for community owners)
+  const [pendingRequests, setPendingRequests] = useState<{ id: number; user_id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null }[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [acceptingRequestId, setAcceptingRequestId] = useState<number | null>(null);
+  const [rejectingRequestId, setRejectingRequestId] = useState<number | null>(null);
+  const [kickingMemberId, setKickingMemberId] = useState<number | null>(null);
 
   // Profile stats
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0 });
@@ -419,6 +429,30 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
     }
   };
 
+  const handleRequestToJoin = async (communityId: number) => {
+    if (!token) return;
+    setRequestingCommunityId(communityId);
+    try {
+      const res = await fetch("/api/communities/request-join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ community_id: communityId }),
+      });
+      if (res.ok) {
+        setCommunitySearchResults((prev) =>
+          prev.map((c) => (c.id === communityId ? { ...c, has_requested: true } : c))
+        );
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRequestingCommunityId(null);
+    }
+  };
+
   const closeJoinModal = () => {
     setShowJoinModal(false);
     setJoinError("");
@@ -513,6 +547,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
     setShowCommunityDetail(true);
     setIsEditingCommunity(false);
     setShowDeleteConfirm(false);
+    setPendingRequests([]);
     setIsLoadingMembers(true);
     try {
       const res = await fetch(`/api/communities/${community.id}/members`, {
@@ -526,6 +561,88 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
       // ignore
     } finally {
       setIsLoadingMembers(false);
+    }
+    // Fetch pending join requests for owners of private communities
+    if (!community.is_public && community.created_by === user?.id) {
+      setIsLoadingRequests(true);
+      try {
+        const res = await fetch(`/api/communities/${community.id}/requests`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          setPendingRequests(await res.json());
+        }
+      } catch {
+        // ignore
+      } finally {
+        setIsLoadingRequests(false);
+      }
+    }
+  };
+
+  const handleAcceptRequest = async (communityId: number, requestId: number) => {
+    if (!token) return;
+    setAcceptingRequestId(requestId);
+    try {
+      const res = await fetch(`/api/communities/${communityId}/requests/${requestId}/accept`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+        // Refresh members list
+        const membersRes = await fetch(`/api/communities/${communityId}/members`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (membersRes.ok) {
+          setCommunityMembers(await membersRes.json());
+        }
+        // Update member count
+        setSelectedCommunity((prev) => prev ? { ...prev, member_count: prev.member_count + 1 } : prev);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAcceptingRequestId(null);
+    }
+  };
+
+  const handleRejectRequest = async (communityId: number, requestId: number) => {
+    if (!token) return;
+    setRejectingRequestId(requestId);
+    try {
+      const res = await fetch(`/api/communities/${communityId}/requests/${requestId}/reject`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRejectingRequestId(null);
+    }
+  };
+
+  const handleKickMember = async (communityId: number, memberId: number) => {
+    if (!token) return;
+    setKickingMemberId(memberId);
+    try {
+      const res = await fetch(`/api/communities/${communityId}/members/${memberId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setCommunityMembers((prev) => prev.filter((m) => m.id !== memberId));
+        setSelectedCommunity((prev) => prev ? { ...prev, member_count: prev.member_count - 1 } : prev);
+        fetchCommunities();
+        onCommunitiesChanged?.();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setKickingMemberId(null);
     }
   };
 
@@ -1244,7 +1361,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white/80 truncate">{c.name}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm text-white/80 truncate">{c.name}</p>
+                              {!c.is_public && (
+                                <Lock className="size-3 text-amber-400/60 shrink-0" />
+                              )}
+                            </div>
                             <div className="flex items-center gap-2">
                               {c.neighborhood && (
                                 <p className="text-[10px] text-white/30 truncate flex items-center gap-0.5">
@@ -1261,6 +1383,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
                             <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 shrink-0">
                               Joined
                             </span>
+                          ) : !c.is_public && c.has_requested ? (
+                            <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-1 rounded-full border border-amber-400/20 shrink-0">
+                              Requested
+                            </span>
+                          ) : !c.is_public ? (
+                            <Button
+                              onClick={() => handleRequestToJoin(c.id)}
+                              disabled={requestingCommunityId === c.id}
+                              size="sm"
+                              className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-400/20 text-xs px-3 h-7 shrink-0"
+                            >
+                              {requestingCommunityId === c.id ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                "Request"
+                              )}
+                            </Button>
                           ) : (
                             <Button
                               onClick={() => handleJoinBySearch(c.invite_code, c.id)}
@@ -1279,7 +1418,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
                       ))}
                     </div>
                   ) : (
-                    <p className="text-center text-xs text-white/30 py-4">No public communities found</p>
+                    <p className="text-center text-xs text-white/30 py-4">No communities found</p>
                   )}
                 </div>
               )}
@@ -2405,17 +2544,98 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged }: MyAc
                                 <p className="text-[10px] text-white/30 truncate">{member.neighborhood}</p>
                               )}
                             </div>
-                            {member.role === "owner" && (
+                            {member.role === "owner" ? (
                               <span className="text-[10px] text-fuchsia-400/70 bg-fuchsia-500/10 px-1.5 py-0.5 rounded-full border border-fuchsia-400/20">
                                 Creator
                               </span>
-                            )}
+                            ) : selectedCommunity.created_by === user?.id ? (
+                              <button
+                                onClick={() => handleKickMember(selectedCommunity.id, member.id)}
+                                disabled={kickingMemberId === member.id}
+                                className="text-[10px] text-red-400/60 hover:text-red-400 bg-red-500/0 hover:bg-red-500/10 px-1.5 py-0.5 rounded-full border border-transparent hover:border-red-400/20 transition-all shrink-0"
+                                title="Remove member"
+                              >
+                                {kickingMemberId === member.id ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  <X className="size-3" />
+                                )}
+                              </button>
+                            ) : null}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                 </div>
+
+                {/* Pending Join Requests (for owners of private communities) */}
+                {!selectedCommunity.is_public && selectedCommunity.created_by === user?.id && (
+                  <div className="mb-4">
+                    <h4 className="text-xs text-white/40 mb-2 uppercase tracking-wider">
+                      Pending Requests
+                      {pendingRequests.length > 0 && (
+                        <span className="ml-1.5 text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full text-[10px] normal-case">
+                          {pendingRequests.length}
+                        </span>
+                      )}
+                    </h4>
+                    {isLoadingRequests ? (
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="size-4 text-white/30 animate-spin" />
+                      </div>
+                    ) : pendingRequests.length === 0 ? (
+                      <p className="text-xs text-white/20 py-3 text-center">No pending requests</p>
+                    ) : (
+                      <div className="space-y-1 max-h-36 overflow-y-auto">
+                        {pendingRequests.map((req) => (
+                          <div
+                            key={req.id}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/5"
+                          >
+                            <div className="size-8 rounded-full bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center overflow-hidden shrink-0">
+                              {req.profile_picture ? (
+                                <img src={req.profile_picture} alt="" className="size-full object-cover" />
+                              ) : (
+                                <User className="size-3.5 text-white/50" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white/80 truncate">{req.display_name}</p>
+                              {req.neighborhood && (
+                                <p className="text-[10px] text-white/30 truncate">{req.neighborhood}</p>
+                              )}
+                            </div>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button
+                                onClick={() => handleAcceptRequest(selectedCommunity.id, req.id)}
+                                disabled={acceptingRequestId === req.id}
+                                className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 hover:bg-green-500/20 transition-colors disabled:opacity-50"
+                              >
+                                {acceptingRequestId === req.id ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  "Accept"
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleRejectRequest(selectedCommunity.id, req.id)}
+                                disabled={rejectingRequestId === req.id}
+                                className="text-[10px] text-red-400 bg-red-500/10 px-2 py-1 rounded-full border border-red-400/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                              >
+                                {rejectingRequestId === req.id ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  "Reject"
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div className="flex gap-3 mt-auto pt-4 border-t border-white/10">

@@ -15,11 +15,12 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from database import engine, Base, get_db
-from models import User, Community, CommunityMember
+from models import User, Community, CommunityMember, WishlistItem
 from auth import get_current_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
 from routers.friends import router as friends_router
+from routers.notifications import router as notifications_router
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -37,6 +38,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(communities_router)
 app.include_router(friends_router)
+app.include_router(notifications_router)
 
 # Create uploads directory
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -305,8 +307,8 @@ async def get_listings(
                     # Listing must be posted to this community
                     if cid not in listing_communities:
                         continue
-                    # If private, user must be a member
-                    if cid in all_public_ids or cid in my_community_ids:
+                    # User must be a member of this community
+                    if cid in my_community_ids:
                         filtered.append(listing)
                         break
         results = filtered
@@ -360,7 +362,28 @@ async def get_listings(
     elif sort == "newest":
         results.sort(key=lambda l: l.get("postedAt", 0), reverse=True)
 
-    return results
+    # Resolve community names for display
+    all_community_ids_set: set[int] = set()
+    for l in results:
+        for cid in l.get("communities", []):
+            if isinstance(cid, int):
+                all_community_ids_set.add(cid)
+
+    community_name_map: dict[int, str] = {}
+    if all_community_ids_set:
+        for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
+            community_name_map[c.id] = c.name
+
+    enriched = []
+    for l in results:
+        listing_copy = dict(l)
+        listing_copy["mutualCommunityNames"] = [
+            community_name_map[cid]
+            for cid in l.get("communities", [])
+            if isinstance(cid, int) and cid in community_name_map and cid in my_community_ids
+        ]
+        enriched.append(listing_copy)
+    return enriched
 
 
 @app.get("/api/listings/mine")
@@ -368,3 +391,47 @@ async def get_my_listings(
     current_user: User = Depends(get_current_user),
 ):
     return [l for l in listings_db if l.get("userId") == current_user.id]
+
+
+@app.get("/api/wishlist")
+async def get_wishlist(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items = db.query(WishlistItem).filter(WishlistItem.user_id == current_user.id).all()
+    return [item.listing_id for item in items]
+
+
+@app.get("/api/wishlist/listings")
+async def get_wishlist_listings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items = (
+        db.query(WishlistItem)
+        .filter(WishlistItem.user_id == current_user.id)
+        .order_by(WishlistItem.created_at.desc())
+        .all()
+    )
+    wishlisted_ids = {item.listing_id for item in items}
+    return [l for l in listings_db if l["id"] in wishlisted_ids]
+
+
+@app.post("/api/wishlist/{listing_id}")
+async def toggle_wishlist(
+    listing_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    existing = db.query(WishlistItem).filter(
+        WishlistItem.user_id == current_user.id,
+        WishlistItem.listing_id == listing_id,
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"wishlisted": False}
+    item = WishlistItem(user_id=current_user.id, listing_id=listing_id)
+    db.add(item)
+    db.commit()
+    return {"wishlisted": True}
