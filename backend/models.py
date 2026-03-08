@@ -78,6 +78,8 @@ class Notification(Base):
     message = Column(String(500), nullable=False)
     is_read = Column(Boolean, default=False)
     community_id = Column(Integer, ForeignKey("communities.id"), nullable=True)
+    related_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    listing_id = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -106,3 +108,15 @@ class Friendship(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "friend_id", name="uq_friendship"),
     )
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(String(20), nullable=False, index=True)
+    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), default="pending")
+    selected_pickup_slots = Column(String(2000), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -7,7 +7,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Friendship, CommunityMember
+from models import User, Friendship, CommunityMember, Community, PurchaseOrder
 from auth import get_current_user
 from listings_store import listings_db
 
@@ -263,8 +263,71 @@ async def get_stats(
         .scalar()
     )
     total_listings = sum(1 for l in listings_db if l.get("userId") == current_user.id)
+    purchases_count = (
+        db.query(sa_func.count(PurchaseOrder.id))
+        .filter(PurchaseOrder.buyer_id == current_user.id)
+        .scalar()
+    )
     return {
         "total_listings": total_listings,
-        "purchases": 0,
+        "purchases": purchases_count or 0,
         "friends_count": friends_count or 0,
+    }
+
+
+@router.get("/profile/{user_id}")
+async def get_user_profile(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    my_friend_ids = _get_friend_ids(current_user.id, db)
+    my_community_ids = _get_community_ids(current_user.id, db)
+    their_community_ids = _get_community_ids(user_id, db)
+
+    # Get their communities with details
+    their_communities = (
+        db.query(Community)
+        .filter(Community.id.in_(their_community_ids))
+        .all() if their_community_ids else []
+    )
+    mutual_ids = my_community_ids & their_community_ids
+    communities = []
+    for c in their_communities:
+        communities.append({
+            "id": c.id,
+            "name": c.name,
+            "image": c.image,
+            "is_mutual": c.id in mutual_ids,
+            "is_public": c.is_public,
+        })
+    # Sort: mutual first
+    communities.sort(key=lambda c: (not c["is_mutual"], c["name"]))
+
+    # Mutual friends with details
+    their_friend_ids = _get_friend_ids(user_id, db)
+    mutual_friend_ids = my_friend_ids & their_friend_ids
+    mutual_friends = []
+    if mutual_friend_ids:
+        mutual_users = db.query(User).filter(User.id.in_(mutual_friend_ids)).all()
+        for u in mutual_users:
+            mutual_friends.append({
+                "id": u.id,
+                "display_name": u.display_name,
+                "profile_picture": u.profile_picture,
+                "neighborhood": u.neighborhood,
+            })
+
+    return {
+        "id": target.id,
+        "display_name": target.display_name,
+        "neighborhood": target.neighborhood,
+        "profile_picture": target.profile_picture,
+        "is_friend": user_id in my_friend_ids,
+        "communities": communities,
+        "mutual_friends": mutual_friends,
     }

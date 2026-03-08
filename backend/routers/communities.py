@@ -211,16 +211,19 @@ async def my_communities_with_neighborhood(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Virtual "My Neighborhood" community
-    result = []
+    public_list: list[dict] = []
+    private_list: list[dict] = []
+
+    # Virtual "My Neighborhood" community (always public)
     if current_user.neighborhood:
-        result.append({
+        public_list.append({
             "id": "neighborhood",
             "name": "My Neighborhood",
             "neighborhood": current_user.neighborhood,
+            "is_public": True,
         })
 
-    # Real communities
+    # Real communities partitioned by is_public
     memberships = (
         db.query(CommunityMember)
         .filter(CommunityMember.user_id == current_user.id)
@@ -229,13 +232,17 @@ async def my_communities_with_neighborhood(
     for m in memberships:
         community = db.query(Community).filter(Community.id == m.community_id).first()
         if community:
-            result.append({
+            entry = {
                 "id": community.id,
                 "name": community.name,
                 "neighborhood": community.neighborhood,
                 "is_public": community.is_public,
-            })
-    return result
+            }
+            if community.is_public:
+                public_list.append(entry)
+            else:
+                private_list.append(entry)
+    return {"public": public_list, "private": private_list}
 
 
 @router.get("/mine", response_model=list[CommunityOut])
@@ -317,19 +324,29 @@ async def request_join_community(
         .filter(
             JoinRequestModel.community_id == community.id,
             JoinRequestModel.user_id == current_user.id,
-            JoinRequestModel.status == "pending",
         )
         .first()
     )
     if existing_request:
-        raise HTTPException(status_code=400, detail="You already have a pending request")
+        if existing_request.status == "pending":
+            raise HTTPException(status_code=400, detail="You already have a pending request")
+        # Reset previous request (e.g. after leaving and re-requesting)
+        existing_request.status = "pending"
+    else:
+        join_request = JoinRequestModel(
+            community_id=community.id,
+            user_id=current_user.id,
+            status="pending",
+        )
+        db.add(join_request)
 
-    join_request = JoinRequestModel(
-        community_id=community.id,
-        user_id=current_user.id,
-        status="pending",
-    )
-    db.add(join_request)
+    # Remove old join_request notifications for this user+community so only the latest shows
+    db.query(Notification).filter(
+        Notification.user_id == community.created_by,
+        Notification.type == "join_request",
+        Notification.community_id == community.id,
+        Notification.related_user_id == current_user.id,
+    ).delete()
 
     # Notify the community owner
     requester_name = current_user.display_name or "Someone"
@@ -339,9 +356,33 @@ async def request_join_community(
         title="Join Request",
         message=f"{requester_name} wants to join {community.name}",
         community_id=community.id,
+        related_user_id=current_user.id,
     ))
     db.commit()
     return {"requested": True}
+
+
+@router.post("/cancel-request")
+async def cancel_join_request(
+    req: JoinRequestBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    join_request = (
+        db.query(JoinRequestModel)
+        .filter(
+            JoinRequestModel.community_id == req.community_id,
+            JoinRequestModel.user_id == current_user.id,
+            JoinRequestModel.status == "pending",
+        )
+        .first()
+    )
+    if not join_request:
+        raise HTTPException(status_code=404, detail="No pending request found")
+
+    db.delete(join_request)
+    db.commit()
+    return {"cancelled": True}
 
 
 @router.get("/{community_id}/requests")
