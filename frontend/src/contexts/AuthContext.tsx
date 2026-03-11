@@ -6,6 +6,7 @@ export interface AuthUser {
   display_name: string | null;
   neighborhood: string | null;
   profile_picture: string | null;
+  pickup_address: string | null;
 }
 
 interface AuthContextValue {

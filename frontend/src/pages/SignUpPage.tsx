@@ -59,6 +59,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
+  const [pickupAddress, setPickupAddress] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -111,6 +112,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
         body: JSON.stringify({
           display_name: `${firstName.trim()} ${lastName.trim()}`,
           neighborhood: neighborhood.trim(),
+          pickup_address: pickupAddress.trim() || undefined,
         }),
       });
 
@@ -225,6 +227,22 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
                   No matching neighborhoods
                 </div>
               )}
+            </div>
+
+            <div>
+              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                Default Pickup Address
+              </label>
+              <Input
+                type="text"
+                placeholder="Building name or cross roads"
+                value={pickupAddress}
+                onChange={(e) => setPickupAddress(e.target.value)}
+                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+              />
+              <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
+              </p>
             </div>
 
             {error && <p className="text-sm text-red-400">{error}</p>}

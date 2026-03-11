@@ -12,6 +12,7 @@ class User(Base):
     display_name = Column(String(100), nullable=True)
     neighborhood = Column(String(100), nullable=True)
     profile_picture = Column(String(255), nullable=True)
+    pickup_address = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -119,4 +120,21 @@ class PurchaseOrder(Base):
     seller_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String(20), default="pending")
     selected_pickup_slots = Column(String(2000), nullable=True)
+    buyer_reviewed = Column(Boolean, default=False)
+    seller_reviewed = Column(Boolean, default=False)
+    pickup_address = Column(String(255), nullable=True)
+    address_released = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reviewee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reviewer_role = Column(String(10), nullable=False)  # "buyer" or "seller"
+    rating = Column(Integer, nullable=False)  # 1-5
+    comment = Column(String(1000), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

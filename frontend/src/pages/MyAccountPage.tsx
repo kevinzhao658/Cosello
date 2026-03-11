@@ -109,6 +109,11 @@ interface OrderData {
   selected_pickup_slots: { date: string; time: string }[];
   created_at: string | null;
   role: string;
+  buyer_reviewed: boolean;
+  seller_reviewed: boolean;
+  pickup_address: string | null;
+  address_released: boolean;
+  is_neighborhood: boolean;
 }
 
 interface WishlistListing {
@@ -138,9 +143,10 @@ interface MyAccountPageProps {
   pendingListingId?: string | null;
   onClearPendingListing?: () => void;
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
+  openListingDetail?: (listing: any) => void;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory }: MyAccountPageProps) {
+export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail }: MyAccountPageProps) {
   const { user, token, updateUser } = useAuth();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -183,6 +189,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [editNeighborhood, setEditNeighborhood] = useState("");
+  const [editPickupAddress, setEditPickupAddress] = useState("");
   const [editShowSuggestions, setEditShowSuggestions] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [editProfileError, setEditProfileError] = useState("");
@@ -331,10 +338,111 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     role: "seller" | "buyer";
   } | null>(null);
 
-  // Purchases (buyer's orders)
+  // Purchases (buyer's orders) and seller orders
   const [myPurchases, setMyPurchases] = useState<OrderData[]>([]);
+  const [mySellerOrders, setMySellerOrders] = useState<OrderData[]>([]);
 
-  const fetchMyPurchases = useCallback(async () => {
+  // Countdown tick (forces re-render every 60s for live countdowns)
+  const [countdownTick, setCountdownTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setCountdownTick((p) => p + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getPickupCountdown = (order: OrderData): { expired: boolean; label: string } => {
+    if (order.status !== "confirmed" || order.selected_pickup_slots.length === 0) {
+      return { expired: false, label: "" };
+    }
+    const slot = order.selected_pickup_slots[0];
+    let endHour = 18;
+    const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
+    if (dashMatch) {
+      let h = parseInt(dashMatch[1], 10);
+      const ampm = dashMatch[2].toUpperCase();
+      if (ampm === "PM" && h !== 12) h += 12;
+      if (ampm === "AM" && h === 12) h = 0;
+      endHour = h;
+    }
+    const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
+    if (legacyEnd[slot.time]) endHour = legacyEnd[slot.time];
+
+    const target = new Date(slot.date + "T00:00:00");
+    target.setHours(endHour, 0, 0, 0);
+    const diff = target.getTime() - Date.now();
+
+    if (diff <= 0) return { expired: true, label: "Ready" };
+    const days = Math.floor(diff / 86400000);
+    const hours = Math.floor((diff % 86400000) / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    if (days > 0) return { expired: false, label: `${days}d ${hours}h ${mins}m` };
+    if (hours > 0) return { expired: false, label: `${hours}h ${mins}m` };
+    return { expired: false, label: `${mins}m` };
+  };
+
+  // Auto-release address when countdown expires for neighborhood orders
+  useEffect(() => {
+    if (!token) return;
+    const allOrders = [...myPurchases, ...mySellerOrders];
+    for (const order of allOrders) {
+      if (
+        order.status === "confirmed" &&
+        order.is_neighborhood &&
+        !order.address_released
+      ) {
+        const countdown = getPickupCountdown(order);
+        if (countdown.expired) {
+          fetch(`/api/orders/${order.id}/release-address`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }).then((res) => {
+            if (res.ok) fetchAllOrders();
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rating modal state
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingOrder, setRatingOrder] = useState<OrderData | null>(null);
+  const [ratingValue, setRatingValue] = useState(0);
+  const [ratingHover, setRatingHover] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
+
+  const openRatingModal = (order: OrderData) => {
+    setRatingOrder(order);
+    setRatingValue(0);
+    setRatingHover(0);
+    setRatingComment("");
+    setShowRatingModal(true);
+  };
+
+  const handleSubmitRating = async () => {
+    if (!token || !ratingOrder || ratingValue === 0) return;
+    setIsSubmittingRating(true);
+    try {
+      const res = await fetch(`/api/orders/${ratingOrder.id}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rating: ratingValue, comment: ratingComment }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Failed to submit review" }));
+        throw new Error(err.detail || "Failed to submit review");
+      }
+      setShowRatingModal(false);
+      setRatingOrder(null);
+      fetchAllOrders();
+      fetchMyListings();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsSubmittingRating(false);
+    }
+  };
+
+  const fetchAllOrders = useCallback(async () => {
     if (!token) return;
     try {
       const res = await fetch("/api/orders", {
@@ -343,6 +451,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         setMyPurchases(allOrders.filter((o) => o.role === "buyer"));
+        setMySellerOrders(allOrders.filter((o) => o.role === "seller"));
       }
     } catch {
       // ignore
@@ -435,7 +544,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           });
         }
         fetchMyListings();
-        fetchMyPurchases();
+        fetchAllOrders();
       }
     } catch {
       // ignore
@@ -605,8 +714,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchCommunities();
     fetchStats();
     fetchMyListings();
-    fetchMyPurchases();
-  }, [fetchCommunities, fetchStats, fetchMyListings, fetchMyPurchases]);
+    fetchAllOrders();
+  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders]);
 
   // Auto-open order modal when routed from notification
   useEffect(() => {
@@ -1269,6 +1378,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setEditFirstName(parts[0] || "");
     setEditLastName(parts.slice(1).join(" ") || "");
     setEditNeighborhood(user?.neighborhood || "");
+    setEditPickupAddress(user?.pickup_address || "");
     setEditProfileError("");
     setEditShowSuggestions(false);
     setShowEditProfileModal(true);
@@ -1297,6 +1407,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         body: JSON.stringify({
           display_name: `${editFirstName.trim()} ${editLastName.trim()}`,
           neighborhood: editNeighborhood.trim(),
+          pickup_address: editPickupAddress.trim() || undefined,
         }),
       });
 
@@ -1531,8 +1642,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           </div>
         </div>
 
-        {/* Three Column Section */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* User Dashboard */}
+        <div className="mb-10">
+          <h2 className="text-lg font-light tracking-wider mb-4 text-white/80">User Dashboard</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* My Listings */}
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">
             <div className="flex items-center gap-2.5 mb-5">
@@ -1567,28 +1680,35 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 }).map((listing) => {
                   const timeInfo = getListingTimeInfo(listing.postedAt);
                   const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
+                  const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
+                  const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
+                  const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
+                  const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
+                  const isSellerCompleted = sellerOrder && sellerHasReviewed;
+
                   return (
                     <div
                       key={listing.id}
                       className={`flex items-center gap-3 p-2 rounded-lg border transition-colors cursor-pointer ${
                         timeInfo.expired
                           ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                          : hasPendingOrders
-                            ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
-                            : "bg-white/[0.03] border-white/5 hover:bg-white/5"
+                          : isSellerPickupReady
+                            ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
+                            : hasPendingOrders
+                              ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
+                              : sellerOrder && sellerOrder.status === "confirmed"
+                                ? "bg-green-500/[0.03] border-green-400/20"
+                                : "bg-white/[0.03] border-white/5 hover:bg-white/5"
                       }`}
                       onClick={() => {
                         if (timeInfo.expired) return;
-                        if (hasPendingOrders) openOrderModal(listing);
+                        if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
+                        else if (hasPendingOrders) openOrderModal(listing);
                         else openEditListing(listing);
                       }}
                     >
                       <div className="relative shrink-0">
-                        <img
-                          src={listing.imageUrl}
-                          alt={listing.title}
-                          className="size-10 rounded-md object-cover border border-white/10"
-                        />
+                        <img src={listing.imageUrl} alt={listing.title} className="size-10 rounded-md object-cover border border-white/10" />
                         {hasPendingOrders && (
                           <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
                             {listing.pendingOrderCount}
@@ -1598,14 +1718,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-white/80 truncate">{listing.title}</p>
                         <div className="flex items-center gap-1.5">
-                          {hasPendingOrders ? (
+                          {isSellerCompleted ? (
+                            <span className="text-[10px] text-white/30">Completed</span>
+                          ) : isSellerPickupReady ? (
+                            <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                          ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
+                            <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup</span>
+                          ) : hasPendingOrders ? (
                             <span className="text-[10px] text-cyan-400">{listing.pendingOrderCount} pending {listing.pendingOrderCount === 1 ? "order" : "orders"}</span>
                           ) : (
                             <>
                               <Clock className="size-2.5 text-white/20" />
-                              <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>
-                                {timeInfo.label}
-                              </p>
+                              <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>{timeInfo.label}</p>
                             </>
                           )}
                         </div>
@@ -1616,15 +1740,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           disabled={relistingId === listing.id}
                           className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors shrink-0 disabled:opacity-40"
                         >
-                          {relistingId === listing.id ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            <>
-                              <RotateCcw className="size-2.5" />
-                              Relist
-                            </>
-                          )}
+                          {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
                         </button>
+                      ) : isSellerPickupReady ? (
+                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 shrink-0">Confirm</span>
+                      ) : sellerOrder && sellerOrder.status === "confirmed" ? (
+                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20 shrink-0">Confirmed</span>
                       ) : hasPendingOrders ? (
                         <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 shrink-0">Review</span>
                       ) : (
@@ -1651,9 +1772,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             </div>
           </div>
 
-          {/* My Purchases */}
-          {myPurchases.length > 0 && (
-            <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+          {/* Column 2: My Purchases + Wishlist stacked */}
+          <div className="flex flex-col gap-6">
+            {/* My Purchases */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex-1 min-h-0 flex flex-col">
               <div className="flex items-center gap-2.5 mb-5">
                 <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
                   <ShoppingBag className="size-4 text-cyan-400" />
@@ -1661,102 +1783,124 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <h3 className="text-sm font-medium">My Purchases</h3>
               </div>
 
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {myPurchases.map((order) => {
-                  const statusColors: Record<string, string> = {
-                    pending: "text-amber-400 bg-amber-500/10 border-amber-400/20",
-                    confirmed: "text-green-400 bg-green-500/10 border-green-400/20",
-                  };
-                  const statusLabel: Record<string, string> = { pending: "Pending", confirmed: "Confirmed" };
-                  return (
-                    <div
-                      key={order.id}
-                      className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
-                        order.status === "confirmed"
-                          ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                          : "bg-white/[0.03] border-white/5"
-                      }`}
-                      onClick={() => {
-                        if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
-                      }}
-                    >
-                      <img
-                        src={order.listing_image}
-                        alt={order.listing_title}
-                        className="size-10 rounded-md object-cover border border-white/10 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
-                        <p className="text-[10px] text-white/30">
-                          {order.created_at
-                            ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                            : ""}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColors[order.status] || "text-white/40 bg-white/5 border-white/10"}`}>
-                          {statusLabel[order.status] || order.status}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+              {myPurchases.length === 0 ? (
+                <div className="text-center py-4">
+                  <ShoppingBag className="size-6 text-white/15 mx-auto mb-2" />
+                  <p className="text-xs text-white/30 mb-2">No purchases yet</p>
+                  <Button onClick={() => onNavigate("market")} size="sm" className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs">
+                    Browse Market
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
+                  {myPurchases.map((order) => {
+                    const countdown = getPickupCountdown(order);
+                    const hasReviewed = order.buyer_reviewed;
+                    let badge: { label: string; className: string };
+                    let isActionable = false;
 
-          {/* Wishlist */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-            <div className="flex items-center gap-2.5 mb-5">
-              <div className="size-8 rounded-lg bg-red-500/15 flex items-center justify-center">
-                <Heart className="size-4 text-red-400" />
-              </div>
-              <h3 className="text-sm font-medium">Wishlist</h3>
-            </div>
+                    if ((order.status === "completed" && hasReviewed) || (order.status === "completed" && !countdown.expired)) {
+                      badge = { label: "Completed", className: "text-white/40 bg-white/5 border-white/10" };
+                    } else if (order.status === "confirmed" && countdown.expired && !hasReviewed) {
+                      badge = { label: "Confirm Pickup", className: "text-green-400 bg-green-500/10 border-green-400/20" };
+                      isActionable = true;
+                    } else if (order.status === "completed" && countdown.expired && !hasReviewed) {
+                      badge = { label: "Confirm Pickup", className: "text-green-400 bg-green-500/10 border-green-400/20" };
+                      isActionable = true;
+                    } else if (order.status === "confirmed") {
+                      badge = { label: countdown.label + " till pickup", className: "text-green-400 bg-green-500/10 border-green-400/20" };
+                    } else {
+                      badge = { label: "Pending", className: "text-amber-400 bg-amber-500/10 border-amber-400/20" };
+                    }
 
-            {wishlistItems.length === 0 ? (
-              <div className="text-center py-6">
-                <Heart className="size-8 text-white/15 mx-auto mb-2" />
-                <p className="text-xs text-white/30 mb-3">Nothing saved yet</p>
-                <Button
-                  onClick={() => onNavigate("market")}
-                  size="sm"
-                  className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-400/20 text-xs"
-                >
-                  Browse Market
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {wishlistItems.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03] border border-white/5">
-                    <img
-                      src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl}
-                      alt={item.title}
-                      className="size-10 rounded-md object-cover shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium truncate">{item.title}</p>
-                      <p className="text-[10px] text-fuchsia-400">${item.price}</p>
-                    </div>
-                    {onToggleWishlist && (
-                      <button
-                        onClick={() => onToggleWishlist(item.id)}
-                        className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
+                    return (
+                      <div
+                        key={order.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
+                          isActionable
+                            ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
+                            : order.status === "confirmed"
+                              ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
+                              : "bg-white/[0.03] border-white/5"
+                        }`}
+                        onClick={() => {
+                          if (isActionable) openRatingModal(order);
+                          else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
+                        }}
                       >
-                        <Heart className="size-3.5 text-red-400 fill-red-400" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                        <img src={order.listing_image} alt={order.listing_title} className="size-10 rounded-md object-cover border border-white/10 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
+                          <p className="text-[10px] text-white/30">
+                            {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
+                          </p>
+                          {order.address_released && order.pickup_address && (
+                            <p className="text-[10px] text-green-400/80 flex items-center gap-1 mt-0.5">
+                              <MapPin className="size-2.5" />{order.pickup_address}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${badge.className}`}>
+                            {badge.label}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-            <div className="mt-4 pt-4 border-t border-white/5">
-              <div className="flex justify-between text-xs text-white/30">
-                <span>Saved Items</span>
-                <span>{wishlistItems.length}</span>
+            {/* Wishlist */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex-1 min-h-0 flex flex-col">
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="size-8 rounded-lg bg-red-500/15 flex items-center justify-center">
+                  <Heart className="size-4 text-red-400" />
+                </div>
+                <h3 className="text-sm font-medium">Wishlist</h3>
+              </div>
+
+              {wishlistItems.length === 0 ? (
+                <div className="text-center py-4">
+                  <Heart className="size-6 text-white/15 mx-auto mb-2" />
+                  <p className="text-xs text-white/30 mb-2">Nothing saved yet</p>
+                  <Button onClick={() => onNavigate("market")} size="sm" className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-400/20 text-xs">
+                    Browse Market
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
+                  {wishlistItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                      onClick={() => openListingDetail?.(item)}
+                    >
+                      <img src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl} alt={item.title} className="size-10 rounded-md object-cover shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{item.title}</p>
+                        <p className="text-[10px] text-fuchsia-400">${item.price}</p>
+                      </div>
+                      {onToggleWishlist && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onToggleWishlist(item.id); }}
+                          className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
+                        >
+                          <Heart className="size-3.5 text-red-400 fill-red-400" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-white/5">
+                <div className="flex justify-between text-xs text-white/30">
+                  <span>Saved Items</span>
+                  <span>{wishlistItems.length}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1801,6 +1945,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Join Community Modal */}
@@ -2382,6 +2527,22 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     No matching neighborhoods
                   </div>
                 )}
+              </div>
+
+              <div>
+                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                  Default Pickup Address
+                </label>
+                <Input
+                  type="text"
+                  placeholder="Building name or cross roads"
+                  value={editPickupAddress}
+                  onChange={(e) => setEditPickupAddress(e.target.value)}
+                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                />
+                <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                  Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
+                </p>
               </div>
 
               {editProfileError && <p className="text-sm text-red-400">{editProfileError}</p>}
@@ -3582,6 +3743,68 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Rating / Confirm Pickup Modal */}
+      {showRatingModal && ratingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowRatingModal(false); setRatingOrder(null); }} />
+          <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
+            <button onClick={() => { setShowRatingModal(false); setRatingOrder(null); }} className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors">
+              <X className="size-5" />
+            </button>
+
+            <div className="text-center mb-5">
+              <div className="size-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
+                <Check className="size-6 text-green-400" />
+              </div>
+              <h3 className="text-sm font-medium">Confirm Pickup</h3>
+              <p className="text-[10px] text-white/40 mt-1">
+                Rate your experience with {ratingOrder.role === "buyer" ? "the seller" : ratingOrder.buyer_name}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 mb-5 bg-white/[0.03] border border-white/10 rounded-lg p-3">
+              <img src={ratingOrder.listing_image} alt={ratingOrder.listing_title} className="size-10 rounded-md object-cover border border-white/10 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate">{ratingOrder.listing_title}</p>
+                <p className="text-sm text-fuchsia-400 font-medium">${ratingOrder.listing_price}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-center gap-1 mb-4">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onMouseEnter={() => setRatingHover(star)}
+                  onMouseLeave={() => setRatingHover(0)}
+                  onClick={() => setRatingValue(star)}
+                  className="p-0.5 transition-transform hover:scale-110"
+                >
+                  <svg className={`size-7 ${(ratingHover || ratingValue) >= star ? "text-yellow-400 fill-yellow-400" : "text-white/15"}`} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" fill="none">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              value={ratingComment}
+              onChange={(e) => setRatingComment(e.target.value)}
+              placeholder="Leave a comment (optional)..."
+              className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/80 placeholder-white/25 resize-none h-20 mb-4 focus:outline-none focus:border-white/20"
+            />
+
+            <Button
+              onClick={handleSubmitRating}
+              disabled={ratingValue === 0 || isSubmittingRating}
+              className="w-full bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-400 text-xs disabled:opacity-40"
+              size="sm"
+            >
+              {isSubmittingRating ? <Loader2 className="size-3.5 animate-spin" /> : "Submit & Confirm Pickup"}
+            </Button>
           </div>
         </div>
       )}

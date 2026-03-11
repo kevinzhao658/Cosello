@@ -38,7 +38,28 @@ with engine.connect() as conn:
             conn.execute(text("ALTER TABLE notifications ADD COLUMN related_user_id INTEGER REFERENCES users(id)"))
             conn.commit()
 
-    # Create wishlist_items if missing (handled by create_all, but just in case)
+    # Add pickup_address to users if missing
+    if "users" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("users")]
+        if "pickup_address" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN pickup_address VARCHAR(255)"))
+            conn.commit()
+
+    # Add buyer_reviewed, seller_reviewed, pickup_address, address_released to purchase_orders if missing
+    if "purchase_orders" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("purchase_orders")]
+        if "buyer_reviewed" not in cols:
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN buyer_reviewed BOOLEAN DEFAULT 0"))
+            conn.commit()
+        if "seller_reviewed" not in cols:
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN seller_reviewed BOOLEAN DEFAULT 0"))
+            conn.commit()
+        if "pickup_address" not in cols:
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN pickup_address VARCHAR(255)"))
+            conn.commit()
+        if "address_released" not in cols:
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN address_released INTEGER DEFAULT 0"))
+            conn.commit()
 
 app = FastAPI()
 
@@ -388,7 +409,7 @@ async def create_listing(
         "description": details.get("description", ""),
         "price": details.get("price", "0"),
         "condition": details.get("condition", "Good"),
-        "location": details.get("location", ""),
+        "location": current_user.neighborhood or details.get("location", ""),
         "tags": details.get("tags", []),
         "communities": community_ids,
         "visibility": visibility,

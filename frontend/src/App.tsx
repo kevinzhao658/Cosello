@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, Filter, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
@@ -85,10 +85,7 @@ export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
 
-  const [selectedHomeCommunities, setSelectedHomeCommunities] = useState<string[]>([]);
-  const [homeShowAll, setHomeShowAll] = useState(true);
-  const [homeCommunityOpen, setHomeCommunityOpen] = useState(false);
-  const homeCommunityRef = useRef<HTMLDivElement>(null);
+  const [homeSearch, setHomeSearch] = useState("");
   const [displayText, setDisplayText] = useState("");
   const fullText = "GRAND EXCHANGE";
   const [isTypingComplete, setIsTypingComplete] = useState(false);
@@ -102,7 +99,7 @@ export default function App() {
   const [uploadedImages, setUploadedImages] = useState<{ file: File; preview: string }[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
-  const [listingMode, setListingMode] = useState<"single" | "bulk">("single");
+
   const [bulkItems, setBulkItems] = useState<BulkItemDetails[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [bulkReviewPhase, setBulkReviewPhase] = useState<"cards" | "summary" | null>(null);
@@ -194,8 +191,9 @@ export default function App() {
 
   // Buy confirmation modal state
   const [showBuyModal, setShowBuyModal] = useState(false);
-  const [selectedPickupSlots, setSelectedPickupSlots] = useState<{ date: string; time: string; label: string; dayLabel: string }[]>([]);
+  const [pickupDaySelections, setPickupDaySelections] = useState<Record<string, { from: number; to: number; dayLabel: string }>>({});
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const formatHour = (h: number) => h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`;
 
   // Edit listing modal state (from marketplace detail)
   const [showEditListingModal, setShowEditListingModal] = useState(false);
@@ -283,36 +281,36 @@ export default function App() {
   };
 
   const computeAvailablePickupDays = (listing: Listing) => {
-    const timeLabels: Record<string, string> = { morning: "8:00 AM - 12:00 PM", afternoon: "12:00 PM - 5:00 PM", evening: "5:00 PM - 9:00 PM" };
     const now = new Date();
     const postedAt = new Date(listing.postedAt * 1000);
     const expiresAt = new Date(postedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const days: { date: string; dayLabel: string; timeSlots: { time: string; label: string }[] }[] = [];
+    const days: { date: string; dayLabel: string }[] = [];
     const startDate = new Date(now);
     startDate.setDate(startDate.getDate() + 1);
     startDate.setHours(0, 0, 0, 0);
     for (let d = new Date(startDate); d <= expiresAt; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split("T")[0];
       const dayName = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-      days.push({
-        date: dateStr,
-        dayLabel: dayName,
-        timeSlots: Object.entries(timeLabels).map(([time, label]) => ({ time, label })),
-      });
+      days.push({ date: dateStr, dayLabel: dayName });
     }
     return days;
   };
 
   const handleConfirmPurchase = async () => {
-    if (!listingDetailData || selectedPickupSlots.length === 0 || !token) return;
+    const dayEntries = Object.entries(pickupDaySelections);
+    if (!listingDetailData || dayEntries.length === 0 || !token) return;
     setIsSubmittingOrder(true);
     try {
+      const slots = dayEntries.map(([date, { from, to }]) => ({
+        date,
+        time: `${formatHour(from)} – ${formatHour(to)}`,
+      }));
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           listing_id: listingDetailData.id,
-          selected_pickup_slots: selectedPickupSlots.map((s) => ({ date: s.date, time: s.time })),
+          selected_pickup_slots: slots,
         }),
       });
       if (!res.ok) {
@@ -324,7 +322,7 @@ export default function App() {
       setShowListingDetailModal(false);
       setListingDetailData(null);
       setListingDetailSellerProfile(null);
-      setSelectedPickupSlots([]);
+      setPickupDaySelections({});
       fetchListings();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -332,17 +330,6 @@ export default function App() {
       setIsSubmittingOrder(false);
     }
   };
-
-  // Close home community dropdown on outside click
-  useEffect(() => {
-    if (!homeCommunityOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (homeCommunityRef.current?.contains(e.target as Node)) return;
-      setHomeCommunityOpen(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [homeCommunityOpen]);
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -450,7 +437,6 @@ export default function App() {
       setBulkItems([]);
       setBulkReviewPhase(null);
       setCurrentCardIndex(0);
-      setListingMode("single");
     }
   }, [tradeMode]);
 
@@ -623,18 +609,9 @@ export default function App() {
     setDragOverGap(null);
   };
 
-  const handleListingModeChange = (mode: "single" | "bulk") => {
-    setListingMode(mode);
-    setProductDetails(null);
-    setBulkItems([]);
-    setBulkReviewPhase(null);
-    setCurrentCardIndex(0);
-  };
-
   const handleSeparateItems = async () => {
     if (uploadedImages.length < 2) return;
     setProductDetails(null);
-    setListingMode("bulk");
     setIsGenerating(true);
     try {
       const formData = new FormData();
@@ -648,6 +625,10 @@ export default function App() {
         throw new Error(err.detail || "Failed to generate bulk listing");
       }
       const items: BulkItemDetails[] = await res.json();
+      const sellerNeighborhood = user?.neighborhood;
+      if (sellerNeighborhood) {
+        items.forEach((item) => { item.location = sellerNeighborhood; });
+      }
       setBulkItems(items);
       setCurrentCardIndex(0);
       setBulkReviewPhase("cards");
@@ -669,32 +650,37 @@ export default function App() {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
 
-      if (listingMode === "bulk") {
-        const res = await fetch("/api/generate-bulk-listing", {
-          method: "POST",
-          body: formData,
+      const res = await fetch("/api/generate-bulk-listing", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Server error" }));
+        throw new Error(err.detail || "Failed to generate listing");
+      }
+      const items: BulkItemDetails[] = await res.json();
+
+      if (items.length === 1) {
+        // Single item detected — use single-item edit form
+        setProductDetails({
+          title: items[0].title,
+          description: items[0].description,
+          price: items[0].price,
+          condition: items[0].condition,
+          location: user?.neighborhood || items[0].location,
+          tags: items[0].tags,
         });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: "Server error" }));
-          throw new Error(err.detail || "Failed to generate bulk listing");
+      } else {
+        // Multiple items — enter bulk cards flow
+        const sellerNeighborhood = user?.neighborhood;
+        if (sellerNeighborhood) {
+          items.forEach((item) => { item.location = sellerNeighborhood; });
         }
-        const items: BulkItemDetails[] = await res.json();
         setBulkItems(items);
         setCurrentCardIndex(0);
         setBulkReviewPhase("cards");
         setGroupingsModified(false);
         setModifiedGroupIndices(new Set());
-      } else {
-        const res = await fetch("/api/generate-listing", {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: "Server error" }));
-          throw new Error(err.detail || "Failed to generate listing");
-        }
-        const listing: ProductDetails = await res.json();
-        setProductDetails(listing);
       }
     } catch (err) {
       console.error("Generate listing failed:", err);
@@ -861,7 +847,6 @@ export default function App() {
       setProductDetails(null);
       setUploadedImages([]);
 
-      setListingMode("single");
       setTradeMode("buy");
       setPage("market");
     } catch (err) {
@@ -1206,7 +1191,7 @@ export default function App() {
                               key={n.id}
                               className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${
                                 n.is_read ? "opacity-40" : ""
-                              } ${(n.type === "purchase" || n.type === "order_confirmed") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
+                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
                               onClick={() => {
                                 if (n.type === "purchase" && n.listing_id) {
                                   setNotificationsOpen(false);
@@ -1214,7 +1199,7 @@ export default function App() {
                                   setPendingListingId(n.listing_id);
                                   setPage("account");
                                 }
-                                if (n.type === "order_confirmed" && n.listing_id) {
+                                if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released") && n.listing_id) {
                                   setNotificationsOpen(false);
                                   if (unreadCount > 0) handleMarkAllRead();
                                   setPendingListingId(n.listing_id);
@@ -1230,12 +1215,20 @@ export default function App() {
                                     ? "bg-amber-500/15"
                                     : n.type === "purchase"
                                       ? "bg-cyan-500/15"
-                                      : "bg-green-500/15"
+                                      : n.type === "review_submitted"
+                                        ? "bg-fuchsia-500/15"
+                                        : n.type === "address_released"
+                                          ? "bg-green-500/15"
+                                          : "bg-green-500/15"
                                 }`}>
                                   {n.type === "join_request" ? (
                                     <UserPlus className="size-3.5 text-amber-400" />
                                   ) : n.type === "purchase" ? (
                                     <ShoppingBag className="size-3.5 text-cyan-400" />
+                                  ) : n.type === "review_submitted" ? (
+                                    <Star className="size-3.5 text-fuchsia-400" />
+                                  ) : n.type === "address_released" ? (
+                                    <MapPin className="size-3.5 text-green-400" />
                                   ) : (
                                     <CheckCircle className="size-3.5 text-green-400" />
                                   )}
@@ -1414,143 +1407,40 @@ export default function App() {
             <div className="max-w-4xl mx-auto">
               {tradeMode === "buy" ? (
                 <>
-                  <div className="relative flex items-center gap-2 mb-2">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      setMarketSearch(homeSearch);
+                      setPage("market");
+                    }}
+                    className="relative flex items-center gap-2 mb-2"
+                  >
                     <div className="relative flex-1">
                       <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-white/40 size-5" />
                       <Input
                         type="text"
+                        value={homeSearch}
+                        onChange={(e) => setHomeSearch(e.target.value)}
                         placeholder="Search for items..."
                         className="w-full pl-12 pr-4 py-6 text-lg bg-white/5 border-white/20 text-white placeholder:text-white/40 focus:border-cyan-400"
                       />
                     </div>
 
-                    <div className="relative" ref={homeCommunityRef}>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setHomeCommunityOpen((prev) => !prev)}
-                        className="h-[52px] w-[52px] bg-white/5 border-white/20 hover:bg-white/10 text-white"
-                      >
-                        <Filter className="size-5" />
-                      </Button>
-                      {homeCommunityOpen && (() => {
-                        const allIds = filterCommunities.map((c) => String(c.id));
-                        const myCommunitiesSelected = allIds.length > 0 && allIds.every((id) => selectedHomeCommunities.includes(id));
-                        const publicCommunities = filterCommunities.filter((c) => c.id === "neighborhood" || c.is_public !== false);
-                        const privateCommunities = filterCommunities.filter((c) => c.id !== "neighborhood" && c.is_public === false);
-                        return (
-                          <div className="absolute right-0 top-full mt-1 min-w-[200px] rounded-lg border border-white/20 shadow-xl z-50 py-1.5 max-h-48 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
-                            {/* All: My Communities + All Public */}
-                            <label className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer font-medium">
-                              <input
-                                type="checkbox"
-                                checked={homeShowAll}
-                                onChange={() => {
-                                  if (homeShowAll) {
-                                    setHomeShowAll(false);
-                                  } else {
-                                    setHomeShowAll(true);
-                                    setSelectedHomeCommunities(allIds);
-                                  }
-                                }}
-                                className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
-                              />
-                              All
-                            </label>
-                            {/* My Communities: select/deselect all user's communities */}
-                            <label className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={myCommunitiesSelected}
-                                onChange={() => {
-                                  if (myCommunitiesSelected) {
-                                    setSelectedHomeCommunities([]);
-                                  } else {
-                                    setSelectedHomeCommunities(allIds);
-                                  }
-                                  setHomeShowAll(false);
-                                }}
-                                className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
-                              />
-                              My Communities
-                            </label>
-                            <div className="border-t border-white/10 my-1" />
-                            {publicCommunities.length > 0 && (
-                              <>
-                                <div className="px-3 pt-2 pb-1">
-                                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Public</span>
-                                </div>
-                                {publicCommunities.map((c) => {
-                                  const cid = String(c.id);
-                                  const checked = selectedHomeCommunities.includes(cid);
-                                  return (
-                                    <label key={cid} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() => {
-                                          setSelectedHomeCommunities((prev) => checked ? prev.filter((x) => x !== cid) : [...prev, cid]);
-                                          setHomeShowAll(false);
-                                        }}
-                                        className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
-                                      />
-                                      {c.name}
-                                    </label>
-                                  );
-                                })}
-                              </>
-                            )}
-                            {privateCommunities.length > 0 && (
-                              <>
-                                <div className="px-3 pt-2 pb-1">
-                                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Private</span>
-                                </div>
-                                {privateCommunities.map((c) => {
-                                  const cid = String(c.id);
-                                  const checked = selectedHomeCommunities.includes(cid);
-                                  return (
-                                    <label key={cid} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-white/10 transition-colors text-white cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={() => {
-                                          setSelectedHomeCommunities((prev) => checked ? prev.filter((x) => x !== cid) : [...prev, cid]);
-                                          setHomeShowAll(false);
-                                        }}
-                                        className="size-3.5 rounded border-white/30 bg-white/5 accent-cyan-500"
-                                      />
-                                      {c.name}
-                                    </label>
-                                  );
-                                })}
-                              </>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-
                     {/* Buy/Sell Toggle */}
                     <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
                       <Button
+                        type="button"
                         variant="ghost"
                         onClick={() => setTradeMode("buy")}
-                        className={`h-[52px] px-4 rounded-none text-sm ${
-                          tradeMode === "buy"
-                            ? "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
-                            : "text-white/60 hover:text-white hover:bg-white/5"
-                        }`}
+                        className="h-[52px] px-4 rounded-none text-sm bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
                       >
                         Buy
                       </Button>
                       <Button
+                        type="button"
                         variant="ghost"
                         onClick={() => setTradeMode("sell")}
-                        className={`h-[52px] px-4 rounded-none text-sm ${
-                          tradeMode === "sell"
-                            ? "bg-fuchsia-500/20 text-fuchsia-400 hover:bg-fuchsia-500/30"
-                            : "text-white/60 hover:text-white hover:bg-white/5"
-                        }`}
+                        className="h-[52px] px-4 rounded-none text-sm text-white/60 hover:text-white hover:bg-white/5"
                       >
                         Sell
                       </Button>
@@ -1558,24 +1448,58 @@ export default function App() {
 
                     {/* Submit Button */}
                     <Button
+                      type="submit"
                       size="icon"
                       className="h-[52px] w-[52px] bg-cyan-500 hover:bg-cyan-600 text-white border-0"
                     >
                       <ArrowRight className="size-5" />
                     </Button>
-                  </div>
+                  </form>
+
+                  {/* Community Filter Chips — mirrors market page */}
+                  {isAuthenticated && filterCommunities.length > 0 && (
+                    <div className="flex items-center justify-center gap-2 flex-wrap mb-2">
+                      {filterCommunities.map((community) => {
+                        const cid = String(community.id);
+                        const isSelected = selectedMarketCommunities.includes(cid);
+                        return (
+                          <button
+                            key={cid}
+                            onClick={() =>
+                              setSelectedMarketCommunities((prev) =>
+                                isSelected ? prev.filter((x) => x !== cid) : [...prev, cid]
+                              )
+                            }
+                            className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all ${
+                              isSelected
+                                ? "bg-fuchsia-500/15 border-fuchsia-400/30 text-fuchsia-300"
+                                : "bg-white/5 border-white/15 text-white/50 hover:bg-white/10"
+                            }`}
+                          >
+                            {community.is_public !== false ? <Globe className="size-3" /> : <Lock className="size-3" />}
+                            {community.name}
+                          </button>
+                        );
+                      })}
+                      {selectedMarketCommunities.length > 0 && (
+                        <button
+                          onClick={() => setSelectedMarketCommunities([])}
+                          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border border-white/10 text-white/30 hover:text-white/50 hover:bg-white/5 transition-all"
+                        >
+                          <X className="size-3" />
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <p className="text-sm text-white/60 text-center">
-                    Buying • {homeShowAll
+                    Buying • {selectedMarketCommunities.length === 0
                       ? "All"
-                      : selectedHomeCommunities.length === 0
-                        ? "No communities selected"
-                        : selectedHomeCommunities.length === filterCommunities.length
-                          ? "My Communities"
-                          : filterCommunities
-                              .filter((c) => selectedHomeCommunities.includes(String(c.id)))
-                              .map((c) => c.name)
-                              .join(", ")}
+                      : filterCommunities
+                          .filter((c) => selectedMarketCommunities.includes(String(c.id)))
+                          .map((c) => c.name)
+                          .join(", ")}
                   </p>
                 </>
               ) : (
@@ -1811,34 +1735,6 @@ export default function App() {
                     </>
                   )}
 
-                  {/* Single / Bulk Toggle */}
-                  {!productDetails && !bulkReviewPhase && !isGenerating && uploadedImages.length > 0 && (
-                    <div className="flex items-center gap-2 mt-1 mb-1">
-                      <span className="text-[10px] text-white/40 uppercase tracking-wider">Mode:</span>
-                      <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => handleListingModeChange("single")}
-                          className={`px-3 py-1.5 text-xs transition-all ${
-                            listingMode === "single"
-                              ? "bg-fuchsia-500/20 text-fuchsia-400"
-                              : "text-white/50 hover:text-white/70"
-                          }`}
-                        >
-                          Single
-                        </button>
-                        <button
-                          onClick={() => handleListingModeChange("bulk")}
-                          className={`px-3 py-1.5 text-xs transition-all ${
-                            listingMode === "bulk"
-                              ? "bg-fuchsia-500/20 text-fuchsia-400"
-                              : "text-white/50 hover:text-white/70"
-                          }`}
-                        >
-                          Bulk
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Auto-Generated Product Details */}
                   {isGenerating && (
@@ -2018,6 +1914,20 @@ export default function App() {
                           )}
                         </div>
                       </div>
+
+                      {/* Pickup Location Preview */}
+                      {postVisibility === "public" && selectedPostCommunity === "neighborhood" && (
+                        <div className="mt-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                          <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1.5">Pickup Location</p>
+                          <p className="text-sm text-white/70 flex items-center gap-1.5">
+                            <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
+                            {user?.pickup_address || user?.neighborhood || "Not set"}
+                          </p>
+                          <p className="text-[10px] text-white/30 mt-2 leading-relaxed">
+                            Your address will not be shared with any buyers until confirmation has been secured and the item is out for pickup.
+                          </p>
+                        </div>
+                      )}
 
                       <Button
                         onClick={() => {
@@ -2402,7 +2312,7 @@ export default function App() {
                   {!productDetails && !isGenerating && !bulkReviewPhase && (
                     <p className="text-sm text-white/60 text-center mt-2">
                       {uploadedImages.length > 0
-                        ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate ${listingMode === "bulk" ? "bulk " : ""}listing`
+                        ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate listing`
                         : "Selling • Click above to upload photos"}
                     </p>
                   )}
@@ -2573,12 +2483,6 @@ export default function App() {
                     className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors cursor-pointer"
                     onClick={() => openListingDetail(listing)}
                   >
-                    {isAuthenticated && listing.userId === user?.id && (
-                      <span className="absolute top-3 left-3 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-cyan-500/15 text-cyan-400 border border-cyan-400/20">
-                        <Pencil className="size-2.5" />
-                        Your listing
-                      </span>
-                    )}
                     {isAuthenticated && listing.userId !== user?.id && (
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
@@ -2604,10 +2508,14 @@ export default function App() {
                         {listing.status === "pending" && <span className="px-2 py-0.5 rounded bg-amber-500/15 text-xs text-amber-400">Pending</span>}
                         {listing.status === "sold" && <span className="px-2 py-0.5 rounded bg-white/10 text-xs text-white/40">Sold</span>}
                       </div>
-                      {listing.allCommunities && listing.allCommunities.filter((c) => c.is_mutual).length > 0 && (
+                      {listing.allCommunities && listing.allCommunities.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2.5">
-                          {listing.allCommunities.filter((c) => c.is_mutual).map((c, i) => (
-                            <span key={i} className="px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300">
+                          {listing.allCommunities.map((c, i) => (
+                            <span key={i} className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
+                              c.is_mutual
+                                ? "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300"
+                                : "bg-white/5 border-white/10 text-white/30"
+                            }`}>
                               {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
                             </span>
                           ))}
@@ -2616,9 +2524,14 @@ export default function App() {
                     </div>
                     <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 mr-6">
                       <span className="text-lg font-semibold text-fuchsia-400">${listing.price}</span>
-                      {isAuthenticated && listing.userId !== user?.id && listing.status !== "sold" && listing.status !== "pending" && (
+                      {((!isAuthenticated) || (isAuthenticated && listing.userId !== user?.id)) && listing.status !== "sold" && listing.status !== "pending" && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(() => { setShowBuyModal(true); setSelectedPickupSlots([]); }, 100); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isAuthenticated) { setPage("signin"); return; }
+                            openListingDetail(listing);
+                            setTimeout(() => { setShowBuyModal(true); setPickupDaySelections({}); }, 100);
+                          }}
                           className="text-xs text-cyan-300 hover:text-white bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/25 rounded-full px-5 py-1 transition-colors"
                         >
                           Buy
@@ -2627,7 +2540,7 @@ export default function App() {
                       {isAuthenticated && listing.userId === user?.id && (
                         <button
                           onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(openEditFromDetail, 100); }}
-                          className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white/80 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full px-4 py-1 transition-colors"
+                          className="inline-flex items-center gap-1 text-xs text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 border border-fuchsia-400/30 rounded-full px-4 py-1 transition-colors"
                         >
                           <Pencil className="size-2.5" />
                           Edit
@@ -3137,7 +3050,7 @@ export default function App() {
 
       {/* My Account Page */}
       {page === "account" && (
-        <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} />
+        <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} />
       )}
 
       {/* Post Listing Confirmation Modal */}
@@ -3389,7 +3302,7 @@ export default function App() {
                   <div className="mt-5 text-center py-2.5 rounded-lg bg-amber-500/10 border border-amber-400/20 text-amber-400 text-sm">Pending Sale</div>
                 ) : (
                   <Button
-                    onClick={() => { setShowBuyModal(true); setSelectedPickupSlots([]); }}
+                    onClick={() => { setShowBuyModal(true); setPickupDaySelections({}); }}
                     className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-5"
                   >
                     Buy
@@ -3413,14 +3326,14 @@ export default function App() {
         <div className="fixed inset-0 z-[250] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowBuyModal(false); setSelectedPickupSlots([]); }}
+            onClick={() => { setShowBuyModal(false); setPickupDaySelections({}); }}
           />
           <div
             className="relative w-full max-w-md mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[85vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
           >
             <button
-              onClick={() => { setShowBuyModal(false); setSelectedPickupSlots([]); }}
+              onClick={() => { setShowBuyModal(false); setPickupDaySelections({}); }}
               className="absolute top-3 right-3 z-10 size-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
             >
               <X className="size-3.5 text-white/60" />
@@ -3442,10 +3355,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Pickup Time Slots */}
+              {/* Pickup Availability */}
               <div className="mb-5">
                 <p className="text-xs text-white/40 uppercase tracking-wider mb-1">When can you pick up?</p>
-                <p className="text-[10px] text-white/25 mb-3">Select the days and times that work for you</p>
+                <p className="text-[10px] text-white/25 mb-3">Toggle the days you're available, then set your time window</p>
 
                 {(() => {
                   const availableDays = computeAvailablePickupDays(listingDetailData);
@@ -3456,39 +3369,73 @@ export default function App() {
                       </div>
                     );
                   }
+                  const HOURS = Array.from({ length: 14 }, (_, i) => i + 8); // 8 AM to 9 PM
                   return (
-                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
                       {availableDays.map((day) => {
-                        const dayHasSelection = day.timeSlots.some((ts) =>
-                          selectedPickupSlots.some((s) => s.date === day.date && s.time === ts.time)
-                        );
+                        const sel = pickupDaySelections[day.date];
                         return (
-                          <div key={day.date} className={`rounded-lg border p-2.5 transition-all ${dayHasSelection ? "border-fuchsia-400/30 bg-fuchsia-500/5" : "border-white/10 bg-white/[0.02]"}`}>
-                            <p className="text-xs font-medium text-white/70 mb-1.5">{day.dayLabel}</p>
-                            <div className="flex gap-1.5">
-                              {day.timeSlots.map((ts) => {
-                                const isSelected = selectedPickupSlots.some((s) => s.date === day.date && s.time === ts.time);
-                                return (
-                                  <button
-                                    key={ts.time}
-                                    onClick={() => {
-                                      setSelectedPickupSlots((prev) =>
-                                        isSelected
-                                          ? prev.filter((s) => !(s.date === day.date && s.time === ts.time))
-                                          : [...prev, { date: day.date, time: ts.time, label: ts.label, dayLabel: day.dayLabel }]
-                                      );
-                                    }}
-                                    className={`flex-1 px-2 py-1.5 rounded text-[10px] transition-all ${
-                                      isSelected
-                                        ? "bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-400/40"
-                                        : "bg-white/5 text-white/30 border border-white/10 hover:bg-white/[0.07]"
-                                    }`}
-                                  >
-                                    {ts.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                          <div
+                            key={day.date}
+                            className={`rounded-lg border transition-all ${sel ? "border-fuchsia-400/30 bg-fuchsia-500/5" : "border-white/10 bg-white/[0.02]"}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPickupDaySelections((prev) => {
+                                  if (prev[day.date]) {
+                                    const next = { ...prev };
+                                    delete next[day.date];
+                                    return next;
+                                  }
+                                  return { ...prev, [day.date]: { from: 10, to: 18, dayLabel: day.dayLabel } };
+                                });
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left"
+                            >
+                              <div className={`size-4 rounded border flex items-center justify-center shrink-0 transition-colors ${sel ? "bg-fuchsia-500 border-fuchsia-400" : "border-white/25 bg-white/5"}`}>
+                                {sel && <Check className="size-2.5 text-white" />}
+                              </div>
+                              <span className={`text-xs font-medium flex-1 ${sel ? "text-white" : "text-white/50"}`}>{day.dayLabel}</span>
+                              {sel && (
+                                <span className="text-[10px] text-fuchsia-300/70">{formatHour(sel.from)} – {formatHour(sel.to)}</span>
+                              )}
+                            </button>
+                            {sel && (
+                              <div className="flex items-center gap-2 px-3 pb-2.5 pt-0">
+                                <label className="text-[10px] text-white/30">From</label>
+                                <select
+                                  value={sel.from}
+                                  onChange={(e) => {
+                                    const newFrom = Number(e.target.value);
+                                    setPickupDaySelections((prev) => ({
+                                      ...prev,
+                                      [day.date]: { ...prev[day.date], from: newFrom, to: Math.max(prev[day.date].to, newFrom + 1) },
+                                    }));
+                                  }}
+                                  className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
+                                >
+                                  {HOURS.slice(0, -1).map((h) => (
+                                    <option key={h} value={h}>{formatHour(h)}</option>
+                                  ))}
+                                </select>
+                                <label className="text-[10px] text-white/30">To</label>
+                                <select
+                                  value={sel.to}
+                                  onChange={(e) => {
+                                    setPickupDaySelections((prev) => ({
+                                      ...prev,
+                                      [day.date]: { ...prev[day.date], to: Number(e.target.value) },
+                                    }));
+                                  }}
+                                  className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
+                                >
+                                  {HOURS.filter((h) => h > sel.from).map((h) => (
+                                    <option key={h} value={h}>{formatHour(h)}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -3500,7 +3447,7 @@ export default function App() {
               {/* Confirm Buttons */}
               <div className="flex gap-3">
                 <Button
-                  onClick={() => { setShowBuyModal(false); setSelectedPickupSlots([]); }}
+                  onClick={() => { setShowBuyModal(false); setPickupDaySelections({}); }}
                   variant="outline"
                   className="flex-1 border-white/20 text-white/60 hover:text-white hover:bg-white/5"
                 >
@@ -3508,7 +3455,7 @@ export default function App() {
                 </Button>
                 <Button
                   onClick={handleConfirmPurchase}
-                  disabled={selectedPickupSlots.length === 0 || isSubmittingOrder}
+                  disabled={Object.keys(pickupDaySelections).length === 0 || isSubmittingOrder}
                   className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
                 >
                   {isSubmittingOrder ? <Loader2 className="size-4 animate-spin" /> : "Confirm Purchase"}
