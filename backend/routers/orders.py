@@ -1,4 +1,5 @@
 import json
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,6 +9,8 @@ from database import get_db
 from models import User, PurchaseOrder, Notification, Review
 from auth import get_current_user
 from listings_store import listings_db
+
+LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -19,6 +22,11 @@ class CreateOrderRequest(BaseModel):
 
 class ConfirmOrderRequest(BaseModel):
     confirmed_slot: dict  # { date, time }
+    confirmed_time: str = ""  # e.g. "2:30 PM"
+
+
+class UpdateSlotsRequest(BaseModel):
+    selected_pickup_slots: list[dict]
 
 
 class CompleteOrderRequest(BaseModel):
@@ -26,9 +34,12 @@ class CompleteOrderRequest(BaseModel):
     comment: str = ""
 
 
-def _find_listing(listing_id: str):
+def _find_listing(listing_id: str, check_expiry: bool = False):
+    now = time.time()
     for l in listings_db:
         if l["id"] == listing_id:
+            if check_expiry and now - l.get("postedAt", 0) >= LISTING_EXPIRY_SECONDS:
+                return None
             return l
     return None
 
@@ -39,7 +50,7 @@ async def create_order(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing = _find_listing(req.listing_id)
+    listing = _find_listing(req.listing_id, check_expiry=True)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
@@ -58,6 +69,15 @@ async def create_order(
     if existing:
         raise HTTPException(status_code=400, detail="You already have an order for this listing")
 
+    # Block buyers whose order was declined by the seller
+    existing_declined = db.query(PurchaseOrder).filter(
+        PurchaseOrder.listing_id == req.listing_id,
+        PurchaseOrder.buyer_id == current_user.id,
+        PurchaseOrder.status == "declined",
+    ).first()
+    if existing_declined:
+        raise HTTPException(status_code=400, detail="Your order for this listing was declined")
+
     order = PurchaseOrder(
         listing_id=req.listing_id,
         buyer_id=current_user.id,
@@ -66,9 +86,6 @@ async def create_order(
         selected_pickup_slots=json.dumps(req.selected_pickup_slots),
     )
     db.add(order)
-
-    # Update listing status to pending
-    listing["status"] = "pending"
 
     buyer_name = current_user.display_name or "Someone"
     notification = Notification(
@@ -113,6 +130,8 @@ async def confirm_order(
 
     order.status = "confirmed"
     order.selected_pickup_slots = json.dumps([req.confirmed_slot])
+    if req.confirmed_time:
+        order.confirmed_time = req.confirmed_time
 
     # Snapshot seller's pickup address for neighborhood listings
     listing = _find_listing(order.listing_id)
@@ -132,21 +151,179 @@ async def confirm_order(
     time_labels = {"morning": "8am-12pm", "afternoon": "12-5pm", "evening": "5-9pm"}
     time_display = time_labels.get(slot_time, slot_time)
 
+    time_msg = f"on {slot_date} at {req.confirmed_time}" if req.confirmed_time else f"on {slot_date} ({time_display})"
+    neighborhood = current_user.neighborhood or ""
+    location_msg = f" — Pickup in {neighborhood}. Exact location revealed at time of pickup." if neighborhood else ""
     notification = Notification(
         user_id=order.buyer_id,
         type="order_confirmed",
         title="Pickup Confirmed!",
-        message=f'{seller_name} confirmed pickup for "{listing_title}" on {slot_date} ({time_display})',
+        message=f'{seller_name} confirmed pickup for "{listing_title}" {time_msg}{location_msg}',
         related_user_id=current_user.id,
         listing_id=order.listing_id,
     )
     db.add(notification)
+
+    # Auto-decline all other pending orders for this listing
+    other_pending = (
+        db.query(PurchaseOrder)
+        .filter(
+            PurchaseOrder.listing_id == order.listing_id,
+            PurchaseOrder.id != order_id,
+            PurchaseOrder.status == "pending",
+        )
+        .all()
+    )
+    for other in other_pending:
+        other.status = "declined"
+        db.add(Notification(
+            user_id=other.buyer_id,
+            type="order_declined",
+            title="Order Update",
+            message=f'Your order for "{listing_title}" could not be fulfilled \u2014 the seller may have had scheduling conflicts, accepted another offer, or withdrawn the listing.',
+            related_user_id=current_user.id,
+            listing_id=order.listing_id,
+        ))
+
     db.commit()
 
     return {
         "id": order.id,
         "status": order.status,
         "confirmed_slot": req.confirmed_slot,
+        "confirmed_time": req.confirmed_time,
+    }
+
+
+@router.post("/{order_id}/decline")
+async def decline_order(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the seller can decline this order")
+
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Order is not pending")
+
+    order.status = "declined"
+
+    # Notify the buyer
+    listing = _find_listing(order.listing_id)
+    listing_title = listing["title"] if listing else "an item"
+    notification = Notification(
+        user_id=order.buyer_id,
+        type="order_declined",
+        title="Order Update",
+        message=f'Your order for "{listing_title}" could not be fulfilled \u2014 the seller may have had scheduling conflicts, accepted another offer, or withdrawn the listing.',
+        related_user_id=current_user.id,
+        listing_id=order.listing_id,
+    )
+    db.add(notification)
+    db.commit()
+
+    return {"id": order.id, "status": "declined"}
+
+
+@router.post("/{order_id}/withdraw")
+async def withdraw_order(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.buyer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the buyer can withdraw this order")
+
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Order is not pending")
+
+    order.status = "withdrawn"
+
+    listing = _find_listing(order.listing_id)
+    buyer_name = current_user.display_name or "Someone"
+    listing_title = listing["title"] if listing else "an item"
+    db.add(Notification(
+        user_id=order.seller_id,
+        type="order_withdrawn",
+        title="Order Withdrawn",
+        message=f'{buyer_name} withdrew their order for "{listing_title}"',
+        related_user_id=current_user.id,
+        listing_id=order.listing_id,
+    ))
+    db.commit()
+
+    return {"id": order.id, "status": "withdrawn"}
+
+
+@router.post("/{order_id}/update-slots")
+async def update_order_slots(
+    order_id: int,
+    req: UpdateSlotsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.buyer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the buyer can update this order")
+
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Can only update pending orders")
+
+    order.selected_pickup_slots = json.dumps(req.selected_pickup_slots)
+
+    listing = _find_listing(order.listing_id)
+    buyer_name = current_user.display_name or "Someone"
+    listing_title = listing["title"] if listing else "an item"
+    db.add(Notification(
+        user_id=order.seller_id,
+        type="order_updated",
+        title="Pickup Windows Updated",
+        message=f'{buyer_name} updated their pickup windows for "{listing_title}"',
+        related_user_id=current_user.id,
+        listing_id=order.listing_id,
+    ))
+    db.commit()
+
+    return {
+        "id": order.id,
+        "status": order.status,
+        "selected_pickup_slots": req.selected_pickup_slots,
+    }
+
+
+@router.get("/status/{listing_id}")
+async def get_order_status_for_listing(
+    listing_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = (
+        db.query(PurchaseOrder)
+        .filter(
+            PurchaseOrder.listing_id == listing_id,
+            PurchaseOrder.buyer_id == current_user.id,
+        )
+        .order_by(PurchaseOrder.created_at.desc())
+        .first()
+    )
+    if not order:
+        return {"status": None}
+    return {
+        "status": order.status,
+        "order_id": order.id,
+        "selected_pickup_slots": json.loads(order.selected_pickup_slots) if order.selected_pickup_slots else [],
     }
 
 
@@ -308,36 +485,58 @@ async def get_orders(
 
     # Collect buyer IDs for name lookup
     buyer_ids = {o.buyer_id for o in orders}
-    buyer_map: dict[int, str] = {}
+    buyer_map: dict[int, dict] = {}
     if buyer_ids:
         buyers = db.query(User).filter(User.id.in_(buyer_ids)).all()
         for b in buyers:
-            buyer_map[b.id] = b.display_name or "Someone"
+            buyer_map[b.id] = {"name": b.display_name or "Someone", "picture": b.profile_picture}
 
+    # Filter out orders whose listing no longer exists or has expired,
+    # and clean up orphaned orders from the database.
+    orphaned_ids = []
     results = []
     for o in orders:
-        listing = _find_listing(o.listing_id)
-        listing_title = listing.get("title", "") if listing else ""
-        listing_image = listing.get("imageUrl", "") if listing else ""
-        listing_price = listing.get("price", "") if listing else ""
+        listing = _find_listing(o.listing_id, check_expiry=True)
+        if listing is None:
+            # Notify buyers with pending orders that the listing expired
+            if o.status == "pending" and o.buyer_id == current_user.id:
+                raw_listing = _find_listing(o.listing_id, check_expiry=False)
+                listing_title = raw_listing["title"] if raw_listing else "an item"
+                db.add(Notification(
+                    user_id=o.buyer_id,
+                    type="order_cancelled",
+                    title="Order Cancelled",
+                    message=f'The listing "{listing_title}" has expired. Your order has been cancelled.',
+                    listing_id=o.listing_id,
+                ))
+            orphaned_ids.append(o.id)
+            continue
 
         results.append({
             "id": o.id,
             "listing_id": o.listing_id,
-            "listing_title": listing_title,
-            "listing_image": listing_image,
-            "listing_price": listing_price,
+            "listing_title": listing.get("title", ""),
+            "listing_image": listing.get("imageUrl", ""),
+            "listing_price": listing.get("price", ""),
             "buyer_id": o.buyer_id,
-            "buyer_name": buyer_map.get(o.buyer_id, "Someone"),
+            "buyer_name": buyer_map.get(o.buyer_id, {}).get("name", "Someone"),
+            "buyer_picture": buyer_map.get(o.buyer_id, {}).get("picture"),
             "seller_id": o.seller_id,
             "status": o.status,
             "selected_pickup_slots": json.loads(o.selected_pickup_slots) if o.selected_pickup_slots else [],
+            "confirmed_time": o.confirmed_time,
             "created_at": o.created_at.isoformat() if o.created_at else None,
             "role": "buyer" if o.buyer_id == current_user.id else "seller",
             "buyer_reviewed": bool(o.buyer_reviewed),
             "seller_reviewed": bool(o.seller_reviewed),
             "pickup_address": o.pickup_address if o.address_released else None,
             "address_released": bool(o.address_released),
-            "is_neighborhood": listing is not None and "neighborhood" in listing.get("communities", []),
+            "is_neighborhood": "neighborhood" in listing.get("communities", []),
         })
+
+    # Delete orphaned orders from the database
+    if orphaned_ids:
+        db.query(PurchaseOrder).filter(PurchaseOrder.id.in_(orphaned_ids)).delete(synchronize_session=False)
+        db.commit()
+
     return results

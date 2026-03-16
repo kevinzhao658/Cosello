@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,7 +8,7 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Friendship, CommunityMember, Community, PurchaseOrder
+from models import User, Friendship, CommunityMember, Community, PurchaseOrder, Review
 from auth import get_current_user
 from listings_store import listings_db
 
@@ -322,6 +323,51 @@ async def get_user_profile(
                 "neighborhood": u.neighborhood,
             })
 
+    # Active listings
+    LISTING_EXPIRY_SECONDS = 7 * 24 * 3600
+    now = time.time()
+    active_listings = [
+        {
+            "id": l["id"],
+            "title": l.get("title", ""),
+            "price": l.get("price", ""),
+            "imageUrl": l.get("imageUrl", ""),
+            "imageUrls": l.get("imageUrls", []),
+            "condition": l.get("condition", ""),
+            "status": l.get("status", "active"),
+        }
+        for l in listings_db
+        if l.get("userId") == user_id
+        and now - l.get("postedAt", 0) < LISTING_EXPIRY_SECONDS
+        and l.get("status") != "sold"
+    ]
+
+    # Reviews received
+    reviews_received = (
+        db.query(Review, User)
+        .join(User, Review.reviewer_id == User.id)
+        .filter(Review.reviewee_id == user_id)
+        .order_by(Review.created_at.desc())
+        .all()
+    )
+    reviews_list = [
+        {
+            "rating": r.rating,
+            "comment": r.comment,
+            "reviewer_name": u.display_name,
+            "reviewer_picture": u.profile_picture,
+            "reviewer_role": r.reviewer_role,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r, u in reviews_received
+    ]
+
+    # Stats
+    total_listings = sum(1 for l in listings_db if l.get("userId") == user_id)
+    avg_rating = None
+    if reviews_list:
+        avg_rating = round(sum(r["rating"] for r in reviews_list) / len(reviews_list), 1)
+
     return {
         "id": target.id,
         "display_name": target.display_name,
@@ -330,4 +376,12 @@ async def get_user_profile(
         "is_friend": user_id in my_friend_ids,
         "communities": communities,
         "mutual_friends": mutual_friends,
+        "active_listings": active_listings,
+        "reviews": reviews_list,
+        "stats": {
+            "total_listings": total_listings,
+            "review_count": len(reviews_list),
+            "avg_rating": avg_rating,
+        },
+        "member_since": target.created_at.isoformat() if target.created_at else None,
     }

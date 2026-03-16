@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
@@ -7,6 +7,7 @@ import { useAuth } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
+import UserProfileOverlay from "./pages/UserProfilePage";
 
 interface ProductDetails {
   title: string;
@@ -29,10 +30,12 @@ interface Listing extends ProductDetails {
   postedAt: number;
   mutualCommunityNames?: string[];
   mutualCommunities?: { name: string; is_public: boolean }[];
-  allCommunities?: { name: string; is_public: boolean; is_mutual: boolean }[];
+  allCommunities?: { name: string; is_public: boolean; is_mutual: boolean; is_neighborhood?: boolean }[];
   visibility?: "public" | "private";
   tier?: number;
   status?: string;
+  seller_name?: string | null;
+  seller_picture?: string | null;
 }
 
 type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
@@ -128,8 +131,8 @@ export default function App() {
   const filterCommunities = [...publicCommunities, ...privateCommunities];
   // Post To state
   const [postVisibility, setPostVisibility] = useState<"public" | "private">("public");
-  const [selectedPostCommunity, setSelectedPostCommunity] = useState<string | number | null>("neighborhood");
   const [selectedPostPrivateCommunities, setSelectedPostPrivateCommunities] = useState<(string | number)[]>([]);
+  const [postPickupLocation, setPostPickupLocation] = useState("");
 
   // Wishlist state
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
@@ -167,15 +170,8 @@ export default function App() {
     });
   };
 
-  // User profile modal state (for notifications)
-  const [showUserProfileModal, setShowUserProfileModal] = useState(false);
-  const [userProfileModalData, setUserProfileModalData] = useState<{
-    id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null;
-    is_friend: boolean;
-    communities: { id: number; name: string; image: string | null; is_mutual: boolean; is_public?: boolean }[];
-    mutual_friends: { id: number; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
-  } | null>(null);
-  const [isLoadingUserProfileModal, setIsLoadingUserProfileModal] = useState(false);
+  // User profile overlay state
+  const [viewingUserId, setViewingUserId] = useState<number | null>(null);
 
   // Listing detail modal state
   const [showListingDetailModal, setShowListingDetailModal] = useState(false);
@@ -190,9 +186,13 @@ export default function App() {
   const [listingDetailImageIndex, setListingDetailImageIndex] = useState(0);
 
   // Buy confirmation modal state
+  const [buyerOrderStatus, setBuyerOrderStatus] = useState<{ status: string | null; order_id?: number } | null>(null);
+  const [myOrderStatuses, setMyOrderStatuses] = useState<Record<string, { status: string; orderId: number }>>({});
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [pickupDaySelections, setPickupDaySelections] = useState<Record<string, { from: number; to: number; dayLabel: string }>>({});
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [buyTosAgreed, setBuyTosAgreed] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const formatHour = (h: number) => h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`;
 
   // Edit listing modal state (from marketplace detail)
@@ -249,32 +249,33 @@ export default function App() {
     }
   };
 
-  const openUserProfileFromApp = async (userId: number) => {
+  const openUserDashboard = (userId: number) => {
     if (!token || userId === user?.id) return;
-    setShowUserProfileModal(true);
-    setIsLoadingUserProfileModal(true);
-    try {
-      const res = await fetch(`/api/friends/profile/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) setUserProfileModalData(await res.json());
-    } catch { /* ignore */ }
-    finally { setIsLoadingUserProfileModal(false); }
+    setViewingUserId(userId);
   };
 
   const openListingDetail = async (listing: Listing) => {
     setShowListingDetailModal(true);
     setListingDetailData(listing);
     setListingDetailSellerProfile(null);
+    setBuyerOrderStatus(null);
     setListingDetailImageIndex(0);
     addToHistory({ id: listing.id, title: listing.title, imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "viewed" });
     if (token && listing.userId) {
       setIsLoadingListingDetail(true);
       try {
-        const res = await fetch(`/api/friends/profile/${listing.userId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) setListingDetailSellerProfile(await res.json());
+        const [profileRes, orderStatusRes] = await Promise.all([
+          fetch(`/api/friends/profile/${listing.userId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          listing.userId !== user?.id
+            ? fetch(`/api/orders/status/${listing.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+            : Promise.resolve(null),
+        ]);
+        if (profileRes.ok) setListingDetailSellerProfile(await profileRes.json());
+        if (orderStatusRes && orderStatusRes.ok) setBuyerOrderStatus(await orderStatusRes.json());
       } catch { /* ignore */ }
       finally { setIsLoadingListingDetail(false); }
     }
@@ -318,17 +319,79 @@ export default function App() {
         throw new Error(err.detail || "Failed to create order");
       }
       addToHistory({ id: listingDetailData.id, title: listingDetailData.title, imageUrl: listingDetailData.imageUrls?.[0] || listingDetailData.imageUrl, price: listingDetailData.price, type: "purchased" });
+      const orderData = await res.json();
+      setBuyerOrderStatus({ status: "pending", order_id: orderData.id });
+      setMyOrderStatuses((prev) => ({ ...prev, [listingDetailData.id]: { status: "pending", orderId: orderData.id } }));
       setShowBuyModal(false);
       setShowListingDetailModal(false);
       setListingDetailData(null);
       setListingDetailSellerProfile(null);
       setPickupDaySelections({});
+      setBuyTosAgreed(false);
       fetchListings();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsSubmittingOrder(false);
     }
+  };
+
+  const handleUpdatePickupSlots = async () => {
+    const dayEntries = Object.entries(pickupDaySelections);
+    if (!editingOrderId || dayEntries.length === 0 || !token) return;
+    setIsSubmittingOrder(true);
+    try {
+      const slots = dayEntries.map(([date, { from, to }]) => ({
+        date,
+        time: `${formatHour(from)} – ${formatHour(to)}`,
+      }));
+      const res = await fetch(`/api/orders/${editingOrderId}/update-slots`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ selected_pickup_slots: slots }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Failed to update" }));
+        throw new Error(err.detail || "Failed to update pickup windows");
+      }
+      setShowBuyModal(false);
+      setEditingOrderId(null);
+      setPickupDaySelections({});
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  };
+
+  const parseTimeToHour = (timeStr: string): number => {
+    const match = timeStr.match(/^(\d{1,2})\s*(AM|PM)$/i);
+    if (!match) return 10;
+    let h = parseInt(match[1]);
+    const period = match[2].toUpperCase();
+    if (period === "PM" && h !== 12) h += 12;
+    if (period === "AM" && h === 12) h = 0;
+    return h;
+  };
+
+  const openEditPickupSlots = (listing: Listing, orderId: number, existingSlots: { date: string; time: string }[]) => {
+    setListingDetailData(listing);
+    setEditingOrderId(orderId);
+    // Parse existing slots back into pickupDaySelections
+    const selections: Record<string, { from: number; to: number; dayLabel: string }> = {};
+    for (const slot of existingSlots) {
+      const parts = slot.time.split("–").map((s: string) => s.trim());
+      if (parts.length === 2) {
+        selections[slot.date] = {
+          from: parseTimeToHour(parts[0]),
+          to: parseTimeToHour(parts[1]),
+          dayLabel: slot.date,
+        };
+      }
+    }
+    setPickupDaySelections(selections);
+    setBuyTosAgreed(true);
+    setShowBuyModal(true);
   };
 
   // Close profile dropdown on outside click
@@ -670,6 +733,7 @@ export default function App() {
           location: user?.neighborhood || items[0].location,
           tags: items[0].tags,
         });
+        setPostPickupLocation(user?.pickup_address || "");
       } else {
         // Multiple items — enter bulk cards flow
         const sellerNeighborhood = user?.neighborhood;
@@ -681,6 +745,7 @@ export default function App() {
         setBulkReviewPhase("cards");
         setGroupingsModified(false);
         setModifiedGroupIndices(new Set());
+        setPostPickupLocation(user?.pickup_address || "");
       }
     } catch (err) {
       console.error("Generate listing failed:", err);
@@ -771,13 +836,13 @@ export default function App() {
 
       // Build communities + visibility for the form
       const communityIds: string[] = [];
-      if (postVisibility === "public" && selectedPostCommunity !== null) {
-        communityIds.push(String(selectedPostCommunity));
-      } else if (postVisibility === "private") {
+      if (postVisibility === "private") {
         communityIds.push(...selectedPostPrivateCommunities.map(String));
       }
+      // Public: send empty — backend auto-attaches user's communities
       formData.append("communities", communityIds.join(","));
       formData.append("visibility", postVisibility);
+      formData.append("pickup_location", postPickupLocation);
 
       const res = await fetch("/api/listings", {
         method: "POST",
@@ -793,6 +858,7 @@ export default function App() {
 
       setProductDetails(null);
       setUploadedImages([]);
+      setPostPickupLocation("");
 
       setTradeMode("buy");
       setPage("market");
@@ -814,11 +880,10 @@ export default function App() {
 
     try {
       const communityIds: string[] = [];
-      if (postVisibility === "public" && selectedPostCommunity !== null) {
-        communityIds.push(String(selectedPostCommunity));
-      } else if (postVisibility === "private") {
+      if (postVisibility === "private") {
         communityIds.push(...selectedPostPrivateCommunities.map(String));
       }
+      // Public: send empty — backend auto-attaches user's communities
 
       for (const item of bulkItems) {
         const formData = new FormData();
@@ -831,6 +896,7 @@ export default function App() {
         formData.append("data", JSON.stringify(productData));
         formData.append("communities", communityIds.join(","));
         formData.append("visibility", postVisibility);
+        formData.append("pickup_location", postPickupLocation);
 
         const res = await fetch("/api/listings", {
           method: "POST",
@@ -846,6 +912,7 @@ export default function App() {
       setCurrentCardIndex(0);
       setProductDetails(null);
       setUploadedImages([]);
+      setPostPickupLocation("");
 
       setTradeMode("buy");
       setPage("market");
@@ -880,9 +947,12 @@ export default function App() {
     setSelectedHomeCommunities([]);
     setSelectedMarketCommunities([]);
     setPostVisibility("public");
-    setSelectedPostCommunity("neighborhood");
     setSelectedPostPrivateCommunities([]);
+    setHomeSearch("");
+    setMarketSearch("");
     setTradeMode("buy");
+    setMarketSort("newest");
+    setMyOrderStatuses({});
     setProductDetails(null);
     setUploadedImages([]);
     setBulkItems([]);
@@ -1007,6 +1077,32 @@ export default function App() {
   useEffect(() => {
     if (page === "account" && token) fetchWishlistItems();
   }, [page, token]);
+
+  const fetchMyOrderStatuses = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/orders", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const orders: { id: number; listing_id: string; status: string; role: string; selected_pickup_slots: { date: string; time: string }[] }[] = await res.json();
+        const statuses: Record<string, { status: string; orderId: number }> = {};
+        for (const o of orders) {
+          if (o.role === "buyer") statuses[o.listing_id] = { status: o.status, orderId: o.id };
+        }
+        setMyOrderStatuses(statuses);
+      }
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    if (token) fetchMyOrderStatuses();
+  }, [token]);
+
+  // Redirect to home if user logs out while on a protected page
+  useEffect(() => {
+    if (!isAuthenticated && (page === "account" || page === "signup")) {
+      setPage("home");
+    }
+  }, [isAuthenticated, page]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -1178,6 +1274,14 @@ export default function App() {
                     <div className="absolute right-0 top-full mt-1.5 w-80 rounded-md border border-white/15 shadow-xl overflow-hidden z-[100]" style={{ backgroundColor: '#18181b' }}>
                       <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
                         <p className="text-xs font-medium">Notifications</p>
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={() => handleMarkAllRead()}
+                            className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
+                          >
+                            Mark read
+                          </button>
+                        )}
                       </div>
                       <div className="max-h-[8.5rem] overflow-y-auto">
                         {notifications.length === 0 ? (
@@ -1191,12 +1295,17 @@ export default function App() {
                               key={n.id}
                               className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${
                                 n.is_read ? "opacity-40" : ""
-                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
+                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
                               onClick={() => {
-                                if (n.type === "purchase" && n.listing_id) {
+                                if ((n.type === "purchase" || n.type === "order_withdrawn" || n.type === "order_updated") && n.listing_id) {
                                   setNotificationsOpen(false);
                                   if (unreadCount > 0) handleMarkAllRead();
                                   setPendingListingId(n.listing_id);
+                                  setPage("account");
+                                }
+                                if (n.type === "order_declined" || n.type === "order_cancelled") {
+                                  setNotificationsOpen(false);
+                                  if (unreadCount > 0) handleMarkAllRead();
                                   setPage("account");
                                 }
                                 if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released") && n.listing_id) {
@@ -1215,15 +1324,27 @@ export default function App() {
                                     ? "bg-amber-500/15"
                                     : n.type === "purchase"
                                       ? "bg-cyan-500/15"
-                                      : n.type === "review_submitted"
-                                        ? "bg-fuchsia-500/15"
-                                        : n.type === "address_released"
-                                          ? "bg-green-500/15"
-                                          : "bg-green-500/15"
+                                      : n.type === "order_declined" || n.type === "order_cancelled"
+                                        ? "bg-red-500/15"
+                                        : n.type === "order_withdrawn"
+                                          ? "bg-amber-500/15"
+                                          : n.type === "order_updated"
+                                            ? "bg-cyan-500/15"
+                                          : n.type === "review_submitted"
+                                            ? "bg-fuchsia-500/15"
+                                            : n.type === "address_released"
+                                              ? "bg-green-500/15"
+                                              : "bg-green-500/15"
                                 }`}>
                                   {n.type === "join_request" ? (
                                     <UserPlus className="size-3.5 text-amber-400" />
                                   ) : n.type === "purchase" ? (
+                                    <ShoppingBag className="size-3.5 text-cyan-400" />
+                                  ) : n.type === "order_declined" || n.type === "order_cancelled" ? (
+                                    <XCircle className="size-3.5 text-red-400" />
+                                  ) : n.type === "order_withdrawn" ? (
+                                    <XCircle className="size-3.5 text-amber-400" />
+                                  ) : n.type === "order_updated" ? (
                                     <ShoppingBag className="size-3.5 text-cyan-400" />
                                   ) : n.type === "review_submitted" ? (
                                     <Star className="size-3.5 text-fuchsia-400" />
@@ -1239,7 +1360,7 @@ export default function App() {
                                   {n.type === "join_request" && n.related_user_name ? (
                                     <>
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); n.related_user_id && openUserProfileFromApp(n.related_user_id); }}
+                                        onClick={(e) => { e.stopPropagation(); n.related_user_id && openUserDashboard(n.related_user_id); }}
                                         className="font-medium text-white hover:underline"
                                       >
                                         {n.related_user_name}
@@ -1848,7 +1969,7 @@ export default function App() {
                             <Globe className="size-3.5 inline mr-1.5" />Public
                           </button>
                           <button
-                            onClick={() => { setPostVisibility("private"); setSelectedPostCommunity("neighborhood"); }}
+                            onClick={() => { setPostVisibility("private"); }}
                             className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
                               postVisibility === "private"
                                 ? "bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-300"
@@ -1861,81 +1982,75 @@ export default function App() {
                         {/* Community selection */}
                         <div className="mt-2 space-y-2">
                           {postVisibility === "public" ? (
-                            publicCommunities.map((community) => (
-                              <button
-                                key={String(community.id)}
-                                onClick={() => setSelectedPostCommunity(community.id)}
-                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                                  selectedPostCommunity === community.id
-                                    ? "bg-cyan-500/10 border-cyan-400/40 text-cyan-300"
-                                    : "bg-white/5 border-white/20 text-white/40"
-                                }`}
-                              >
-                                <Globe className="size-4 shrink-0" />
-                                <span className="flex-1">{community.name}</span>
-                                {community.neighborhood && (
-                                  <span className={`text-xs flex items-center gap-1 ${selectedPostCommunity === community.id ? "text-cyan-400/50" : "text-white/30"}`}>
-                                    <MapPin className="size-3" />
-                                    {community.neighborhood}
-                                  </span>
-                                )}
-                              </button>
-                            ))
+                            <div className="p-4 rounded-lg bg-cyan-500/5 border border-cyan-400/20 text-center">
+                              <Globe className="size-5 text-cyan-400 mx-auto mb-2" />
+                              <p className="text-sm text-cyan-300 font-medium">Available to all users</p>
+                              <p className="text-xs text-white/40 mt-1 leading-relaxed">
+                                Your listing will appear in the public market. Buyers who share communities with you will be prioritized.
+                              </p>
+                            </div>
                           ) : (
-                            privateCommunities.length > 0 ? privateCommunities.map((community) => {
-                              const isSelected = selectedPostPrivateCommunities.includes(community.id);
-                              return (
-                                <button
-                                  key={String(community.id)}
-                                  onClick={() =>
-                                    setSelectedPostPrivateCommunities((prev) =>
-                                      isSelected ? prev.filter((c) => c !== community.id) : [...prev, community.id]
-                                    )
-                                  }
-                                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                                    isSelected
-                                      ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
-                                      : "bg-white/5 border-white/20 text-white/40"
-                                  }`}
-                                >
-                                  <Lock className="size-4 shrink-0" />
-                                  <span className="flex-1">{community.name}</span>
-                                  {community.neighborhood && (
-                                    <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
-                                      <MapPin className="size-3" />
-                                      {community.neighborhood}
-                                    </span>
-                                  )}
-                                </button>
-                              );
-                            }) : (
-                              <p className="text-xs text-white/30 text-center py-3">You haven't joined any private communities yet.</p>
-                            )
+                            <>
+                              {privateCommunities.length > 0 ? privateCommunities.map((community) => {
+                                const isSelected = selectedPostPrivateCommunities.includes(community.id);
+                                return (
+                                  <button
+                                    key={String(community.id)}
+                                    onClick={() =>
+                                      setSelectedPostPrivateCommunities((prev) =>
+                                        isSelected ? prev.filter((c) => c !== community.id) : [...prev, community.id]
+                                      )
+                                    }
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                                      isSelected
+                                        ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
+                                        : "bg-white/5 border-white/20 text-white/40"
+                                    }`}
+                                  >
+                                    <Lock className="size-4 shrink-0" />
+                                    <span className="flex-1">{community.name}</span>
+                                    {community.neighborhood && (
+                                      <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
+                                        <MapPin className="size-3" />
+                                        {community.neighborhood}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              }) : (
+                                <p className="text-xs text-white/30 text-center py-3">You haven't joined any private communities yet.</p>
+                              )}
+                              <p className="text-[10px] text-white/30 mt-1">Members who share these communities will be prioritized.</p>
+                            </>
                           )}
                         </div>
                       </div>
 
-                      {/* Pickup Location Preview */}
-                      {postVisibility === "public" && selectedPostCommunity === "neighborhood" && (
-                        <div className="mt-3 p-3 rounded-lg bg-white/5 border border-white/10">
-                          <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1.5">Pickup Location</p>
-                          <p className="text-sm text-white/70 flex items-center gap-1.5">
-                            <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
-                            {user?.pickup_address || user?.neighborhood || "Not set"}
-                          </p>
-                          <p className="text-[10px] text-white/30 mt-2 leading-relaxed">
-                            Your address will not be shared with any buyers until confirmation has been secured and the item is out for pickup.
-                          </p>
+                      {/* Pickup Location */}
+                      <div className="mt-3">
+                        <label className="text-xs text-white/40 uppercase tracking-wider">Pickup Location</label>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
+                          <input
+                            type="text"
+                            value={postPickupLocation}
+                            onChange={(e) => setPostPickupLocation(e.target.value)}
+                            placeholder="Enter pickup location"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20"
+                          />
                         </div>
-                      )}
+                        <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                          Your address will not be shared until pickup is confirmed.
+                        </p>
+                      </div>
 
                       <Button
                         onClick={() => {
                           if (!isAuthenticated) { setPage("signin"); return; }
                           setShowPostConfirm(true);
                         }}
-                        disabled={postVisibility === "public" ? selectedPostCommunity === null : selectedPostPrivateCommunities.length === 0}
-                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${(postVisibility === "public" ? selectedPostCommunity === null : selectedPostPrivateCommunities.length === 0) ? "opacity-40 cursor-not-allowed" : ""}`}
+                        disabled={postVisibility === "private" && selectedPostPrivateCommunities.length === 0}
+                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${(postVisibility === "private" && selectedPostPrivateCommunities.length === 0) ? "opacity-40 cursor-not-allowed" : ""}`}
                       >
                         {isAuthenticated ? "Post Listing" : "Sign in to Post"}
                       </Button>
@@ -2154,50 +2269,66 @@ export default function App() {
                           return (
                             <div
                               key={idx}
-                              className="flex gap-4 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors group"
+                              className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors group cursor-pointer"
+                              onClick={() => { setCurrentCardIndex(idx); setBulkReviewPhase("cards"); }}
                             >
-                              <div
-                                className="cursor-pointer shrink-0"
-                                onClick={() => { setCurrentCardIndex(idx); setBulkReviewPhase("cards"); }}
-                              >
+                              <div className="shrink-0">
                                 <ListingImageCarousel
                                   images={itemImages.length > 0 ? itemImages : [""]}
                                   alt={item.title}
                                 />
                               </div>
-                              <div
-                                className="flex-1 min-w-0 cursor-pointer"
-                                onClick={() => { setCurrentCardIndex(idx); setBulkReviewPhase("cards"); }}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <h3 className="text-sm font-medium truncate">{item.title}</h3>
-                                  <span className="text-sm font-semibold text-fuchsia-400 shrink-0">${item.price}</span>
+                              <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-medium truncate pr-10 text-left">{item.title}</h3>
+                                <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
+                                  <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{item.condition}</span>
                                 </div>
-                                <div className="flex items-center gap-2 mt-1 text-xs text-white/50">
-                                  <span className="px-1.5 py-0.5 rounded bg-white/10">{item.condition}</span>
-                                  {item.location && (
-                                    <span className="inline-flex items-center gap-1">
-                                      <MapPin className="size-3" />
-                                      {item.location}
-                                    </span>
-                                  )}
-                                </div>
-                                {item.tags.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {item.tags.slice(0, 3).map((tag, i) => (
-                                      <span key={i} className="px-1.5 py-0.5 rounded-full text-[10px] bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
-                                        {tag}
-                                      </span>
-                                    ))}
-                                    {item.tags.length > 3 && (
-                                      <span className="text-[10px] text-white/30">+{item.tags.length - 3}</span>
-                                    )}
+                                {/* Seller */}
+                                {user?.display_name && (
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <div className="size-5 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
+                                      {user?.profile_picture ? (
+                                        <img src={user.profile_picture} alt="" className="size-full object-cover" />
+                                      ) : (
+                                        <User className="size-2.5 text-white/50" />
+                                      )}
+                                    </div>
+                                    <span className="text-xs text-white/50">{user.display_name}</span>
                                   </div>
                                 )}
+                                {/* Community tags preview */}
+                                {(() => {
+                                  const previewCommunities = postVisibility === "public"
+                                    ? publicCommunities
+                                    : privateCommunities.filter(c => selectedPostPrivateCommunities.includes(c.id));
+                                  const neighborhoodName = user?.neighborhood;
+                                  const hasNeighborhood = postVisibility === "public" && !!neighborhoodName;
+                                  if (!hasNeighborhood && previewCommunities.length === 0) return null;
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                      {hasNeighborhood && (
+                                        <span className="px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border bg-white/5 border-white/10 text-white/30">
+                                          <MapPin className="size-2.5" />{neighborhoodName}
+                                        </span>
+                                      )}
+                                      {hasNeighborhood && previewCommunities.length > 0 && (
+                                        <span className="text-white/15 text-xs">|</span>
+                                      )}
+                                      {previewCommunities.map((c, i) => (
+                                        <span key={i} className="px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border bg-white/5 border-white/10 text-white/30">
+                                          {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                              <div className="flex flex-col items-center justify-center gap-1.5 shrink-0">
+                                <span className="text-lg font-semibold text-fuchsia-400">${item.price}</span>
                               </div>
                               <button
-                                onClick={() => deleteBulkItem(idx)}
-                                className="self-center opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all p-1"
+                                onClick={(e) => { e.stopPropagation(); deleteBulkItem(idx); }}
+                                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all p-1"
                                 title="Remove item"
                               >
                                 <X className="size-4" />
@@ -2223,7 +2354,7 @@ export default function App() {
                             <Globe className="size-3.5 inline mr-1.5" />Public
                           </button>
                           <button
-                            onClick={() => { setPostVisibility("private"); setSelectedPostCommunity("neighborhood"); }}
+                            onClick={() => { setPostVisibility("private"); }}
                             className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
                               postVisibility === "private"
                                 ? "bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-300"
@@ -2236,58 +2367,66 @@ export default function App() {
                         {/* Community selection */}
                         <div className="mt-2 space-y-2">
                           {postVisibility === "public" ? (
-                            publicCommunities.map((community) => (
-                              <button
-                                key={String(community.id)}
-                                onClick={() => setSelectedPostCommunity(community.id)}
-                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                                  selectedPostCommunity === community.id
-                                    ? "bg-cyan-500/10 border-cyan-400/40 text-cyan-300"
-                                    : "bg-white/5 border-white/20 text-white/40"
-                                }`}
-                              >
-                                <Globe className="size-4 shrink-0" />
-                                <span className="flex-1">{community.name}</span>
-                                {community.neighborhood && (
-                                  <span className={`text-xs flex items-center gap-1 ${selectedPostCommunity === community.id ? "text-cyan-400/50" : "text-white/30"}`}>
-                                    <MapPin className="size-3" />
-                                    {community.neighborhood}
-                                  </span>
-                                )}
-                              </button>
-                            ))
+                            <div className="p-4 rounded-lg bg-cyan-500/5 border border-cyan-400/20 text-center">
+                              <Globe className="size-5 text-cyan-400 mx-auto mb-2" />
+                              <p className="text-sm text-cyan-300 font-medium">Available to all users</p>
+                              <p className="text-xs text-white/40 mt-1 leading-relaxed">
+                                Your listings will appear in the public market. Buyers who share communities with you will be prioritized.
+                              </p>
+                            </div>
                           ) : (
-                            privateCommunities.length > 0 ? privateCommunities.map((community) => {
-                              const isSelected = selectedPostPrivateCommunities.includes(community.id);
-                              return (
-                                <button
-                                  key={String(community.id)}
-                                  onClick={() =>
-                                    setSelectedPostPrivateCommunities((prev) =>
-                                      isSelected ? prev.filter((c) => c !== community.id) : [...prev, community.id]
-                                    )
-                                  }
-                                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                                    isSelected
-                                      ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
-                                      : "bg-white/5 border-white/20 text-white/40"
-                                  }`}
-                                >
-                                  <Lock className="size-4 shrink-0" />
-                                  <span className="flex-1">{community.name}</span>
-                                  {community.neighborhood && (
-                                    <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
-                                      <MapPin className="size-3" />
-                                      {community.neighborhood}
-                                    </span>
-                                  )}
-                                </button>
-                              );
-                            }) : (
-                              <p className="text-xs text-white/30 text-center py-3">You haven't joined any private communities yet.</p>
-                            )
+                            <>
+                              {privateCommunities.length > 0 ? privateCommunities.map((community) => {
+                                const isSelected = selectedPostPrivateCommunities.includes(community.id);
+                                return (
+                                  <button
+                                    key={String(community.id)}
+                                    onClick={() =>
+                                      setSelectedPostPrivateCommunities((prev) =>
+                                        isSelected ? prev.filter((c) => c !== community.id) : [...prev, community.id]
+                                      )
+                                    }
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
+                                      isSelected
+                                        ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
+                                        : "bg-white/5 border-white/20 text-white/40"
+                                    }`}
+                                  >
+                                    <Lock className="size-4 shrink-0" />
+                                    <span className="flex-1">{community.name}</span>
+                                    {community.neighborhood && (
+                                      <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
+                                        <MapPin className="size-3" />
+                                        {community.neighborhood}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              }) : (
+                                <p className="text-xs text-white/30 text-center py-3">You haven't joined any private communities yet.</p>
+                              )}
+                              <p className="text-[10px] text-white/30 mt-1">Members who share these communities will be prioritized.</p>
+                            </>
                           )}
                         </div>
+                      </div>
+
+                      {/* Pickup Location */}
+                      <div className="mt-3">
+                        <label className="text-xs text-white/40 uppercase tracking-wider">Pickup Location</label>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
+                          <input
+                            type="text"
+                            value={postPickupLocation}
+                            onChange={(e) => setPostPickupLocation(e.target.value)}
+                            placeholder="Enter pickup location"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20"
+                          />
+                        </div>
+                        <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                          Your address will not be shared until pickup is confirmed.
+                        </p>
                       </div>
 
                       <Button
@@ -2295,8 +2434,8 @@ export default function App() {
                           if (!isAuthenticated) { setPage("signin"); return; }
                           setShowPostConfirm(true);
                         }}
-                        disabled={(postVisibility === "public" ? selectedPostCommunity === null : selectedPostPrivateCommunities.length === 0) || isPostingBulk}
-                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${(postVisibility === "public" ? selectedPostCommunity === null : selectedPostPrivateCommunities.length === 0) ? "opacity-40 cursor-not-allowed" : ""}`}
+                        disabled={(postVisibility === "private" && selectedPostPrivateCommunities.length === 0) || isPostingBulk}
+                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${(postVisibility === "private" && selectedPostPrivateCommunities.length === 0) ? "opacity-40 cursor-not-allowed" : ""}`}
                       >
                         {isPostingBulk ? (
                           <Loader2 className="size-5 animate-spin" />
@@ -2501,43 +2640,110 @@ export default function App() {
                       <h3 className="text-lg font-medium truncate pr-10">{listing.title}</h3>
                       <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
                         <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{listing.condition}</span>
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="size-3" />
-                          {listing.location}
-                        </span>
-                        {listing.status === "pending" && <span className="px-2 py-0.5 rounded bg-amber-500/15 text-xs text-amber-400">Pending</span>}
                         {listing.status === "sold" && <span className="px-2 py-0.5 rounded bg-white/10 text-xs text-white/40">Sold</span>}
                       </div>
-                      {listing.allCommunities && listing.allCommunities.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2.5">
-                          {listing.allCommunities.map((c, i) => (
-                            <span key={i} className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
-                              c.is_mutual
-                                ? "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300"
-                                : "bg-white/5 border-white/10 text-white/30"
-                            }`}>
-                              {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
-                            </span>
-                          ))}
+                      {/* Seller */}
+                      {listing.seller_name && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <div className="size-5 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
+                            {listing.seller_picture ? (
+                              <img src={listing.seller_picture} alt="" className="size-full object-cover" />
+                            ) : (
+                              <User className="size-2.5 text-white/50" />
+                            )}
+                          </div>
+                          <span className="text-xs text-white/50">{listing.seller_name}</span>
                         </div>
                       )}
+                      {/* Community tags */}
+                      {listing.allCommunities && listing.allCommunities.length > 0 && (() => {
+                        const neighborhood = listing.allCommunities!.find((c: any) => c.is_neighborhood);
+                        const others = listing.allCommunities!.filter((c: any) => !c.is_neighborhood);
+                        return (
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                            {neighborhood && (
+                              <span className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
+                                neighborhood.is_mutual
+                                  ? "bg-white/10 border-white/25 text-white"
+                                  : "bg-white/5 border-white/10 text-white/30"
+                              }`}>
+                                <MapPin className="size-2.5" />{neighborhood.name}
+                              </span>
+                            )}
+                            {neighborhood && others.length > 0 && (
+                              <span className="text-white/15 text-xs">|</span>
+                            )}
+                            {others.map((c: any, i: number) => (
+                              <span key={i} className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
+                                c.is_mutual
+                                  ? "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300"
+                                  : "bg-white/5 border-white/10 text-white/30"
+                              }`}>
+                                {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 mr-6">
                       <span className="text-lg font-semibold text-fuchsia-400">${listing.price}</span>
-                      {((!isAuthenticated) || (isAuthenticated && listing.userId !== user?.id)) && listing.status !== "sold" && listing.status !== "pending" && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (!isAuthenticated) { setPage("signin"); return; }
-                            openListingDetail(listing);
-                            setTimeout(() => { setShowBuyModal(true); setPickupDaySelections({}); }, 100);
-                          }}
-                          className="text-xs text-cyan-300 hover:text-white bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/25 rounded-full px-5 py-1 transition-colors"
-                        >
-                          Buy
-                        </button>
-                      )}
-                      {isAuthenticated && listing.userId === user?.id && (
+                      {((!isAuthenticated) || (isAuthenticated && listing.userId !== user?.id)) && listing.status !== "sold" && (() => {
+                        const orderInfo = myOrderStatuses[listing.id];
+                        if (orderInfo?.status === "pending") {
+                          return (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Fetch existing slots then open edit modal
+                                (async () => {
+                                  try {
+                                    const res = await fetch(`/api/orders/status/${listing.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                    if (res.ok) {
+                                      const data = await res.json();
+                                      openEditPickupSlots(listing, data.order_id, data.selected_pickup_slots || []);
+                                    }
+                                  } catch { /* ignore */ }
+                                })();
+                              }}
+                              className="text-xs text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/25 rounded-full px-5 py-1 transition-colors"
+                            >
+                              Pending
+                            </button>
+                          );
+                        }
+                        if (orderInfo?.status === "declined") {
+                          return (
+                            <span className="text-xs text-red-400/70 bg-red-500/10 border border-red-400/15 rounded-full px-5 py-1">
+                              Declined
+                            </span>
+                          );
+                        }
+                        if (orderInfo?.status === "confirmed") {
+                          return (
+                            <span className="text-xs text-green-400 bg-green-500/10 border border-green-400/15 rounded-full px-5 py-1">
+                              Confirmed
+                            </span>
+                          );
+                        }
+                        return (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isAuthenticated) { setPage("signin"); return; }
+                              setListingDetailData(listing);
+                              setEditingOrderId(null);
+                              setPickupDaySelections({});
+                              setBuyTosAgreed(false);
+                              setShowBuyModal(true);
+                            }}
+                            className="text-xs text-cyan-300 hover:text-white bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/25 rounded-full px-5 py-1 transition-colors"
+                          >
+                            Buy
+                          </button>
+                        );
+                      })()}
+                      {isAuthenticated && listing.userId === user?.id && listing.status !== "sold" && (
                         <button
                           onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(openEditFromDetail, 100); }}
                           className="inline-flex items-center gap-1 text-xs text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 border border-fuchsia-400/30 rounded-full px-4 py-1 transition-colors"
@@ -3049,8 +3255,8 @@ export default function App() {
       )}
 
       {/* My Account Page */}
-      {page === "account" && (
-        <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} />
+      {page === "account" && isAuthenticated && (
+        <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} />
       )}
 
       {/* Post Listing Confirmation Modal */}
@@ -3230,7 +3436,10 @@ export default function App() {
               ) : listingDetailSellerProfile ? (
                 <div className="border-t border-white/10 pt-4 mt-4">
                   <p className="text-[10px] text-white/30 uppercase tracking-wider mb-3">Seller</p>
-                  <div className="flex items-center gap-3 mb-3">
+                  <button
+                    onClick={() => openUserDashboard(listingDetailSellerProfile.id)}
+                    className="flex items-center gap-3 mb-3 hover:opacity-80 transition-opacity w-full text-left"
+                  >
                     <div className="size-10 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10">
                       {listingDetailSellerProfile.profile_picture ? (
                         <img src={listingDetailSellerProfile.profile_picture} alt="" className="size-full object-cover" />
@@ -3247,7 +3456,7 @@ export default function App() {
                     {listingDetailSellerProfile.is_friend && (
                       <span className="ml-auto text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20">Friend</span>
                     )}
-                  </div>
+                  </button>
 
                   {listingDetailSellerProfile.communities.filter((c) => c.is_mutual).length > 0 && (
                     <div className="mb-3">
@@ -3288,21 +3497,46 @@ export default function App() {
 
               {/* Buy / Edit Button */}
               {isAuthenticated && listingDetailData.userId === user?.id ? (
-                <Button
-                  onClick={openEditFromDetail}
-                  className="w-full bg-white/10 hover:bg-white/15 text-white border border-white/10 mt-5 gap-2"
-                >
-                  <Pencil className="size-4" />
-                  Edit Listing
-                </Button>
+                listingDetailData.status === "sold" ? (
+                  <div className="mt-5 text-center py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/40 text-sm">Sold</div>
+                ) : (
+                  <Button
+                    onClick={openEditFromDetail}
+                    className="w-full bg-white/10 hover:bg-white/15 text-white border border-white/10 mt-5 gap-2"
+                  >
+                    <Pencil className="size-4" />
+                    Edit Listing
+                  </Button>
+                )
               ) : isAuthenticated && listingDetailData.userId !== user?.id ? (
                 listingDetailData.status === "sold" ? (
                   <div className="mt-5 text-center py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/40 text-sm">Sold</div>
-                ) : listingDetailData.status === "pending" ? (
-                  <div className="mt-5 text-center py-2.5 rounded-lg bg-amber-500/10 border border-amber-400/20 text-amber-400 text-sm">Pending Sale</div>
+                ) : buyerOrderStatus?.status === "declined" ? (
+                  <div className="mt-5 text-center py-2.5 rounded-lg bg-red-500/10 border border-red-400/20 text-red-400/70 text-sm">Your order was declined</div>
+                ) : buyerOrderStatus?.status === "pending" ? (
+                  <button
+                    onClick={() => {
+                      if (buyerOrderStatus?.order_id && listingDetailData) {
+                        (async () => {
+                          try {
+                            const res = await fetch(`/api/orders/status/${listingDetailData.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                            if (res.ok) {
+                              const data = await res.json();
+                              openEditPickupSlots(listingDetailData, data.order_id, data.selected_pickup_slots || []);
+                            }
+                          } catch { /* ignore */ }
+                        })();
+                      }
+                    }}
+                    className="w-full mt-5 text-center py-2.5 rounded-lg bg-amber-500/10 border border-amber-400/20 text-amber-400 text-sm hover:bg-amber-500/20 transition-colors cursor-pointer"
+                  >
+                    Order Pending — Edit Pickup Times
+                  </button>
+                ) : buyerOrderStatus?.status === "confirmed" ? (
+                  <div className="mt-5 text-center py-2.5 rounded-lg bg-green-500/10 border border-green-400/20 text-green-400 text-sm">Order Confirmed</div>
                 ) : (
                   <Button
-                    onClick={() => { setShowBuyModal(true); setPickupDaySelections({}); }}
+                    onClick={() => { setShowBuyModal(true); setPickupDaySelections({}); setBuyTosAgreed(false); }}
                     className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-5"
                   >
                     Buy
@@ -3326,21 +3560,21 @@ export default function App() {
         <div className="fixed inset-0 z-[250] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowBuyModal(false); setPickupDaySelections({}); }}
+            onClick={() => { setShowBuyModal(false); setEditingOrderId(null); setPickupDaySelections({}); }}
           />
           <div
             className="relative w-full max-w-md mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[85vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
           >
             <button
-              onClick={() => { setShowBuyModal(false); setPickupDaySelections({}); }}
+              onClick={() => { setShowBuyModal(false); setEditingOrderId(null); setPickupDaySelections({}); }}
               className="absolute top-3 right-3 z-10 size-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
             >
               <X className="size-3.5 text-white/60" />
             </button>
 
             <div className="p-5">
-              <h3 className="text-lg font-medium mb-4">Confirm Purchase</h3>
+              <h3 className="text-lg font-medium mb-4">{editingOrderId ? "Update Pickup Windows" : "Confirm Purchase"}</h3>
 
               {/* Listing Summary */}
               <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10 mb-5">
@@ -3444,21 +3678,50 @@ export default function App() {
                 })()}
               </div>
 
-              {/* Confirm Buttons */}
+              {/* Terms of Service (hidden in edit mode — already agreed) */}
+              {!editingOrderId && (
+                <div className="space-y-4 mb-5">
+                  <p className="text-sm text-white/90 font-semibold">
+                    By confirming, I agree to be available for pickup during the time(s) proposed to the seller.
+                  </p>
+
+                  <label className="flex items-start gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={buyTosAgreed}
+                      onChange={(e) => setBuyTosAgreed(e.target.checked)}
+                      className="mt-0.5 size-4 rounded border-white/30 bg-white/5 accent-fuchsia-500 cursor-pointer"
+                    />
+                    <span className="text-sm text-white/60 group-hover:text-white/80 transition-colors">
+                      I agree to the{" "}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShowBuyModal(false); setPage("terms"); }}
+                        className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors inline-flex items-center gap-1"
+                      >
+                        Terms & Conditions
+                        <ExternalLink className="size-3" />
+                      </button>
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {/* Confirm / Update Buttons */}
               <div className="flex gap-3">
                 <Button
-                  onClick={() => { setShowBuyModal(false); setPickupDaySelections({}); }}
+                  onClick={() => { setShowBuyModal(false); setEditingOrderId(null); setPickupDaySelections({}); setBuyTosAgreed(false); }}
                   variant="outline"
                   className="flex-1 border-white/20 text-white/60 hover:text-white hover:bg-white/5"
                 >
                   Cancel
                 </Button>
                 <Button
-                  onClick={handleConfirmPurchase}
-                  disabled={Object.keys(pickupDaySelections).length === 0 || isSubmittingOrder}
+                  onClick={editingOrderId ? handleUpdatePickupSlots : handleConfirmPurchase}
+                  disabled={Object.keys(pickupDaySelections).length === 0 || isSubmittingOrder || (!editingOrderId && !buyTosAgreed)}
                   className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
                 >
-                  {isSubmittingOrder ? <Loader2 className="size-4 animate-spin" /> : "Confirm Purchase"}
+                  {isSubmittingOrder ? <Loader2 className="size-4 animate-spin" /> : editingOrderId ? "Save Changes" : "Confirm Purchase"}
                 </Button>
               </div>
             </div>
@@ -3609,102 +3872,14 @@ export default function App() {
         </div>
       )}
 
-      {/* User Profile Modal (from notifications) */}
-      {showUserProfileModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowUserProfileModal(false); setUserProfileModalData(null); }} />
-          <div className="relative w-full max-w-sm mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden" style={{ backgroundColor: '#18181b' }}>
-            {isLoadingUserProfileModal ? (
-              <div className="py-16 text-center">
-                <Loader2 className="size-6 animate-spin mx-auto text-fuchsia-400" />
-              </div>
-            ) : userProfileModalData ? (
-              <>
-                <div className="relative pt-8 pb-4 px-6 text-center border-b border-white/10">
-                  <button
-                    onClick={() => { setShowUserProfileModal(false); setUserProfileModalData(null); }}
-                    className="absolute top-3 right-3 size-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-                  >
-                    <X className="size-3.5 text-white/60" />
-                  </button>
-                  <div className="size-20 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden mx-auto mb-3 border-2 border-white/10">
-                    {userProfileModalData.profile_picture ? (
-                      <img src={userProfileModalData.profile_picture} alt="" className="size-full object-cover" />
-                    ) : (
-                      <User className="size-8 text-white/50" />
-                    )}
-                  </div>
-                  <h3 className="text-lg font-medium">{userProfileModalData.display_name || "User"}</h3>
-                  {userProfileModalData.neighborhood && (
-                    <p className="text-xs text-white/40 flex items-center justify-center gap-1 mt-0.5">
-                      <MapPin className="size-3" />
-                      {userProfileModalData.neighborhood}
-                    </p>
-                  )}
-                </div>
-                <div className="px-4 py-3 border-b border-white/10">
-                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Communities</p>
-                  {userProfileModalData.communities.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {userProfileModalData.communities.map((c) => (
-                        <span
-                          key={c.id}
-                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border ${
-                            c.is_mutual
-                              ? "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-400/25"
-                              : "bg-white/5 text-white/40 border-white/10"
-                          }`}
-                        >
-                          {c.image ? (
-                            <img src={c.image} alt="" className="size-3.5 rounded-full object-cover" />
-                          ) : c.is_public !== false ? (
-                            <Users className="size-3" />
-                          ) : (
-                            <Lock className="size-3" />
-                          )}
-                          {c.name}
-                          {c.is_mutual && <span className="text-[9px] text-fuchsia-400/70">mutual</span>}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-white/20">No communities</p>
-                  )}
-                </div>
-                <div className="px-4 py-3">
-                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
-                    Mutual Friends{userProfileModalData.mutual_friends.length > 0 && ` (${userProfileModalData.mutual_friends.length})`}
-                  </p>
-                  {userProfileModalData.mutual_friends.length > 0 ? (
-                    <div className="max-h-40 overflow-y-auto space-y-1 scrollbar-thin">
-                      {userProfileModalData.mutual_friends.map((f) => (
-                        <button
-                          key={f.id}
-                          onClick={() => openUserProfileFromApp(f.id)}
-                          className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-left"
-                        >
-                          <div className="size-7 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                            {f.profile_picture ? (
-                              <img src={f.profile_picture} alt="" className="size-full object-cover" />
-                            ) : (
-                              <User className="size-3 text-white/50" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-white/80 truncate">{f.display_name}</p>
-                            {f.neighborhood && <p className="text-[10px] text-white/25 truncate">{f.neighborhood}</p>}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-white/20">No mutual friends</p>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </div>
-        </div>
+      {/* User Profile Overlay */}
+      {viewingUserId && (
+        <UserProfileOverlay
+          userId={viewingUserId}
+          onClose={() => setViewingUserId(null)}
+          onViewUser={(id) => setViewingUserId(id)}
+          openListingDetail={openListingDetail}
+        />
       )}
     </div>
   );

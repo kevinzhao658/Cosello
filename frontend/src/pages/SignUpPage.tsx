@@ -58,8 +58,9 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
   const { token, updateUser } = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [neighborhood, setNeighborhood] = useState("");
   const [pickupAddress, setPickupAddress] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const [zipCode, setZipCode] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -113,6 +114,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
           display_name: `${firstName.trim()} ${lastName.trim()}`,
           neighborhood: neighborhood.trim(),
           pickup_address: pickupAddress.trim() || undefined,
+          zip_code: zipCode.trim() || undefined,
         }),
       });
 
@@ -173,6 +175,22 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                Default Pickup Address
+              </label>
+              <Input
+                type="text"
+                placeholder="Street address"
+                value={pickupAddress}
+                onChange={(e) => setPickupAddress(e.target.value)}
+                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+              />
+              <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
+              </p>
+            </div>
+
             <div className="relative">
               <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
                 Neighborhood
@@ -229,20 +247,45 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
               )}
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                  City
+                </label>
+                <Input
+                  type="text"
+                  value="New York"
+                  disabled
+                  className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                  State
+                </label>
+                <Input
+                  type="text"
+                  value="NY"
+                  disabled
+                  className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                Default Pickup Address
+                Zip Code
               </label>
               <Input
                 type="text"
-                placeholder="Building name or cross roads"
-                value={pickupAddress}
-                onChange={(e) => setPickupAddress(e.target.value)}
+                placeholder="e.g., 10001"
+                value={zipCode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
+                  setZipCode(val);
+                }}
                 className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
               />
-              <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
-                Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
-              </p>
             </div>
 
             {error && <p className="text-sm text-red-400">{error}</p>}

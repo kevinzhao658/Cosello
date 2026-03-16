@@ -104,9 +104,11 @@ interface OrderData {
   listing_price: string;
   buyer_id: number;
   buyer_name: string;
+  buyer_picture?: string | null;
   seller_id: number;
   status: string;
   selected_pickup_slots: { date: string; time: string }[];
+  confirmed_time?: string;
   created_at: string | null;
   role: string;
   buyer_reviewed: boolean;
@@ -124,16 +126,6 @@ interface WishlistListing {
   imageUrls?: string[];
 }
 
-interface UserProfileData {
-  id: number;
-  display_name: string | null;
-  neighborhood: string | null;
-  profile_picture: string | null;
-  is_friend: boolean;
-  communities: { id: number; name: string; image: string | null; is_mutual: boolean; is_public?: boolean }[];
-  mutual_friends: { id: number; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
-}
-
 interface MyAccountPageProps {
   onNavigate: (page: string) => void;
   onCommunitiesChanged?: () => void;
@@ -144,9 +136,10 @@ interface MyAccountPageProps {
   onClearPendingListing?: () => void;
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
   openListingDetail?: (listing: any) => void;
+  onViewUser?: (userId: number) => void;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail }: MyAccountPageProps) {
+export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser }: MyAccountPageProps) {
   const { user, token, updateUser } = useAuth();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -188,8 +181,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
-  const [editNeighborhood, setEditNeighborhood] = useState("");
   const [editPickupAddress, setEditPickupAddress] = useState("");
+  const [editNeighborhood, setEditNeighborhood] = useState("");
+  const [editZipCode, setEditZipCode] = useState("");
   const [editShowSuggestions, setEditShowSuggestions] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [editProfileError, setEditProfileError] = useState("");
@@ -228,7 +222,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // Metric modals state
   const [showListingsModal, setShowListingsModal] = useState(false);
-  const [showPurchasesModal, setShowPurchasesModal] = useState(false);
+
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [friendsList, setFriendsList] = useState<FriendSearchUser[]>([]);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
@@ -259,14 +253,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [rejectingRequestId, setRejectingRequestId] = useState<number | null>(null);
   const [kickingMemberId, setKickingMemberId] = useState<number | null>(null);
 
-  // User profile modal state
-  const [showUserProfile, setShowUserProfile] = useState(false);
-  const [userProfileData, setUserProfileData] = useState<UserProfileData | null>(null);
-  const [isLoadingUserProfile, setIsLoadingUserProfile] = useState(false);
-
   // Profile stats
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0 });
   const [myListings, setMyListings] = useState<MyListing[]>([]);
+  const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
   // Edit listing modal state
   const [showEditListingModal, setShowEditListingModal] = useState(false);
@@ -328,6 +318,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [listingOrders, setListingOrders] = useState<OrderData[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [confirmingOrderId, setConfirmingOrderId] = useState<number | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<{ orderId: number; slot: { date: string; time: string }; order: OrderData } | null>(null);
+  const [confirmTime, setConfirmTime] = useState("");
+  const [decliningOrderId, setDecliningOrderId] = useState<number | null>(null);
+  const [showDeclineConfirm, setShowDeclineConfirm] = useState<number | null>(null);
+  const [withdrawingOrderId, setWithdrawingOrderId] = useState<number | null>(null);
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState<number | null>(null);
 
   // Order confirmation summary state
   const [showConfirmSummary, setShowConfirmSummary] = useState(false);
@@ -336,6 +332,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     buyerName: string;
     slot: { date: string; time: string };
     role: "seller" | "buyer";
+    confirmedTime?: string;
   } | null>(null);
 
   // Purchases (buyer's orders) and seller orders
@@ -506,6 +503,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             buyerName: order.buyer_name,
             slot: slot || { date: "", time: "" },
             role: order.role as "seller" | "buyer",
+            confirmedTime: order.confirmed_time,
           });
           setShowConfirmSummary(true);
         }
@@ -515,24 +513,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  const handleConfirmSlot = async (orderId: number, slot: { date: string; time: string }, order: OrderData) => {
+  const handleConfirmSlot = async (orderId: number, slot: { date: string; time: string }, order: OrderData, confirmedTime: string) => {
     if (!token) return;
     setConfirmingOrderId(orderId);
     try {
       const res = await fetch(`/api/orders/${orderId}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ confirmed_slot: slot }),
+        body: JSON.stringify({ confirmed_slot: slot, confirmed_time: confirmedTime }),
       });
       if (res.ok) {
         setShowOrderModal(false);
         setOrderModalListing(null);
+        setSelectedSlot(null);
+        setConfirmTime("");
         if (orderModalListing) {
           setConfirmSummaryData({
             listing: orderModalListing,
             buyerName: order.buyer_name,
             slot,
             role: "seller",
+            confirmedTime,
           });
           setShowConfirmSummary(true);
           onAddToHistory?.({
@@ -550,6 +551,46 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       // ignore
     } finally {
       setConfirmingOrderId(null);
+    }
+  };
+
+  const handleDeclineOrder = async (orderId: number) => {
+    if (!token) return;
+    setDecliningOrderId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/decline`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setListingOrders((prev) => prev.filter((o) => o.id !== orderId));
+        setShowDeclineConfirm(null);
+        fetchMyListings();
+        fetchAllOrders();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDecliningOrderId(null);
+    }
+  };
+
+  const handleWithdrawOrder = async (orderId: number) => {
+    if (!token) return;
+    setWithdrawingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/withdraw`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setShowWithdrawConfirm(null);
+        fetchAllOrders();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setWithdrawingOrderId(null);
     }
   };
 
@@ -677,23 +718,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchFriendsList();
   };
 
-  const openUserProfile = async (userId: number) => {
-    if (!token || userId === user?.id) return;
-    setShowUserProfile(true);
-    setIsLoadingUserProfile(true);
-    try {
-      const res = await fetch(`/api/friends/profile/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        setUserProfileData(await res.json());
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoadingUserProfile(false);
-    }
-  };
 
   const fetchCommunities = useCallback(async () => {
     if (!token) return;
@@ -1377,8 +1401,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     const parts = name.split(" ");
     setEditFirstName(parts[0] || "");
     setEditLastName(parts.slice(1).join(" ") || "");
-    setEditNeighborhood(user?.neighborhood || "");
     setEditPickupAddress(user?.pickup_address || "");
+    setEditNeighborhood(user?.neighborhood || "");
+    setEditZipCode(user?.zip_code || "");
     setEditProfileError("");
     setEditShowSuggestions(false);
     setShowEditProfileModal(true);
@@ -1408,6 +1433,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           display_name: `${editFirstName.trim()} ${editLastName.trim()}`,
           neighborhood: editNeighborhood.trim(),
           pickup_address: editPickupAddress.trim() || undefined,
+          zip_code: editZipCode.trim() || undefined,
         }),
       });
 
@@ -1527,7 +1553,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   <span className="text-[10px] text-white/40">Listings</span>
                 </button>
                 <button
-                  onClick={() => setShowPurchasesModal(true)}
+                  onClick={() => { setListingsTab("buying"); setShowListingsModal(true); }}
                   className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 hover:bg-white/10 hover:border-white/20 transition-colors cursor-pointer"
                 >
                   <span className="text-xs font-medium">{stats.purchases}</span>
@@ -1648,259 +1674,342 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* My Listings */}
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-            <div className="flex items-center gap-2.5 mb-5">
+            <div className="flex items-center gap-2.5 mb-4">
               <div className="size-8 rounded-lg bg-fuchsia-500/15 flex items-center justify-center">
                 <Package className="size-4 text-fuchsia-400" />
               </div>
-              <h3 className="text-sm font-medium">My Listings</h3>
+              <h3 className="text-sm font-medium">My Orders</h3>
             </div>
 
-            {myListings.length === 0 ? (
-              <div className="text-center py-6">
-                <Package className="size-8 text-white/15 mx-auto mb-2" />
-                <p className="text-xs text-white/30 mb-3">No listings yet</p>
-                <Button
-                  onClick={() => onNavigate("home")}
-                  size="sm"
-                  className="bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 text-xs"
-                >
-                  Create Listing
+            {/* Selling / Buying tabs */}
+            <div className="flex gap-1 p-0.5 bg-white/5 rounded-lg mb-4">
+              <button
+                onClick={() => setListingsTab("selling")}
+                className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${listingsTab === "selling" ? "bg-fuchsia-500/20 text-fuchsia-300 font-medium" : "text-white/40 hover:text-white/60"}`}
+              >
+                Selling
+              </button>
+              <button
+                onClick={() => setListingsTab("buying")}
+                className={`flex-1 text-xs py-1.5 rounded-md transition-colors relative ${listingsTab === "buying" ? "bg-cyan-500/20 text-cyan-300 font-medium" : "text-white/40 hover:text-white/60"}`}
+              >
+                Buying
+                {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length > 0 && listingsTab !== "buying" && (
+                  <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
+                    {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {listingsTab === "selling" ? (
+              <>
+                {myListings.length === 0 ? (
+                  <div className="text-center py-6">
+                    <Package className="size-8 text-white/15 mx-auto mb-2" />
+                    <p className="text-xs text-white/30 mb-3">No listings yet</p>
+                    <Button
+                      onClick={() => onNavigate("home")}
+                      size="sm"
+                      className="bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 text-xs"
+                    >
+                      Create Listing
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {[...myListings].sort((a, b) => {
+                      const aOrders = a.pendingOrderCount ?? 0;
+                      const bOrders = b.pendingOrderCount ?? 0;
+                      if (aOrders !== bOrders) return bOrders - aOrders;
+                      const aTime = a.latestOrderAt || "";
+                      const bTime = b.latestOrderAt || "";
+                      if (aTime !== bTime) return bTime > aTime ? 1 : -1;
+                      return 0;
+                    }).map((listing) => {
+                      const timeInfo = getListingTimeInfo(listing.postedAt);
+                      const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
+                      const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
+                      const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
+                      const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
+                      const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
+                      const isSellerCompleted = sellerOrder && sellerHasReviewed;
+
+                      return (
+                        <div
+                          key={listing.id}
+                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors cursor-pointer ${
+                            timeInfo.expired
+                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
+                              : isSellerPickupReady
+                                ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
+                                : hasPendingOrders
+                                  ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
+                                  : sellerOrder && sellerOrder.status === "confirmed"
+                                    ? "bg-green-500/[0.03] border-green-400/20"
+                                    : "bg-white/[0.03] border-white/5 hover:bg-white/5"
+                          }`}
+                          onClick={() => {
+                            if (timeInfo.expired) return;
+                            if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
+                            else if (hasPendingOrders) openOrderModal(listing);
+                            else if (sellerOrder) openConfirmedOrderSummary(listing.id);
+                            else openEditListing(listing);
+                          }}
+                        >
+                          <div className="relative shrink-0">
+                            <img src={listing.imageUrl} alt={listing.title} className="size-10 rounded-md object-cover border border-white/10" />
+                            {hasPendingOrders && (
+                              <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
+                                {listing.pendingOrderCount}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white/80 truncate">{listing.title}</p>
+                            <div className="flex items-center gap-1.5">
+                              {isSellerCompleted ? (
+                                <span className="text-[10px] text-white/30">Completed</span>
+                              ) : isSellerPickupReady ? (
+                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                              ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
+                                <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup{sellerOrder.confirmed_time ? ` at ${sellerOrder.confirmed_time}` : ""}</span>
+                              ) : hasPendingOrders ? (
+                                <span className="text-[10px] text-cyan-400">{listing.pendingOrderCount} pending {listing.pendingOrderCount === 1 ? "order" : "orders"}</span>
+                              ) : (
+                                <>
+                                  <Clock className="size-2.5 text-white/20" />
+                                  <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>{timeInfo.label}</p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-xs font-medium text-fuchsia-400">${listing.price}</span>
+                            {timeInfo.expired ? (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
+                                disabled={relistingId === listing.id}
+                                className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
+                              >
+                                {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
+                              </button>
+                            ) : isSellerPickupReady ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                            ) : sellerOrder && sellerOrder.status === "confirmed" ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
+                            ) : hasPendingOrders ? (
+                              <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Review</span>
+                            ) : (
+                              <Pencil className="size-3 text-white/20" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <div className="flex justify-between text-xs text-white/30">
+                    <span>Active</span>
+                    <span>{myListings.filter((l) => !getListingTimeInfo(l.postedAt).expired).length}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-white/30 mt-1">
+                    <span>Expired</span>
+                    <span>{myListings.filter((l) => getListingTimeInfo(l.postedAt).expired).length}</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {myPurchases.length === 0 ? (
+                  <div className="text-center py-6">
+                    <ShoppingBag className="size-8 text-white/15 mx-auto mb-2" />
+                    <p className="text-xs text-white/30 mb-3">No purchases yet</p>
+                    <Button
+                      onClick={() => onNavigate("market")}
+                      size="sm"
+                      className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs"
+                    >
+                      Browse Market
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {myPurchases.map((order) => {
+                      const countdown = getPickupCountdown(order);
+                      const hasReviewed = order.buyer_reviewed;
+                      const isPickupReady = (order.status === "confirmed" || order.status === "completed") && countdown.expired && !hasReviewed;
+                      const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
+                      const isCompleted = (order.status === "completed" && hasReviewed) || (order.status === "completed" && !countdown.expired);
+                      const isDeclined = order.status === "declined";
+                      const isWithdrawn = order.status === "withdrawn";
+
+                      return (
+                        <div key={order.id}>
+                        <div
+                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
+                            isDeclined
+                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
+                              : isWithdrawn
+                                ? "bg-white/[0.02] border-white/5 opacity-50"
+                                : isPickupReady
+                                  ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
+                                  : isConfirmedCountdown
+                                    ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
+                                    : "bg-white/[0.03] border-white/5"
+                          }`}
+                          onClick={() => {
+                            if (isDeclined || isWithdrawn) return;
+                            if (isPickupReady) openRatingModal(order);
+                            else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
+                          }}
+                        >
+                          <img src={order.listing_image} alt={order.listing_title} className="size-10 rounded-md object-cover border border-white/10 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
+                            <div className="flex items-center gap-1.5">
+                              {isDeclined ? (
+                                <span className="text-[10px] text-red-400/70">Order was declined</span>
+                              ) : isWithdrawn ? (
+                                <span className="text-[10px] text-white/40">Order withdrawn</span>
+                              ) : isPickupReady ? (
+                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                              ) : isConfirmedCountdown ? (
+                                <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
+                              ) : (
+                                <p className="text-[10px] text-white/30">
+                                  {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
+                                </p>
+                              )}
+                            </div>
+                            {order.address_released && order.pickup_address && (
+                              <p className="text-[10px] text-green-400/80 flex items-center gap-1 mt-0.5">
+                                <MapPin className="size-2.5" />{order.pickup_address}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
+                            {isDeclined ? (
+                              <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
+                            ) : isWithdrawn ? (
+                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
+                            ) : isPickupReady ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                            ) : isConfirmedCountdown ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
+                            ) : isCompleted ? (
+                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Completed</span>
+                            ) : (
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Pending</span>
+                            )}
+                            {order.status === "pending" && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowWithdrawConfirm(showWithdrawConfirm === order.id ? null : order.id);
+                                }}
+                                className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
+                              >
+                                Withdraw
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {showWithdrawConfirm === order.id && (
+                          <div className="mt-1.5 bg-amber-500/[0.05] border border-amber-400/20 rounded-lg p-2">
+                            <p className="text-[10px] text-white/60 mb-2">Withdraw your order? You can re-order later.</p>
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => setShowWithdrawConfirm(null)}
+                                className="flex-1 text-[10px] text-white/40 bg-white/5 border border-white/10 rounded py-1 hover:bg-white/10"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleWithdrawOrder(order.id)}
+                                disabled={withdrawingOrderId === order.id}
+                                className="flex-1 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-400/20 rounded py-1 hover:bg-amber-500/20 disabled:opacity-40"
+                              >
+                                {withdrawingOrderId === order.id ? "..." : "Withdraw"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-4 pt-4 border-t border-white/5">
+                  <div className="flex justify-between text-xs text-white/30">
+                    <span>Active</span>
+                    <span>{myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-white/30 mt-1">
+                    <span>Completed</span>
+                    <span>{myPurchases.filter((o) => o.status === "completed").length}</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Wishlist */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+            <div className="flex items-center gap-2.5 mb-5">
+              <div className="size-8 rounded-lg bg-red-500/15 flex items-center justify-center">
+                <Heart className="size-4 text-red-400" />
+              </div>
+              <h3 className="text-sm font-medium">Wishlist</h3>
+            </div>
+
+            {wishlistItems.length === 0 ? (
+              <div className="text-center py-4">
+                <Heart className="size-6 text-white/15 mx-auto mb-2" />
+                <p className="text-xs text-white/30 mb-2">Nothing saved yet</p>
+                <Button onClick={() => onNavigate("market")} size="sm" className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-400/20 text-xs">
+                  Browse Market
                 </Button>
               </div>
             ) : (
               <div className="space-y-2 max-h-60 overflow-y-auto">
-                {[...myListings].sort((a, b) => {
-                  const aOrders = a.pendingOrderCount ?? 0;
-                  const bOrders = b.pendingOrderCount ?? 0;
-                  if (aOrders !== bOrders) return bOrders - aOrders;
-                  const aTime = a.latestOrderAt || "";
-                  const bTime = b.latestOrderAt || "";
-                  if (aTime !== bTime) return bTime > aTime ? 1 : -1;
-                  return 0;
-                }).map((listing) => {
-                  const timeInfo = getListingTimeInfo(listing.postedAt);
-                  const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
-                  const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
-                  const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
-                  const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
-                  const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
-                  const isSellerCompleted = sellerOrder && sellerHasReviewed;
-
-                  return (
-                    <div
-                      key={listing.id}
-                      className={`flex items-center gap-3 p-2 rounded-lg border transition-colors cursor-pointer ${
-                        timeInfo.expired
-                          ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                          : isSellerPickupReady
-                            ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
-                            : hasPendingOrders
-                              ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
-                              : sellerOrder && sellerOrder.status === "confirmed"
-                                ? "bg-green-500/[0.03] border-green-400/20"
-                                : "bg-white/[0.03] border-white/5 hover:bg-white/5"
-                      }`}
-                      onClick={() => {
-                        if (timeInfo.expired) return;
-                        if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
-                        else if (hasPendingOrders) openOrderModal(listing);
-                        else openEditListing(listing);
-                      }}
-                    >
-                      <div className="relative shrink-0">
-                        <img src={listing.imageUrl} alt={listing.title} className="size-10 rounded-md object-cover border border-white/10" />
-                        {hasPendingOrders && (
-                          <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                            {listing.pendingOrderCount}
-                          </span>
+                {wishlistItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                    onClick={() => openListingDetail?.(item)}
+                  >
+                    <img src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl} alt={item.title} className="size-10 rounded-md object-cover shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{item.title}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-[10px] text-fuchsia-400">${item.price}</p>
+                        {item.status === "sold" && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-white/30">Sold</span>
                         )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white/80 truncate">{listing.title}</p>
-                        <div className="flex items-center gap-1.5">
-                          {isSellerCompleted ? (
-                            <span className="text-[10px] text-white/30">Completed</span>
-                          ) : isSellerPickupReady ? (
-                            <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
-                          ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
-                            <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup</span>
-                          ) : hasPendingOrders ? (
-                            <span className="text-[10px] text-cyan-400">{listing.pendingOrderCount} pending {listing.pendingOrderCount === 1 ? "order" : "orders"}</span>
-                          ) : (
-                            <>
-                              <Clock className="size-2.5 text-white/20" />
-                              <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>{timeInfo.label}</p>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      {timeInfo.expired ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
-                          disabled={relistingId === listing.id}
-                          className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors shrink-0 disabled:opacity-40"
-                        >
-                          {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
-                        </button>
-                      ) : isSellerPickupReady ? (
-                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 shrink-0">Confirm</span>
-                      ) : sellerOrder && sellerOrder.status === "confirmed" ? (
-                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20 shrink-0">Confirmed</span>
-                      ) : hasPendingOrders ? (
-                        <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 shrink-0">Review</span>
-                      ) : (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs font-medium text-fuchsia-400">${listing.price}</span>
-                          <Pencil className="size-3 text-white/20" />
-                        </div>
-                      )}
                     </div>
-                  );
-                })}
+                    {onToggleWishlist && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onToggleWishlist(item.id); }}
+                        className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
+                      >
+                        <Heart className="size-3.5 text-red-400 fill-red-400" />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
             <div className="mt-4 pt-4 border-t border-white/5">
               <div className="flex justify-between text-xs text-white/30">
-                <span>Active</span>
-                <span>{myListings.filter((l) => !getListingTimeInfo(l.postedAt).expired).length}</span>
-              </div>
-              <div className="flex justify-between text-xs text-white/30 mt-1">
-                <span>Expired</span>
-                <span>{myListings.filter((l) => getListingTimeInfo(l.postedAt).expired).length}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Column 2: My Purchases + Wishlist stacked */}
-          <div className="flex flex-col gap-6">
-            {/* My Purchases */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex-1 min-h-0 flex flex-col">
-              <div className="flex items-center gap-2.5 mb-5">
-                <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
-                  <ShoppingBag className="size-4 text-cyan-400" />
-                </div>
-                <h3 className="text-sm font-medium">My Purchases</h3>
-              </div>
-
-              {myPurchases.length === 0 ? (
-                <div className="text-center py-4">
-                  <ShoppingBag className="size-6 text-white/15 mx-auto mb-2" />
-                  <p className="text-xs text-white/30 mb-2">No purchases yet</p>
-                  <Button onClick={() => onNavigate("market")} size="sm" className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs">
-                    Browse Market
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
-                  {myPurchases.map((order) => {
-                    const countdown = getPickupCountdown(order);
-                    const hasReviewed = order.buyer_reviewed;
-                    let badge: { label: string; className: string };
-                    let isActionable = false;
-
-                    if ((order.status === "completed" && hasReviewed) || (order.status === "completed" && !countdown.expired)) {
-                      badge = { label: "Completed", className: "text-white/40 bg-white/5 border-white/10" };
-                    } else if (order.status === "confirmed" && countdown.expired && !hasReviewed) {
-                      badge = { label: "Confirm Pickup", className: "text-green-400 bg-green-500/10 border-green-400/20" };
-                      isActionable = true;
-                    } else if (order.status === "completed" && countdown.expired && !hasReviewed) {
-                      badge = { label: "Confirm Pickup", className: "text-green-400 bg-green-500/10 border-green-400/20" };
-                      isActionable = true;
-                    } else if (order.status === "confirmed") {
-                      badge = { label: countdown.label + " till pickup", className: "text-green-400 bg-green-500/10 border-green-400/20" };
-                    } else {
-                      badge = { label: "Pending", className: "text-amber-400 bg-amber-500/10 border-amber-400/20" };
-                    }
-
-                    return (
-                      <div
-                        key={order.id}
-                        className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
-                          isActionable
-                            ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
-                            : order.status === "confirmed"
-                              ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                              : "bg-white/[0.03] border-white/5"
-                        }`}
-                        onClick={() => {
-                          if (isActionable) openRatingModal(order);
-                          else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
-                        }}
-                      >
-                        <img src={order.listing_image} alt={order.listing_title} className="size-10 rounded-md object-cover border border-white/10 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
-                          <p className="text-[10px] text-white/30">
-                            {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
-                          </p>
-                          {order.address_released && order.pickup_address && (
-                            <p className="text-[10px] text-green-400/80 flex items-center gap-1 mt-0.5">
-                              <MapPin className="size-2.5" />{order.pickup_address}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${badge.className}`}>
-                            {badge.label}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Wishlist */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-6 flex-1 min-h-0 flex flex-col">
-              <div className="flex items-center gap-2.5 mb-5">
-                <div className="size-8 rounded-lg bg-red-500/15 flex items-center justify-center">
-                  <Heart className="size-4 text-red-400" />
-                </div>
-                <h3 className="text-sm font-medium">Wishlist</h3>
-              </div>
-
-              {wishlistItems.length === 0 ? (
-                <div className="text-center py-4">
-                  <Heart className="size-6 text-white/15 mx-auto mb-2" />
-                  <p className="text-xs text-white/30 mb-2">Nothing saved yet</p>
-                  <Button onClick={() => onNavigate("market")} size="sm" className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-400/20 text-xs">
-                    Browse Market
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2 overflow-y-auto flex-1 min-h-0">
-                  {wishlistItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                      onClick={() => openListingDetail?.(item)}
-                    >
-                      <img src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl} alt={item.title} className="size-10 rounded-md object-cover shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{item.title}</p>
-                        <p className="text-[10px] text-fuchsia-400">${item.price}</p>
-                      </div>
-                      {onToggleWishlist && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onToggleWishlist(item.id); }}
-                          className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
-                        >
-                          <Heart className="size-3.5 text-red-400 fill-red-400" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-4 pt-4 border-t border-white/5">
-                <div className="flex justify-between text-xs text-white/30">
-                  <span>Saved Items</span>
-                  <span>{wishlistItems.length}</span>
-                </div>
+                <span>Saved Items</span>
+                <span>{wishlistItems.length}</span>
               </div>
             </div>
           </div>
@@ -2473,6 +2582,22 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                  Default Pickup Address
+                </label>
+                <Input
+                  type="text"
+                  placeholder="Street address"
+                  value={editPickupAddress}
+                  onChange={(e) => setEditPickupAddress(e.target.value)}
+                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                />
+                <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                  Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
+                </p>
+              </div>
+
               <div className="relative">
                 <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
                   Neighborhood
@@ -2529,20 +2654,45 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 )}
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                    City
+                  </label>
+                  <Input
+                    type="text"
+                    value="New York"
+                    disabled
+                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                    State
+                  </label>
+                  <Input
+                    type="text"
+                    value="NY"
+                    disabled
+                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                  Default Pickup Address
+                  Zip Code
                 </label>
                 <Input
                   type="text"
-                  placeholder="Building name or cross roads"
-                  value={editPickupAddress}
-                  onChange={(e) => setEditPickupAddress(e.target.value)}
+                  placeholder="e.g., 10001"
+                  value={editZipCode}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
+                    setEditZipCode(val);
+                  }}
                   className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
                 />
-                <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
-                  Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
-                </p>
               </div>
 
               {editProfileError && <p className="text-sm text-red-400">{editProfileError}</p>}
@@ -2614,7 +2764,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                       key={person.id}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
                     >
-                      <button onClick={() => openUserProfile(person.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                      <button onClick={() => onViewUser?.(person.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                         <div className="size-9 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
                           {person.profile_picture ? (
                             <img src={person.profile_picture} alt="" className="size-full object-cover" />
@@ -2699,7 +2849,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             key={person.id}
                             className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
                           >
-                            <button onClick={() => openUserProfile(person.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                            <button onClick={() => onViewUser?.(person.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                               <div className="size-9 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
                                 {person.profile_picture ? (
                                   <img src={person.profile_picture} alt="" className="size-full object-cover" />
@@ -2784,80 +2934,250 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <Package className="size-5 text-fuchsia-400" />
               </div>
               <div>
-                <h3 className="text-lg font-medium">My Listings</h3>
-                <p className="text-xs text-white/40">{myListings.length} active</p>
+                <h3 className="text-lg font-medium">My Orders</h3>
+                <p className="text-xs text-white/40">
+                  {listingsTab === "selling"
+                    ? `${myListings.length} listing${myListings.length !== 1 ? "s" : ""}`
+                    : `${myPurchases.length} order${myPurchases.length !== 1 ? "s" : ""}`}
+                </p>
               </div>
+            </div>
+
+            {/* Selling / Buying tabs */}
+            <div className="flex gap-1 p-0.5 bg-white/5 rounded-lg mb-4">
+              <button
+                onClick={() => setListingsTab("selling")}
+                className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${listingsTab === "selling" ? "bg-fuchsia-500/20 text-fuchsia-300 font-medium" : "text-white/40 hover:text-white/60"}`}
+              >
+                Selling
+              </button>
+              <button
+                onClick={() => setListingsTab("buying")}
+                className={`flex-1 text-xs py-1.5 rounded-md transition-colors relative ${listingsTab === "buying" ? "bg-cyan-500/20 text-cyan-300 font-medium" : "text-white/40 hover:text-white/60"}`}
+              >
+                Buying
+                {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length > 0 && listingsTab !== "buying" && (
+                  <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
+                    {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length}
+                  </span>
+                )}
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto min-h-0">
-              {myListings.length === 0 ? (
-                <div className="text-center py-12">
-                  <Package className="size-10 text-white/15 mx-auto mb-3" />
-                  <p className="text-sm text-white/30 mb-1">No listings yet</p>
-                  <p className="text-xs text-white/20">Create your first listing from the homepage</p>
-                </div>
+              {listingsTab === "selling" ? (
+                myListings.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Package className="size-10 text-white/15 mx-auto mb-3" />
+                    <p className="text-sm text-white/30 mb-1">No listings yet</p>
+                    <p className="text-xs text-white/20">Create your first listing from the homepage</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {[...myListings].sort((a, b) => {
+                      const aOrders = a.pendingOrderCount ?? 0;
+                      const bOrders = b.pendingOrderCount ?? 0;
+                      if (aOrders !== bOrders) return bOrders - aOrders;
+                      const aTime = a.latestOrderAt || "";
+                      const bTime = b.latestOrderAt || "";
+                      if (aTime !== bTime) return bTime > aTime ? 1 : -1;
+                      return 0;
+                    }).map((listing) => {
+                      const timeInfo = getListingTimeInfo(listing.postedAt);
+                      const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
+                      const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
+                      const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
+                      const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
+                      const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
+
+                      return (
+                        <div
+                          key={listing.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${
+                            timeInfo.expired
+                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
+                              : isSellerPickupReady
+                                ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
+                                : hasPendingOrders
+                                  ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
+                                  : sellerOrder && sellerOrder.status === "confirmed"
+                                    ? "bg-green-500/[0.03] border-green-400/20"
+                                    : "bg-white/[0.03] border-white/5 hover:bg-white/5"
+                          }`}
+                          onClick={() => {
+                            setShowListingsModal(false);
+                            if (timeInfo.expired) return;
+                            if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
+                            else if (hasPendingOrders) openOrderModal(listing);
+                            else if (sellerOrder) openConfirmedOrderSummary(listing.id);
+                            else openEditListing(listing);
+                          }}
+                        >
+                          <div className="relative shrink-0">
+                            <img src={listing.imageUrl} alt={listing.title} className="size-14 rounded-lg object-cover border border-white/10" />
+                            {hasPendingOrders && (
+                              <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
+                                {listing.pendingOrderCount}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white/80 truncate">{listing.title}</p>
+                            <div className="flex items-center gap-1.5">
+                              {isSellerPickupReady ? (
+                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                              ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
+                                <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup{sellerOrder.confirmed_time ? ` at ${sellerOrder.confirmed_time}` : ""}</span>
+                              ) : hasPendingOrders ? (
+                                <span className="text-[10px] text-cyan-400">{listing.pendingOrderCount} pending {listing.pendingOrderCount === 1 ? "order" : "orders"}</span>
+                              ) : (
+                                <>
+                                  <Clock className="size-2.5 text-white/20" />
+                                  <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>{timeInfo.label}</p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-sm font-medium text-fuchsia-400">${listing.price}</span>
+                            {timeInfo.expired ? (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
+                                disabled={relistingId === listing.id}
+                                className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
+                              >
+                                {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
+                              </button>
+                            ) : isSellerPickupReady ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                            ) : hasPendingOrders ? (
+                              <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Review</span>
+                            ) : (
+                              <Pencil className="size-3.5 text-white/20" />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               ) : (
-                <div className="space-y-2">
-                  {myListings.map((listing) => (
-                    <div
-                      key={listing.id}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                      onClick={() => { openEditListing(listing); setShowListingsModal(false); }}
-                    >
-                      <img
-                        src={listing.imageUrl}
-                        alt={listing.title}
-                        className="size-14 rounded-lg object-cover border border-white/10 shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white/80 truncate">{listing.title}</p>
-                        <p className="text-xs text-white/30 mt-0.5">{listing.condition}</p>
-                        <p className="text-[10px] text-white/20 mt-0.5">
-                          {new Date(listing.postedAt * 1000).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-sm font-medium text-fuchsia-400">${listing.price}</span>
-                        <Pencil className="size-3.5 text-white/20" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                myPurchases.length === 0 ? (
+                  <div className="text-center py-12">
+                    <ShoppingBag className="size-10 text-white/15 mx-auto mb-3" />
+                    <p className="text-sm text-white/30 mb-1">No purchases yet</p>
+                    <p className="text-xs text-white/20">Browse the market to find items</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {myPurchases.map((order) => {
+                      const countdown = getPickupCountdown(order);
+                      const hasReviewed = order.buyer_reviewed;
+                      const isPickupReady = (order.status === "confirmed" || order.status === "completed") && countdown.expired && !hasReviewed;
+                      const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
+                      const isCompleted = (order.status === "completed" && hasReviewed) || (order.status === "completed" && !countdown.expired);
+                      const isDeclined = order.status === "declined";
+                      const isWithdrawn = order.status === "withdrawn";
+
+                      return (
+                        <div key={order.id}>
+                        <div
+                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                            isDeclined
+                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
+                              : isWithdrawn
+                                ? "bg-white/[0.02] border-white/5 opacity-50"
+                                : isPickupReady
+                                  ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
+                                  : isConfirmedCountdown
+                                    ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
+                                    : "bg-white/[0.03] border-white/5"
+                          }`}
+                          onClick={() => {
+                            if (isDeclined || isWithdrawn) return;
+                            setShowListingsModal(false);
+                            if (isPickupReady) openRatingModal(order);
+                            else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
+                          }}
+                        >
+                          <img src={order.listing_image} alt={order.listing_title} className="size-14 rounded-lg object-cover border border-white/10 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white/80 truncate">{order.listing_title}</p>
+                            <div className="flex items-center gap-1.5">
+                              {isDeclined ? (
+                                <span className="text-[10px] text-red-400/70">Order was declined</span>
+                              ) : isWithdrawn ? (
+                                <span className="text-[10px] text-white/40">Order withdrawn</span>
+                              ) : isPickupReady ? (
+                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                              ) : isConfirmedCountdown ? (
+                                <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
+                              ) : (
+                                <p className="text-[10px] text-white/30">
+                                  {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
+                                </p>
+                              )}
+                            </div>
+                            {order.address_released && order.pickup_address && (
+                              <p className="text-[10px] text-green-400/80 flex items-center gap-1 mt-0.5">
+                                <MapPin className="size-2.5" />{order.pickup_address}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="text-sm font-medium text-fuchsia-400">${order.listing_price}</span>
+                            {isDeclined ? (
+                              <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
+                            ) : isWithdrawn ? (
+                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
+                            ) : isPickupReady ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                            ) : isConfirmedCountdown ? (
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
+                            ) : isCompleted ? (
+                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Completed</span>
+                            ) : (
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Pending</span>
+                            )}
+                            {order.status === "pending" && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowWithdrawConfirm(showWithdrawConfirm === order.id ? null : order.id);
+                                }}
+                                className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
+                              >
+                                Withdraw
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {showWithdrawConfirm === order.id && (
+                          <div className="mt-1.5 bg-amber-500/[0.05] border border-amber-400/20 rounded-lg p-2">
+                            <p className="text-[10px] text-white/60 mb-2">Withdraw your order? You can re-order later.</p>
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => setShowWithdrawConfirm(null)}
+                                className="flex-1 text-[10px] text-white/40 bg-white/5 border border-white/10 rounded py-1 hover:bg-white/10"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleWithdrawOrder(order.id)}
+                                disabled={withdrawingOrderId === order.id}
+                                className="flex-1 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-400/20 rounded py-1 hover:bg-amber-500/20 disabled:opacity-40"
+                              >
+                                {withdrawingOrderId === order.id ? "..." : "Withdraw"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Purchases Modal */}
-      {showPurchasesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowPurchasesModal(false)}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => setShowPurchasesModal(false)}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-green-500/15 rounded-full flex items-center justify-center">
-                <ShoppingBag className="size-5 text-green-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium">Purchases</h3>
-                <p className="text-xs text-white/40">{stats.purchases} total</p>
-              </div>
-            </div>
-
-            <div className="text-center py-12">
-              <ShoppingBag className="size-10 text-white/15 mx-auto mb-3" />
-              <p className="text-sm text-white/30 mb-1">No purchases yet</p>
-              <p className="text-xs text-white/20">Items you buy will appear here</p>
             </div>
           </div>
         </div>
@@ -2906,7 +3226,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                       key={friend.id}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
                     >
-                      <button onClick={() => openUserProfile(friend.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                      <button onClick={() => onViewUser?.(friend.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                         <div className="size-9 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
                           {friend.profile_picture ? (
                             <img src={friend.profile_picture} alt="" className="size-full object-cover" />
@@ -3176,7 +3496,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             key={member.id}
                             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
                           >
-                            <button onClick={() => openUserProfile(member.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                            <button onClick={() => onViewUser?.(member.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                               <div className="size-8 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
                                 {member.profile_picture ? (
                                   <img src={member.profile_picture} alt="" className="size-full object-cover" />
@@ -3240,7 +3560,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             key={req.id}
                             className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/5"
                           >
-                            <button onClick={() => openUserProfile(req.user_id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                            <button onClick={() => onViewUser?.(req.user_id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                               <div className="size-8 rounded-full bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center overflow-hidden shrink-0">
                                 {req.profile_picture ? (
                                   <img src={req.profile_picture} alt="" className="size-full object-cover" />
@@ -3326,112 +3646,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         </div>
       )}
       {/* User Profile Summary Modal */}
-      {showUserProfile && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowUserProfile(false); setUserProfileData(null); }} />
-          <div className="relative w-full max-w-sm mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden" style={{ backgroundColor: '#18181b' }}>
-            {isLoadingUserProfile ? (
-              <div className="py-16 text-center">
-                <Loader2 className="size-6 animate-spin mx-auto text-fuchsia-400" />
-              </div>
-            ) : userProfileData ? (
-              <>
-                {/* Header with photo and name */}
-                <div className="relative pt-8 pb-4 px-6 text-center border-b border-white/10">
-                  <button
-                    onClick={() => { setShowUserProfile(false); setUserProfileData(null); }}
-                    className="absolute top-3 right-3 size-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-                  >
-                    <X className="size-3.5 text-white/60" />
-                  </button>
-                  <div className="size-20 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden mx-auto mb-3 border-2 border-white/10">
-                    {userProfileData.profile_picture ? (
-                      <img src={userProfileData.profile_picture} alt="" className="size-full object-cover" />
-                    ) : (
-                      <User className="size-8 text-white/50" />
-                    )}
-                  </div>
-                  <h3 className="text-lg font-medium">{userProfileData.display_name || "User"}</h3>
-                  {userProfileData.neighborhood && (
-                    <p className="text-xs text-white/40 flex items-center justify-center gap-1 mt-0.5">
-                      <MapPin className="size-3" />
-                      {userProfileData.neighborhood}
-                    </p>
-                  )}
-                </div>
-
-                {/* Communities section */}
-                <div className="px-4 py-3 border-b border-white/10">
-                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Communities</p>
-                  {userProfileData.communities.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {userProfileData.communities.map((c) => (
-                        <span
-                          key={c.id}
-                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs border ${
-                            c.is_mutual
-                              ? "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-400/25"
-                              : "bg-white/5 text-white/40 border-white/10"
-                          }`}
-                        >
-                          {c.image ? (
-                            <img src={c.image} alt="" className="size-3.5 rounded-full object-cover" />
-                          ) : c.is_public !== false ? (
-                            <Users className="size-3" />
-                          ) : (
-                            <Lock className="size-3" />
-                          )}
-                          {c.name}
-                          {c.is_mutual && (
-                            <span className="text-[9px] text-fuchsia-400/70">mutual</span>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-white/20">No communities</p>
-                  )}
-                </div>
-
-                {/* Mutual friends section */}
-                <div className="px-4 py-3">
-                  <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">
-                    Mutual Friends{userProfileData.mutual_friends.length > 0 && ` (${userProfileData.mutual_friends.length})`}
-                  </p>
-                  {userProfileData.mutual_friends.length > 0 ? (
-                    <div className="max-h-40 overflow-y-auto space-y-1 scrollbar-thin">
-                      {userProfileData.mutual_friends.map((f) => (
-                        <button
-                          key={f.id}
-                          onClick={() => openUserProfile(f.id)}
-                          className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-left"
-                        >
-                          <div className="size-7 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                            {f.profile_picture ? (
-                              <img src={f.profile_picture} alt="" className="size-full object-cover" />
-                            ) : (
-                              <User className="size-3 text-white/50" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-white/80 truncate">{f.display_name}</p>
-                            {f.neighborhood && (
-                              <p className="text-[10px] text-white/25 truncate">{f.neighborhood}</p>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-white/20">No mutual friends</p>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </div>
-        </div>
-      )}
-
       {/* Edit Listing Modal */}
       {showEditListingModal && editListing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -3636,11 +3850,17 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   </span>
                 </div>
                 <div className="flex justify-between text-xs">
-                  <span className="text-white/40">Pickup Time</span>
+                  <span className="text-white/40">Pickup Window</span>
                   <span className="text-white/80">
                     {({ morning: "8 AM – 12 PM", afternoon: "12 – 5 PM", evening: "5 – 9 PM" } as Record<string, string>)[confirmSummaryData.slot.time] || confirmSummaryData.slot.time || "—"}
                   </span>
                 </div>
+                {confirmSummaryData.confirmedTime && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40">Pickup Time</span>
+                    <span className="text-green-400 font-medium">{confirmSummaryData.confirmedTime}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-xs">
                   <span className="text-white/40">Status</span>
                   <span className="text-green-400 font-medium">Confirmed</span>
@@ -3650,7 +3870,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
             <Button
               onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-              className="w-full mt-4 bg-white/10 hover:bg-white/15 border border-white/10 text-xs"
+              className="w-full mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 border-0 text-white text-xs"
               size="sm"
             >
               Done
@@ -3663,11 +3883,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowOrderModal(false); setOrderModalListing(null); }}
+            onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
           />
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
             <button
-              onClick={() => { setShowOrderModal(false); setOrderModalListing(null); }}
+              onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
               className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
             >
               <X className="size-5" />
@@ -3700,44 +3920,161 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <div className="space-y-4">
                 {listingOrders.map((order) => {
                   const timeLabels: Record<string, string> = { morning: "8 AM – 12 PM", afternoon: "12 – 5 PM", evening: "5 – 9 PM" };
+                  const isSelected = selectedSlot?.orderId === order.id;
+
+                  // Generate 30-min increments for a time window string like "10 AM – 6 PM"
+                  const generateTimeOptions = (timeWindow: string): string[] => {
+                    const parseHour = (s: string): number => {
+                      const m = s.trim().match(/^(\d{1,2})\s*(AM|PM)$/i);
+                      if (!m) return 0;
+                      let h = parseInt(m[1]);
+                      if (m[2].toUpperCase() === "PM" && h !== 12) h += 12;
+                      if (m[2].toUpperCase() === "AM" && h === 12) h = 0;
+                      return h;
+                    };
+                    const label = timeLabels[timeWindow] || timeWindow;
+                    const parts = label.split("–").map((s) => s.trim());
+                    if (parts.length !== 2) return [];
+                    const startH = parseHour(parts[0]);
+                    const endH = parseHour(parts[1]);
+                    const options: string[] = [];
+                    for (let h = startH; h < endH; h++) {
+                      for (const m of [0, 30]) {
+                        const hour = h % 12 || 12;
+                        const ampm = h >= 12 ? "PM" : "AM";
+                        options.push(`${hour}:${m.toString().padStart(2, "0")} ${ampm}`);
+                      }
+                    }
+                    return options;
+                  };
+
                   return (
                     <div key={order.id} className="bg-white/[0.03] border border-cyan-400/20 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <p className="text-sm font-medium">{order.buyer_name}</p>
-                          {order.created_at && (
-                            <p className="text-[10px] text-white/25 mt-0.5">
-                              {new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                            </p>
+                        <button
+                          onClick={() => onViewUser?.(order.buyer_id)}
+                          className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
+                        >
+                          <div className="size-8 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
+                            {order.buyer_picture ? (
+                              <img src={order.buyer_picture} alt="" className="size-full object-cover" />
+                            ) : (
+                              <User className="size-3.5 text-white/50" />
+                            )}
+                          </div>
+                          <div className="text-left">
+                            <p className="text-sm font-medium">{order.buyer_name}</p>
+                            {order.created_at && (
+                              <p className="text-[10px] text-white/25 mt-0.5">
+                                {new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              </p>
+                            )}
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          {showDeclineConfirm !== order.id && (
+                            <button
+                              onClick={() => setShowDeclineConfirm(order.id)}
+                              className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors"
+                            >
+                              Decline
+                            </button>
                           )}
+                          <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Pending</span>
                         </div>
-                        <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Pending</span>
                       </div>
 
-                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Suggested Pickup Times</p>
-                      <div className="space-y-1.5">
-                        {order.selected_pickup_slots.map((slot, i) => {
-                          const dateStr = new Date(slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-                          return (
+                      {showDeclineConfirm === order.id ? (
+                        <div className="bg-red-500/[0.05] border border-red-400/20 rounded-lg p-3">
+                          <p className="text-xs text-white/70 mb-3">Are you sure you want to decline this order?</p>
+                          <div className="flex gap-2">
                             <button
-                              key={i}
-                              onClick={() => handleConfirmSlot(order.id, slot, order)}
-                              disabled={confirmingOrderId === order.id}
-                              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] border border-white/10 hover:border-cyan-400/40 hover:bg-cyan-500/[0.05] transition-colors text-left disabled:opacity-40"
+                              onClick={() => setShowDeclineConfirm(null)}
+                              className="flex-1 text-xs text-white/50 bg-white/5 border border-white/10 rounded-lg py-1.5 hover:bg-white/10 transition-colors"
                             >
-                              <div>
-                                <p className="text-xs text-white/80">{dateStr}</p>
-                                <p className="text-[10px] text-white/40">{timeLabels[slot.time] || slot.time}</p>
-                              </div>
-                              {confirmingOrderId === order.id ? (
-                                <Loader2 className="size-3.5 animate-spin text-cyan-400 shrink-0" />
-                              ) : (
-                                <span className="text-[10px] text-cyan-400 shrink-0">Confirm</span>
-                              )}
+                              Cancel
                             </button>
-                          );
-                        })}
-                      </div>
+                            <button
+                              onClick={() => handleDeclineOrder(order.id)}
+                              disabled={decliningOrderId === order.id}
+                              className="flex-1 text-xs text-red-400 bg-red-500/10 border border-red-400/20 rounded-lg py-1.5 hover:bg-red-500/20 transition-colors disabled:opacity-40"
+                            >
+                              {decliningOrderId === order.id ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Decline Order"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Select a Pickup Window</p>
+                          <div className="space-y-1.5">
+                            {order.selected_pickup_slots.map((slot, i) => {
+                              const dateStr = new Date(slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                              const isThisSelected = isSelected && selectedSlot.slot.date === slot.date && selectedSlot.slot.time === slot.time;
+                              return (
+                                <button
+                                  key={i}
+                                  onClick={() => {
+                                    if (isThisSelected) {
+                                      setSelectedSlot(null);
+                                      setConfirmTime("");
+                                    } else {
+                                      setSelectedSlot({ orderId: order.id, slot, order });
+                                      setConfirmTime("");
+                                    }
+                                  }}
+                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-colors text-left ${
+                                    isThisSelected
+                                      ? "border-cyan-400/50 bg-cyan-500/10"
+                                      : "border-white/10 bg-white/[0.03] hover:border-cyan-400/30 hover:bg-cyan-500/[0.03]"
+                                  }`}
+                                >
+                                  <div>
+                                    <p className="text-xs text-white/80">{dateStr}</p>
+                                    <p className="text-[10px] text-white/40">{timeLabels[slot.time] || slot.time}</p>
+                                  </div>
+                                  <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                    isThisSelected ? "border-cyan-400 bg-cyan-400" : "border-white/25"
+                                  }`}>
+                                    {isThisSelected && <Check className="size-2.5 text-white" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {isSelected && (() => {
+                            const timeOptions = generateTimeOptions(selectedSlot.slot.time);
+                            const slotDateStr = new Date(selectedSlot.slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                            return (
+                              <div className="mt-3 pt-3 border-t border-white/10">
+                                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Choose Exact Pickup Time</p>
+                                <p className="text-xs text-white/50 mb-2">{slotDateStr} — {timeLabels[selectedSlot.slot.time] || selectedSlot.slot.time}</p>
+                                <select
+                                  value={confirmTime}
+                                  onChange={(e) => setConfirmTime(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors mb-3"
+                                >
+                                  <option value="">Select a time...</option>
+                                  {timeOptions.map((t) => (
+                                    <option key={t} value={t}>{t}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => handleConfirmSlot(selectedSlot.orderId, selectedSlot.slot, selectedSlot.order, confirmTime)}
+                                  disabled={!confirmTime || confirmingOrderId === order.id}
+                                  className="w-full py-2 rounded-lg text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                  {confirmingOrderId === order.id ? (
+                                    <Loader2 className="size-4 animate-spin" />
+                                  ) : (
+                                    "Confirm Pickup"
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
                     </div>
                   );
                 })}

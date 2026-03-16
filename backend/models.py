@@ -13,6 +13,7 @@ class User(Base):
     neighborhood = Column(String(100), nullable=True)
     profile_picture = Column(String(255), nullable=True)
     pickup_address = Column(String(255), nullable=True)
+    zip_code = Column(String(10), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -120,6 +121,7 @@ class PurchaseOrder(Base):
     seller_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String(20), default="pending")
     selected_pickup_slots = Column(String(2000), nullable=True)
+    confirmed_time = Column(String(20), nullable=True)
     buyer_reviewed = Column(Boolean, default=False)
     seller_reviewed = Column(Boolean, default=False)
     pickup_address = Column(String(255), nullable=True)

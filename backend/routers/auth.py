@@ -31,12 +31,14 @@ class RegisterRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
     neighborhood: str = Field(..., min_length=1, max_length=100)
     pickup_address: Optional[str] = Field(None, max_length=255)
+    zip_code: Optional[str] = Field(None, max_length=10)
 
 
 class UpdateProfileRequest(BaseModel):
     display_name: Optional[str] = Field(None, min_length=1, max_length=100)
     neighborhood: Optional[str] = Field(None, min_length=1, max_length=100)
     pickup_address: Optional[str] = Field(None, max_length=255)
+    zip_code: Optional[str] = Field(None, max_length=10)
 
 
 class UserOut(BaseModel):
@@ -46,6 +48,7 @@ class UserOut(BaseModel):
     neighborhood: Optional[str] = None
     profile_picture: Optional[str] = None
     pickup_address: Optional[str] = None
+    zip_code: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -142,6 +145,8 @@ async def register(
     current_user.neighborhood = req.neighborhood
     if req.pickup_address is not None:
         current_user.pickup_address = req.pickup_address
+    if req.zip_code is not None:
+        current_user.zip_code = req.zip_code
     db.commit()
     db.refresh(current_user)
     return current_user
@@ -159,6 +164,8 @@ async def update_profile(
         current_user.neighborhood = req.neighborhood
     if req.pickup_address is not None:
         current_user.pickup_address = req.pickup_address
+    if req.zip_code is not None:
+        current_user.zip_code = req.zip_code
     db.commit()
     db.refresh(current_user)
     return current_user
