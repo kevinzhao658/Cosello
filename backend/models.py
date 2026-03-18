@@ -126,6 +126,7 @@ class PurchaseOrder(Base):
     seller_reviewed = Column(Boolean, default=False)
     pickup_address = Column(String(255), nullable=True)
     address_released = Column(Integer, default=0)
+    pickup_notified = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

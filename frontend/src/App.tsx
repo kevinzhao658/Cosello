@@ -287,12 +287,14 @@ export default function App() {
     const expiresAt = new Date(postedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
     const days: { date: string; dayLabel: string }[] = [];
     const startDate = new Date(now);
-    startDate.setDate(startDate.getDate() + 1);
     startDate.setHours(0, 0, 0, 0);
+    const todayStr = startDate.toISOString().split("T")[0];
     for (let d = new Date(startDate); d <= expiresAt; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split("T")[0];
-      const dayName = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-      days.push({ date: dateStr, dayLabel: dayName });
+      const dayLabel = dateStr === todayStr
+        ? "Today"
+        : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      days.push({ date: dateStr, dayLabel });
     }
     return days;
   };
@@ -1295,7 +1297,7 @@ export default function App() {
                               key={n.id}
                               className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${
                                 n.is_read ? "opacity-40" : ""
-                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
+                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated" || n.type === "pickup_ready" || n.type === "order_completed" || n.type === "order_expired") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
                               onClick={() => {
                                 if ((n.type === "purchase" || n.type === "order_withdrawn" || n.type === "order_updated") && n.listing_id) {
                                   setNotificationsOpen(false);
@@ -1303,12 +1305,12 @@ export default function App() {
                                   setPendingListingId(n.listing_id);
                                   setPage("account");
                                 }
-                                if (n.type === "order_declined" || n.type === "order_cancelled") {
+                                if (n.type === "order_declined" || n.type === "order_cancelled" || n.type === "order_expired") {
                                   setNotificationsOpen(false);
                                   if (unreadCount > 0) handleMarkAllRead();
                                   setPage("account");
                                 }
-                                if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released") && n.listing_id) {
+                                if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released" || n.type === "pickup_ready" || n.type === "order_completed") && n.listing_id) {
                                   setNotificationsOpen(false);
                                   if (unreadCount > 0) handleMarkAllRead();
                                   setPendingListingId(n.listing_id);
@@ -1326,10 +1328,14 @@ export default function App() {
                                       ? "bg-cyan-500/15"
                                       : n.type === "order_declined" || n.type === "order_cancelled"
                                         ? "bg-red-500/15"
-                                        : n.type === "order_withdrawn"
+                                        : n.type === "order_withdrawn" || n.type === "order_expired"
                                           ? "bg-amber-500/15"
                                           : n.type === "order_updated"
                                             ? "bg-cyan-500/15"
+                                          : n.type === "pickup_ready"
+                                            ? "bg-green-500/15"
+                                          : n.type === "order_completed"
+                                            ? "bg-fuchsia-500/15"
                                           : n.type === "review_submitted"
                                             ? "bg-fuchsia-500/15"
                                             : n.type === "address_released"
@@ -1342,10 +1348,14 @@ export default function App() {
                                     <ShoppingBag className="size-3.5 text-cyan-400" />
                                   ) : n.type === "order_declined" || n.type === "order_cancelled" ? (
                                     <XCircle className="size-3.5 text-red-400" />
-                                  ) : n.type === "order_withdrawn" ? (
+                                  ) : n.type === "order_withdrawn" || n.type === "order_expired" ? (
                                     <XCircle className="size-3.5 text-amber-400" />
                                   ) : n.type === "order_updated" ? (
                                     <ShoppingBag className="size-3.5 text-cyan-400" />
+                                  ) : n.type === "pickup_ready" ? (
+                                    <CheckCircle className="size-3.5 text-green-400" />
+                                  ) : n.type === "order_completed" ? (
+                                    <CheckCircle className="size-3.5 text-fuchsia-400" />
                                   ) : n.type === "review_submitted" ? (
                                     <Star className="size-3.5 text-fuchsia-400" />
                                   ) : n.type === "address_released" ? (
@@ -3604,10 +3614,13 @@ export default function App() {
                     );
                   }
                   const HOURS = Array.from({ length: 14 }, (_, i) => i + 8); // 8 AM to 9 PM
+                  const todayDateStr = new Date().toISOString().split("T")[0];
+                  const currentHour = new Date().getHours();
                   return (
                     <div className="space-y-1.5 max-h-64 overflow-y-auto">
                       {availableDays.map((day) => {
                         const sel = pickupDaySelections[day.date];
+                        const isToday = day.date === todayDateStr;
                         return (
                           <div
                             key={day.date}
@@ -3622,7 +3635,9 @@ export default function App() {
                                     delete next[day.date];
                                     return next;
                                   }
-                                  return { ...prev, [day.date]: { from: 10, to: 18, dayLabel: day.dayLabel } };
+                                  const defaultFrom = isToday ? Math.max(currentHour, 8) : 8;
+                                  const defaultTo = isToday ? Math.min(Math.max(currentHour + 1, 9), 21) : 21;
+                                  return { ...prev, [day.date]: { from: defaultFrom, to: defaultTo, dayLabel: day.dayLabel } };
                                 });
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left"

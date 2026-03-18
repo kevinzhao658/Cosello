@@ -1,5 +1,7 @@
 import json
 import time
+import datetime
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -42,6 +44,51 @@ def _find_listing(listing_id: str, check_expiry: bool = False):
                 return None
             return l
     return None
+
+
+def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
+    """If all pickup slots have passed, set status='expired', notify both parties."""
+    if order.status != "pending" or not order.selected_pickup_slots:
+        return False
+    slots = json.loads(order.selected_pickup_slots)
+    now_dt = datetime.datetime.now()
+    for slot in slots:
+        end_hour = 18
+        time_str = slot.get("time", "")
+        dash_match = re.search(r'[–-]\s*(\d{1,2})\s*(AM|PM)', time_str, re.IGNORECASE)
+        if dash_match:
+            h = int(dash_match.group(1))
+            ampm = dash_match.group(2).upper()
+            if ampm == "PM" and h != 12:
+                h += 12
+            if ampm == "AM" and h == 12:
+                h = 0
+            end_hour = h
+        slot_end = datetime.datetime.strptime(slot["date"], "%Y-%m-%d").replace(hour=end_hour)
+        if now_dt <= slot_end:
+            return False
+    # All slots expired
+    order.status = "expired"
+    listing = _find_listing(order.listing_id)
+    listing_title = listing["title"] if listing else "an item"
+    db.add(Notification(
+        user_id=order.buyer_id,
+        type="order_expired",
+        title="Order Expired",
+        message=f'Your order for "{listing_title}" has expired — all proposed pickup times have passed.',
+        related_user_id=order.seller_id,
+        listing_id=order.listing_id,
+    ))
+    db.add(Notification(
+        user_id=order.seller_id,
+        type="order_expired",
+        title="Order Expired",
+        message=f'A buy request for "{listing_title}" has expired — all proposed pickup times have passed.',
+        related_user_id=order.buyer_id,
+        listing_id=order.listing_id,
+    ))
+    db.commit()
+    return True
 
 
 @router.post("")
@@ -264,6 +311,30 @@ async def withdraw_order(
     return {"id": order.id, "status": "withdrawn"}
 
 
+@router.post("/{order_id}/expire")
+async def expire_order(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if current_user.id not in (order.buyer_id, order.seller_id):
+        raise HTTPException(status_code=403, detail="Not part of this order")
+
+    if order.status == "expired":
+        return {"id": order.id, "status": "expired"}
+
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Order is not pending")
+
+    _check_and_expire_order(order, db)
+
+    return {"id": order.id, "status": "expired"}
+
+
 @router.post("/{order_id}/update-slots")
 async def update_order_slots(
     order_id: int,
@@ -303,6 +374,52 @@ async def update_order_slots(
     }
 
 
+@router.post("/{order_id}/notify-pickup-ready")
+async def notify_pickup_ready(
+    order_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if current_user.id not in (order.buyer_id, order.seller_id):
+        raise HTTPException(status_code=403, detail="Not part of this order")
+
+    if order.status != "confirmed":
+        raise HTTPException(status_code=400, detail="Order not confirmed")
+
+    # Idempotent: if already notified, return early
+    if order.pickup_notified:
+        return {"id": order.id, "pickup_notified": True}
+
+    order.pickup_notified = 1
+
+    listing = _find_listing(order.listing_id)
+    listing_title = listing["title"] if listing else "an item"
+
+    db.add(Notification(
+        user_id=order.buyer_id,
+        type="pickup_ready",
+        title="Confirm Pickup",
+        message=f'Time to confirm pickup for "{listing_title}" and rate your experience.',
+        related_user_id=order.seller_id,
+        listing_id=order.listing_id,
+    ))
+    db.add(Notification(
+        user_id=order.seller_id,
+        type="pickup_ready",
+        title="Confirm Pickup",
+        message=f'Time to confirm pickup for "{listing_title}" and rate your experience.',
+        related_user_id=order.buyer_id,
+        listing_id=order.listing_id,
+    ))
+    db.commit()
+
+    return {"id": order.id, "pickup_notified": True}
+
+
 @router.get("/status/{listing_id}")
 async def get_order_status_for_listing(
     listing_id: str,
@@ -320,6 +437,11 @@ async def get_order_status_for_listing(
     )
     if not order:
         return {"status": None}
+
+    # Auto-expire if all pickup slots have passed
+    if order.status == "pending":
+        _check_and_expire_order(order, db)
+
     return {
         "status": order.status,
         "order_id": order.id,
@@ -369,12 +491,15 @@ async def complete_order(
     )
     db.add(review)
 
-    # Update review flags and order status
+    # Update review flags
     if role == "buyer":
         order.buyer_reviewed = True
     else:
         order.seller_reviewed = True
-    order.status = "completed"
+
+    # Only mark completed when BOTH parties have reviewed
+    if order.buyer_reviewed and order.seller_reviewed:
+        order.status = "completed"
 
     # Notify the other party
     listing = _find_listing(order.listing_id)
@@ -382,14 +507,28 @@ async def complete_order(
     reviewer_name = current_user.display_name or "Someone"
 
     if role == "buyer":
-        notif_message = f'{reviewer_name} confirmed pickup and rated your sale of "{listing_title}"'
+        if order.seller_reviewed:
+            notif_title = "Transaction Complete!"
+            notif_type = "order_completed"
+            notif_message = f'Both parties confirmed pickup for "{listing_title}" — transaction complete!'
+        else:
+            notif_title = "Pickup Confirmed — Your Turn!"
+            notif_type = "review_submitted"
+            notif_message = f'{reviewer_name} confirmed pickup and rated your sale of "{listing_title}". Please confirm on your end!'
     else:
-        notif_message = f'{reviewer_name} confirmed pickup and rated your purchase of "{listing_title}"'
+        if order.buyer_reviewed:
+            notif_title = "Transaction Complete!"
+            notif_type = "order_completed"
+            notif_message = f'Both parties confirmed pickup for "{listing_title}" — transaction complete!'
+        else:
+            notif_title = "Pickup Confirmed — Your Turn!"
+            notif_type = "review_submitted"
+            notif_message = f'{reviewer_name} confirmed pickup and rated your purchase of "{listing_title}". Please confirm on your end!'
 
     notification = Notification(
         user_id=reviewee_id,
-        type="review_submitted",
-        title="Pickup Confirmed & Rated!",
+        type=notif_type,
+        title=notif_title,
         message=notif_message,
         related_user_id=current_user.id,
         listing_id=order.listing_id,
@@ -512,6 +651,10 @@ async def get_orders(
             orphaned_ids.append(o.id)
             continue
 
+        # Auto-expire pending orders whose pickup slots have all passed
+        if o.status == "pending":
+            _check_and_expire_order(o, db)
+
         results.append({
             "id": o.id,
             "listing_id": o.listing_id,
@@ -532,6 +675,7 @@ async def get_orders(
             "pickup_address": o.pickup_address if o.address_released else None,
             "address_released": bool(o.address_released),
             "is_neighborhood": "neighborhood" in listing.get("communities", []),
+            "pickup_notified": bool(o.pickup_notified),
         })
 
     # Delete orphaned orders from the database

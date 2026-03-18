@@ -35,6 +35,8 @@ class StatsOut(BaseModel):
     total_listings: int = 0
     purchases: int = 0
     friends_count: int = 0
+    avg_seller_rating: float = 5.0
+    avg_buyer_rating: float = 5.0
 
 
 # ---------- Helpers ----------
@@ -269,10 +271,18 @@ async def get_stats(
         .filter(PurchaseOrder.buyer_id == current_user.id)
         .scalar()
     )
+    # Compute separate buyer/seller ratings
+    reviews = db.query(Review).filter(Review.reviewee_id == current_user.id).all()
+    seller_ratings = [r.rating for r in reviews if r.reviewer_role == "buyer"]
+    buyer_ratings = [r.rating for r in reviews if r.reviewer_role == "seller"]
+    avg_seller_rating = round(sum(seller_ratings) / len(seller_ratings), 1) if seller_ratings else 5.0
+    avg_buyer_rating = round(sum(buyer_ratings) / len(buyer_ratings), 1) if buyer_ratings else 5.0
     return {
         "total_listings": total_listings,
         "purchases": purchases_count or 0,
         "friends_count": friends_count or 0,
+        "avg_seller_rating": avg_seller_rating,
+        "avg_buyer_rating": avg_buyer_rating,
     }
 
 
@@ -368,6 +378,14 @@ async def get_user_profile(
     if reviews_list:
         avg_rating = round(sum(r["rating"] for r in reviews_list) / len(reviews_list), 1)
 
+    # Separate buyer/seller ratings
+    # reviewer_role == "buyer" means a buyer reviewed this user as a seller
+    # reviewer_role == "seller" means a seller reviewed this user as a buyer
+    seller_reviews = [r for r in reviews_list if r["reviewer_role"] == "buyer"]
+    buyer_reviews = [r for r in reviews_list if r["reviewer_role"] == "seller"]
+    avg_seller_rating = round(sum(r["rating"] for r in seller_reviews) / len(seller_reviews), 1) if seller_reviews else 5.0
+    avg_buyer_rating = round(sum(r["rating"] for r in buyer_reviews) / len(buyer_reviews), 1) if buyer_reviews else 5.0
+
     return {
         "id": target.id,
         "display_name": target.display_name,
@@ -382,6 +400,10 @@ async def get_user_profile(
             "total_listings": total_listings,
             "review_count": len(reviews_list),
             "avg_rating": avg_rating,
+            "avg_seller_rating": avg_seller_rating,
+            "seller_review_count": len(seller_reviews),
+            "avg_buyer_rating": avg_buyer_rating,
+            "buyer_review_count": len(buyer_reviews),
         },
         "member_since": target.created_at.isoformat() if target.created_at else None,
     }

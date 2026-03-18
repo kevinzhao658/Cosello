@@ -29,6 +29,7 @@ import {
   Users,
   Clock,
   RotateCcw,
+  Star,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -78,6 +79,8 @@ interface ProfileStats {
   total_listings: number;
   purchases: number;
   friends_count: number;
+  avg_seller_rating: number;
+  avg_buyer_rating: number;
 }
 
 interface MyListing {
@@ -116,6 +119,7 @@ interface OrderData {
   pickup_address: string | null;
   address_released: boolean;
   is_neighborhood: boolean;
+  pickup_notified: boolean;
 }
 
 interface WishlistListing {
@@ -254,7 +258,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [kickingMemberId, setKickingMemberId] = useState<number | null>(null);
 
   // Profile stats
-  const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0 });
+  const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0, avg_seller_rating: 5.0, avg_buyer_rating: 5.0 });
   const [myListings, setMyListings] = useState<MyListing[]>([]);
   const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
@@ -351,20 +355,36 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       return { expired: false, label: "" };
     }
     const slot = order.selected_pickup_slots[0];
-    let endHour = 18;
-    const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
-    if (dashMatch) {
-      let h = parseInt(dashMatch[1], 10);
-      const ampm = dashMatch[2].toUpperCase();
-      if (ampm === "PM" && h !== 12) h += 12;
-      if (ampm === "AM" && h === 12) h = 0;
-      endHour = h;
+
+    // Use confirmed_time if available (e.g. "3:00 PM"), otherwise fall back to window end
+    let targetHour = 18;
+    let targetMin = 0;
+    if (order.confirmed_time) {
+      const ctMatch = order.confirmed_time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (ctMatch) {
+        let h = parseInt(ctMatch[1], 10);
+        const m = parseInt(ctMatch[2], 10);
+        const ampm = ctMatch[3].toUpperCase();
+        if (ampm === "PM" && h !== 12) h += 12;
+        if (ampm === "AM" && h === 12) h = 0;
+        targetHour = h;
+        targetMin = m;
+      }
+    } else {
+      const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
+      if (dashMatch) {
+        let h = parseInt(dashMatch[1], 10);
+        const ampm = dashMatch[2].toUpperCase();
+        if (ampm === "PM" && h !== 12) h += 12;
+        if (ampm === "AM" && h === 12) h = 0;
+        targetHour = h;
+      }
+      const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
+      if (legacyEnd[slot.time]) targetHour = legacyEnd[slot.time];
     }
-    const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
-    if (legacyEnd[slot.time]) endHour = legacyEnd[slot.time];
 
     const target = new Date(slot.date + "T00:00:00");
-    target.setHours(endHour, 0, 0, 0);
+    target.setHours(targetHour, targetMin, 0, 0);
     const diff = target.getTime() - Date.now();
 
     if (diff <= 0) return { expired: true, label: "Ready" };
@@ -374,6 +394,22 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (days > 0) return { expired: false, label: `${days}d ${hours}h ${mins}m` };
     if (hours > 0) return { expired: false, label: `${hours}h ${mins}m` };
     return { expired: false, label: `${mins}m` };
+  };
+
+  const isSlotExpired = (slot: { date: string; time: string }): boolean => {
+    const now = new Date();
+    let endHour = 18;
+    const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
+    if (dashMatch) {
+      let h = parseInt(dashMatch[1], 10);
+      const ampm = dashMatch[2].toUpperCase();
+      if (ampm === "PM" && h !== 12) h += 12;
+      if (ampm === "AM" && h === 12) h = 0;
+      endHour = h;
+    }
+    const slotEnd = new Date(slot.date + "T00:00:00");
+    slotEnd.setHours(endHour, 0, 0, 0);
+    return now > slotEnd;
   };
 
   // Auto-release address when countdown expires for neighborhood orders
@@ -389,6 +425,44 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         const countdown = getPickupCountdown(order);
         if (countdown.expired) {
           fetch(`/api/orders/${order.id}/release-address`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }).then((res) => {
+            if (res.ok) fetchAllOrders();
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-notify both parties when pickup countdown expires
+  useEffect(() => {
+    if (!token) return;
+    const allOrders = [...myPurchases, ...mySellerOrders];
+    for (const order of allOrders) {
+      if (order.status === "confirmed" && !order.pickup_notified) {
+        const countdown = getPickupCountdown(order);
+        if (countdown.expired) {
+          fetch(`/api/orders/${order.id}/notify-pickup-ready`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }).then((res) => {
+            if (res.ok) fetchAllOrders();
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-expire pending orders when all pickup slots have passed
+  useEffect(() => {
+    if (!token) return;
+    const allOrders = [...myPurchases, ...mySellerOrders];
+    for (const order of allOrders) {
+      if (order.status === "pending" && order.selected_pickup_slots.length > 0) {
+        const allExpired = order.selected_pickup_slots.every((slot) => isSlotExpired(slot));
+        if (allExpired) {
+          fetch(`/api/orders/${order.id}/expire`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}` },
           }).then((res) => {
@@ -1521,6 +1595,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   <Camera className="size-5 text-white/80" />
                 )}
               </button>
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-zinc-900 border-2 border-white/10 rounded-full px-2 py-0.5 z-10">
+                <span className="text-xs font-semibold text-white">
+                  {((stats.avg_seller_rating + stats.avg_buyer_rating) / 2).toFixed(1)}
+                </span>
+                <Star className="size-2.5 text-amber-400 fill-amber-400" />
+              </div>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1732,8 +1812,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                       const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
                       const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
                       const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
+                      const buyerHasReviewed = sellerOrder?.buyer_reviewed ?? false;
                       const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
-                      const isSellerCompleted = sellerOrder && sellerHasReviewed;
+                      const isSellerWaitingForBuyer = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed;
+                      const isSellerCompleted = sellerOrder && sellerOrder.status === "completed";
 
                       return (
                         <div
@@ -1743,15 +1825,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                               ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
                               : isSellerPickupReady
                                 ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
-                                : hasPendingOrders
-                                  ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
-                                  : sellerOrder && sellerOrder.status === "confirmed"
-                                    ? "bg-green-500/[0.03] border-green-400/20"
-                                    : "bg-white/[0.03] border-white/5 hover:bg-white/5"
+                                : isSellerWaitingForBuyer
+                                  ? "bg-amber-500/[0.05] border-amber-400/20"
+                                  : hasPendingOrders
+                                    ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
+                                    : sellerOrder && sellerOrder.status === "confirmed"
+                                      ? "bg-green-500/[0.03] border-green-400/20"
+                                      : "bg-white/[0.03] border-white/5 hover:bg-white/5"
                           }`}
                           onClick={() => {
                             if (timeInfo.expired) return;
                             if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
+                            else if (isSellerWaitingForBuyer) return;
                             else if (hasPendingOrders) openOrderModal(listing);
                             else if (sellerOrder) openConfirmedOrderSummary(listing.id);
                             else openEditListing(listing);
@@ -1770,8 +1855,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             <div className="flex items-center gap-1.5">
                               {isSellerCompleted ? (
                                 <span className="text-[10px] text-white/30">Completed</span>
+                              ) : isSellerWaitingForBuyer ? (
+                                <span className="text-[10px] text-amber-400">Waiting for buyer to confirm pickup</span>
                               ) : isSellerPickupReady ? (
-                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
                               ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
                                 <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup{sellerOrder.confirmed_time ? ` at ${sellerOrder.confirmed_time}` : ""}</span>
                               ) : hasPendingOrders ? (
@@ -1794,8 +1881,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                               >
                                 {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
                               </button>
+                            ) : isSellerWaitingForBuyer ? (
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Buyer</span>
                             ) : isSellerPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
                             ) : sellerOrder && sellerOrder.status === "confirmed" ? (
                               <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
                             ) : hasPendingOrders ? (
@@ -1840,11 +1929,14 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     {myPurchases.map((order) => {
                       const countdown = getPickupCountdown(order);
                       const hasReviewed = order.buyer_reviewed;
-                      const isPickupReady = (order.status === "confirmed" || order.status === "completed") && countdown.expired && !hasReviewed;
+                      const otherReviewed = order.seller_reviewed;
+                      const isPickupReady = order.status === "confirmed" && countdown.expired && !hasReviewed;
+                      const isWaitingForOther = order.status === "confirmed" && countdown.expired && hasReviewed && !otherReviewed;
                       const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
-                      const isCompleted = (order.status === "completed" && hasReviewed) || (order.status === "completed" && !countdown.expired);
+                      const isCompleted = order.status === "completed";
                       const isDeclined = order.status === "declined";
                       const isWithdrawn = order.status === "withdrawn";
+                      const isExpired = order.status === "expired";
 
                       return (
                         <div key={order.id}>
@@ -1852,16 +1944,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
                             isDeclined
                               ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isWithdrawn
+                              : isWithdrawn || isExpired
                                 ? "bg-white/[0.02] border-white/5 opacity-50"
                                 : isPickupReady
                                   ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
-                                  : isConfirmedCountdown
-                                    ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                                    : "bg-white/[0.03] border-white/5"
+                                  : isWaitingForOther
+                                    ? "bg-amber-500/[0.05] border-amber-400/20"
+                                    : isConfirmedCountdown
+                                      ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
+                                      : "bg-white/[0.03] border-white/5"
                           }`}
                           onClick={() => {
-                            if (isDeclined || isWithdrawn) return;
+                            if (isDeclined || isWithdrawn || isExpired || isWaitingForOther) return;
                             if (isPickupReady) openRatingModal(order);
                             else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                           }}
@@ -1874,8 +1968,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                                 <span className="text-[10px] text-red-400/70">Order was declined</span>
                               ) : isWithdrawn ? (
                                 <span className="text-[10px] text-white/40">Order withdrawn</span>
+                              ) : isExpired ? (
+                                <span className="text-[10px] text-white/40">Order expired</span>
+                              ) : isWaitingForOther ? (
+                                <span className="text-[10px] text-amber-400">Waiting for seller to confirm pickup</span>
                               ) : isPickupReady ? (
-                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
                               ) : isConfirmedCountdown ? (
                                 <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
                               ) : (
@@ -1896,8 +1994,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                               <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
                             ) : isWithdrawn ? (
                               <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
+                            ) : isExpired ? (
+                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Expired</span>
+                            ) : isWaitingForOther ? (
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Seller</span>
                             ) : isPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
                             ) : isConfirmedCountdown ? (
                               <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
                             ) : isCompleted ? (
@@ -2988,7 +3090,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                       const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
                       const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
                       const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
+                      const buyerHasReviewedM = sellerOrder?.buyer_reviewed ?? false;
                       const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
+                      const isSellerWaitingForBuyerM = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewedM;
+                      const isSellerCompletedM = sellerOrder && sellerOrder.status === "completed";
 
                       return (
                         <div
@@ -2998,16 +3103,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                               ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
                               : isSellerPickupReady
                                 ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
-                                : hasPendingOrders
-                                  ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
-                                  : sellerOrder && sellerOrder.status === "confirmed"
-                                    ? "bg-green-500/[0.03] border-green-400/20"
-                                    : "bg-white/[0.03] border-white/5 hover:bg-white/5"
+                                : isSellerWaitingForBuyerM
+                                  ? "bg-amber-500/[0.05] border-amber-400/20"
+                                  : hasPendingOrders
+                                    ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
+                                    : sellerOrder && sellerOrder.status === "confirmed"
+                                      ? "bg-green-500/[0.03] border-green-400/20"
+                                      : "bg-white/[0.03] border-white/5 hover:bg-white/5"
                           }`}
                           onClick={() => {
                             setShowListingsModal(false);
                             if (timeInfo.expired) return;
                             if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
+                            else if (isSellerWaitingForBuyerM) return;
                             else if (hasPendingOrders) openOrderModal(listing);
                             else if (sellerOrder) openConfirmedOrderSummary(listing.id);
                             else openEditListing(listing);
@@ -3024,8 +3132,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-white/80 truncate">{listing.title}</p>
                             <div className="flex items-center gap-1.5">
-                              {isSellerPickupReady ? (
-                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                              {isSellerCompletedM ? (
+                                <span className="text-[10px] text-white/30">Completed</span>
+                              ) : isSellerWaitingForBuyerM ? (
+                                <span className="text-[10px] text-amber-400">Waiting for buyer to confirm pickup</span>
+                              ) : isSellerPickupReady ? (
+                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
                               ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
                                 <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup{sellerOrder.confirmed_time ? ` at ${sellerOrder.confirmed_time}` : ""}</span>
                               ) : hasPendingOrders ? (
@@ -3048,8 +3160,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                               >
                                 {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
                               </button>
+                            ) : isSellerWaitingForBuyerM ? (
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Buyer</span>
                             ) : isSellerPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
                             ) : hasPendingOrders ? (
                               <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Review</span>
                             ) : (
@@ -3073,11 +3187,14 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     {myPurchases.map((order) => {
                       const countdown = getPickupCountdown(order);
                       const hasReviewed = order.buyer_reviewed;
-                      const isPickupReady = (order.status === "confirmed" || order.status === "completed") && countdown.expired && !hasReviewed;
+                      const otherReviewed = order.seller_reviewed;
+                      const isPickupReady = order.status === "confirmed" && countdown.expired && !hasReviewed;
+                      const isWaitingForOther = order.status === "confirmed" && countdown.expired && hasReviewed && !otherReviewed;
                       const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
-                      const isCompleted = (order.status === "completed" && hasReviewed) || (order.status === "completed" && !countdown.expired);
+                      const isCompleted = order.status === "completed";
                       const isDeclined = order.status === "declined";
                       const isWithdrawn = order.status === "withdrawn";
+                      const isExpired = order.status === "expired";
 
                       return (
                         <div key={order.id}>
@@ -3085,16 +3202,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
                             isDeclined
                               ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isWithdrawn
+                              : isWithdrawn || isExpired
                                 ? "bg-white/[0.02] border-white/5 opacity-50"
                                 : isPickupReady
                                   ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
-                                  : isConfirmedCountdown
-                                    ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                                    : "bg-white/[0.03] border-white/5"
+                                  : isWaitingForOther
+                                    ? "bg-amber-500/[0.05] border-amber-400/20"
+                                    : isConfirmedCountdown
+                                      ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
+                                      : "bg-white/[0.03] border-white/5"
                           }`}
                           onClick={() => {
-                            if (isDeclined || isWithdrawn) return;
+                            if (isDeclined || isWithdrawn || isExpired || isWaitingForOther) return;
                             setShowListingsModal(false);
                             if (isPickupReady) openRatingModal(order);
                             else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
@@ -3108,8 +3227,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                                 <span className="text-[10px] text-red-400/70">Order was declined</span>
                               ) : isWithdrawn ? (
                                 <span className="text-[10px] text-white/40">Order withdrawn</span>
+                              ) : isExpired ? (
+                                <span className="text-[10px] text-white/40">Order expired</span>
+                              ) : isWaitingForOther ? (
+                                <span className="text-[10px] text-amber-400">Waiting for seller to confirm pickup</span>
                               ) : isPickupReady ? (
-                                <span className="text-[10px] text-green-400">Ready for pickup confirmation</span>
+                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
                               ) : isConfirmedCountdown ? (
                                 <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
                               ) : (
@@ -3130,8 +3253,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                               <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
                             ) : isWithdrawn ? (
                               <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
+                            ) : isExpired ? (
+                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Expired</span>
+                            ) : isWaitingForOther ? (
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Seller</span>
                             ) : isPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm</span>
+                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
                             ) : isConfirmedCountdown ? (
                               <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
                             ) : isCompleted ? (
@@ -4010,10 +4137,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             {order.selected_pickup_slots.map((slot, i) => {
                               const dateStr = new Date(slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
                               const isThisSelected = isSelected && selectedSlot.slot.date === slot.date && selectedSlot.slot.time === slot.time;
+                              const expired = isSlotExpired(slot);
                               return (
                                 <button
                                   key={i}
                                   onClick={() => {
+                                    if (expired) return;
                                     if (isThisSelected) {
                                       setSelectedSlot(null);
                                       setConfirmTime("");
@@ -4022,21 +4151,28 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                                       setConfirmTime("");
                                     }
                                   }}
+                                  disabled={expired}
                                   className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-colors text-left ${
-                                    isThisSelected
-                                      ? "border-cyan-400/50 bg-cyan-500/10"
-                                      : "border-white/10 bg-white/[0.03] hover:border-cyan-400/30 hover:bg-cyan-500/[0.03]"
+                                    expired
+                                      ? "border-white/5 bg-white/[0.02] opacity-40 cursor-not-allowed"
+                                      : isThisSelected
+                                        ? "border-cyan-400/50 bg-cyan-500/10"
+                                        : "border-white/10 bg-white/[0.03] hover:border-cyan-400/30 hover:bg-cyan-500/[0.03]"
                                   }`}
                                 >
                                   <div>
-                                    <p className="text-xs text-white/80">{dateStr}</p>
-                                    <p className="text-[10px] text-white/40">{timeLabels[slot.time] || slot.time}</p>
+                                    <p className={`text-xs ${expired ? "text-white/30 line-through" : "text-white/80"}`}>{dateStr}</p>
+                                    <p className={`text-[10px] ${expired ? "text-white/20" : "text-white/40"}`}>{timeLabels[slot.time] || slot.time}</p>
                                   </div>
-                                  <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                                    isThisSelected ? "border-cyan-400 bg-cyan-400" : "border-white/25"
-                                  }`}>
-                                    {isThisSelected && <Check className="size-2.5 text-white" />}
-                                  </div>
+                                  {expired ? (
+                                    <span className="text-[9px] text-white/20 italic">Expired</span>
+                                  ) : (
+                                    <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                      isThisSelected ? "border-cyan-400 bg-cyan-400" : "border-white/25"
+                                    }`}>
+                                      {isThisSelected && <Check className="size-2.5 text-white" />}
+                                    </div>
+                                  )}
                                 </button>
                               );
                             })}
@@ -4099,7 +4235,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
               <h3 className="text-sm font-medium">Confirm Pickup</h3>
               <p className="text-[10px] text-white/40 mt-1">
-                Rate your experience with {ratingOrder.role === "buyer" ? "the seller" : ratingOrder.buyer_name}
+                Rate your experience with {ratingOrder.role === "buyer" ? "the seller" : ratingOrder.buyer_name}.
+                Both parties must confirm for the transaction to complete.
               </p>
             </div>
 

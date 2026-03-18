@@ -108,12 +108,24 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
             {/* Profile Header */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-8">
               <div className="flex items-center gap-6">
-                <div className="size-24 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 border-2 border-white/10 flex items-center justify-center overflow-hidden shrink-0">
-                  {data.profile_picture ? (
-                    <img src={data.profile_picture} alt="" className="size-full object-cover" />
-                  ) : (
-                    <User className="size-10 text-white/60" />
-                  )}
+                <div className="relative shrink-0">
+                  <div className="size-24 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 border-2 border-white/10 flex items-center justify-center overflow-hidden">
+                    {data.profile_picture ? (
+                      <img src={data.profile_picture} alt="" className="size-full object-cover" />
+                    ) : (
+                      <User className="size-10 text-white/60" />
+                    )}
+                  </div>
+                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-zinc-900 border-2 border-white/10 rounded-full px-2 py-0.5">
+                    <span className="text-xs font-semibold text-white">
+                      {(() => {
+                        const s = data.stats.avg_seller_rating ?? 5.0;
+                        const b = data.stats.avg_buyer_rating ?? 5.0;
+                        return ((s + b) / 2).toFixed(1);
+                      })()}
+                    </span>
+                    <Star className="size-2.5 text-amber-400 fill-amber-400" />
+                  </div>
                 </div>
                 <div className="flex-1">
                   <h1 className="text-2xl font-light tracking-wider mb-1">{data.display_name || "User"}</h1>
@@ -134,13 +146,20 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                       <span className="text-xs font-medium">{data.stats.total_listings}</span>
                       <span className="text-[10px] text-white/40">Listings</span>
                     </div>
-                    {data.stats.avg_rating !== null && (
-                      <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
-                        <Star className="size-3 text-amber-400 fill-amber-400" />
-                        <span className="text-xs font-medium">{data.stats.avg_rating}</span>
-                        <span className="text-[10px] text-white/40">({data.stats.review_count})</span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
+                      <Star className="size-3 text-amber-400 fill-amber-400" />
+                      <span className="text-xs font-medium">{data.stats.avg_seller_rating ?? 5.0}</span>
+                      <span className="text-[10px] text-white/40">
+                        Seller{data.stats.seller_review_count > 0 ? ` (${data.stats.seller_review_count})` : ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
+                      <Star className="size-3 text-cyan-400 fill-cyan-400" />
+                      <span className="text-xs font-medium">{data.stats.avg_buyer_rating ?? 5.0}</span>
+                      <span className="text-[10px] text-white/40">
+                        Buyer{data.stats.buyer_review_count > 0 ? ` (${data.stats.buyer_review_count})` : ""}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 {/* Friend button */}
@@ -245,7 +264,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                           {renderStars(review.rating)}
                         </div>
                         <span className="text-[10px] text-white/20">
-                          {review.reviewer_role === "buyer" ? "as buyer" : "as seller"}
+                          {review.reviewer_role === "buyer" ? "rated as seller" : "rated as buyer"}
                         </span>
                       </div>
                       {review.comment && (

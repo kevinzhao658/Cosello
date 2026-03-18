@@ -69,6 +69,9 @@ with engine.connect() as conn:
         if "confirmed_time" not in cols:
             conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN confirmed_time VARCHAR(20)"))
             conn.commit()
+        if "pickup_notified" not in cols:
+            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN pickup_notified INTEGER DEFAULT 0"))
+            conn.commit()
 
 app = FastAPI()
 
