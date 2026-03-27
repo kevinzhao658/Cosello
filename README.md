@@ -1,4 +1,4 @@
-# Grand Exchange
+# Cosello
 
 A neighborhood marketplace web app with AI-powered product listing.
 
@@ -46,7 +46,7 @@ Access the site at: http://localhost:5173
 ## File Structure
 
 ```
-Grand-Exchange/
+Cosello/
 ├── backend/
 │   ├── main.py               # FastAPI app — /api/generate-listing endpoint
 │   └── requirements.txt      # Python dependencies

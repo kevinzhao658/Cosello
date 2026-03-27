@@ -582,19 +582,54 @@ async def release_address(
     buyer_name = buyer.display_name if buyer else "Buyer"
     seller_name = seller.display_name if seller else "Seller"
 
+    # Compute pickup target ISO for live countdown in notifications
+    slots = json.loads(order.selected_pickup_slots) if order.selected_pickup_slots else []
+    slot = slots[0] if slots else {}
+    slot_date = slot.get("date", "")
+    pickup_time_display = order.confirmed_time or ""
+    target_hour, target_min = 18, 0
+    if order.confirmed_time:
+        ct_match = re.match(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', order.confirmed_time, re.IGNORECASE)
+        if ct_match:
+            h = int(ct_match.group(1))
+            target_min = int(ct_match.group(2))
+            ampm = ct_match.group(3).upper()
+            if ampm == "PM" and h != 12: h += 12
+            if ampm == "AM" and h == 12: h = 0
+            target_hour = h
+    else:
+        time_str = slot.get("time", "")
+        dash_match = re.search(r'[–-]\s*(\d{1,2})\s*(AM|PM)', time_str, re.IGNORECASE)
+        if dash_match:
+            h = int(dash_match.group(1))
+            ampm = dash_match.group(2).upper()
+            if ampm == "PM" and h != 12: h += 12
+            if ampm == "AM" and h == 12: h = 0
+            target_hour = h
+        # Format a display time from target_hour
+        if target_hour >= 12:
+            dh = target_hour - 12 if target_hour > 12 else 12
+            pickup_time_display = f"{dh}:00 PM"
+        else:
+            dh = target_hour if target_hour > 0 else 12
+            pickup_time_display = f"{dh}:00 AM"
+    pickup_target_iso = f"{slot_date}T{target_hour:02d}:{target_min:02d}:00"
+
+    # Message format: base_text||pickup_time_display||pickup_target_iso
+    # Frontend parses this for live countdown rendering
     db.add(Notification(
         user_id=order.seller_id,
         type="address_released",
-        title="Address Shared",
-        message=f'Your pickup address has been shared with {buyer_name} for "{listing_title}"',
+        title="Upcoming Pickup",
+        message=f'"{listing_title}" ready for pickup with {buyer_name}.||{pickup_time_display}||{pickup_target_iso}',
         related_user_id=order.buyer_id,
         listing_id=order.listing_id,
     ))
     db.add(Notification(
         user_id=order.buyer_id,
         type="address_released",
-        title="Pickup Address Available",
-        message=f'Pickup address for "{listing_title}": {order.pickup_address}',
+        title="Upcoming Pickup",
+        message=f'"{listing_title}" ready for pickup at {order.pickup_address}.||{pickup_time_display}||{pickup_target_iso}',
         related_user_id=order.seller_id,
         listing_id=order.listing_id,
     ))

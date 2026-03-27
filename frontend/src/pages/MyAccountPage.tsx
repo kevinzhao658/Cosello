@@ -337,7 +337,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     slot: { date: string; time: string };
     role: "seller" | "buyer";
     confirmedTime?: string;
+    pickupAddress?: string | null;
+    order: OrderData;
   } | null>(null);
+  const [showPickupAttestation, setShowPickupAttestation] = useState(false);
 
   // Purchases (buyer's orders) and seller orders
   const [myPurchases, setMyPurchases] = useState<OrderData[]>([]);
@@ -350,9 +353,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return () => clearInterval(timer);
   }, []);
 
-  const getPickupCountdown = (order: OrderData): { expired: boolean; label: string } => {
+  const getPickupCountdown = (order: OrderData): { expired: boolean; label: string; diff: number } => {
     if (order.status !== "confirmed" || order.selected_pickup_slots.length === 0) {
-      return { expired: false, label: "" };
+      return { expired: false, label: "", diff: Infinity };
     }
     const slot = order.selected_pickup_slots[0];
 
@@ -387,13 +390,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     target.setHours(targetHour, targetMin, 0, 0);
     const diff = target.getTime() - Date.now();
 
-    if (diff <= 0) return { expired: true, label: "Ready" };
+    if (diff <= 0) return { expired: true, label: "Ready", diff };
     const days = Math.floor(diff / 86400000);
     const hours = Math.floor((diff % 86400000) / 3600000);
     const mins = Math.floor((diff % 3600000) / 60000);
-    if (days > 0) return { expired: false, label: `${days}d ${hours}h ${mins}m` };
-    if (hours > 0) return { expired: false, label: `${hours}h ${mins}m` };
-    return { expired: false, label: `${mins}m` };
+    if (days > 0) return { expired: false, label: `${days}d ${hours}h ${mins}m`, diff };
+    if (hours > 0) return { expired: false, label: `${hours}h ${mins}m`, diff };
+    return { expired: false, label: `${mins}m`, diff };
   };
 
   const isSlotExpired = (slot: { date: string; time: string }): boolean => {
@@ -412,7 +415,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return now > slotEnd;
   };
 
-  // Auto-release address when countdown expires for neighborhood orders
+  // Auto-release address 1 hour before pickup for neighborhood orders
   useEffect(() => {
     if (!token) return;
     const allOrders = [...myPurchases, ...mySellerOrders];
@@ -423,27 +426,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         !order.address_released
       ) {
         const countdown = getPickupCountdown(order);
-        if (countdown.expired) {
+        // Trigger when 1 hour or less until pickup (diff <= 3600000ms)
+        if (countdown.diff <= 3600000) {
           fetch(`/api/orders/${order.id}/release-address`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          }).then((res) => {
-            if (res.ok) fetchAllOrders();
-          }).catch(() => {});
-        }
-      }
-    }
-  }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-notify both parties when pickup countdown expires
-  useEffect(() => {
-    if (!token) return;
-    const allOrders = [...myPurchases, ...mySellerOrders];
-    for (const order of allOrders) {
-      if (order.status === "confirmed" && !order.pickup_notified) {
-        const countdown = getPickupCountdown(order);
-        if (countdown.expired) {
-          fetch(`/api/orders/${order.id}/notify-pickup-ready`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}` },
           }).then((res) => {
@@ -578,6 +563,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             slot: slot || { date: "", time: "" },
             role: order.role as "seller" | "buyer",
             confirmedTime: order.confirmed_time,
+            pickupAddress: order.address_released ? order.pickup_address : null,
+            order,
           });
           setShowConfirmSummary(true);
         }
@@ -608,6 +595,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             slot,
             role: "seller",
             confirmedTime,
+            order,
           });
           setShowConfirmSummary(true);
           onAddToHistory?.({
@@ -1087,7 +1075,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   };
 
   const shareCommunity = async (community: CommunityData) => {
-    const shareText = `Join ${community.name} on Grand Exchange! Use invite code: ${community.invite_code}`;
+    const shareText = `Join ${community.name} on Cosello! Use invite code: ${community.invite_code}`;
     if (navigator.share) {
       try {
         await navigator.share({ title: community.name, text: shareText });
@@ -1373,13 +1361,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const shareViaSMS = () => {
     if (!createdCommunity) return;
-    const msg = `Join my community "${createdCommunity.name}" on Grand Exchange! Use invite code: ${createdCommunity.invite_code}`;
+    const msg = `Join my community "${createdCommunity.name}" on Cosello! Use invite code: ${createdCommunity.invite_code}`;
     window.open(`sms:?&body=${encodeURIComponent(msg)}`, "_blank");
   };
 
   const shareViaInstagram = () => {
     if (!createdCommunity) return;
-    const text = `Join my community "${createdCommunity.name}" on Grand Exchange! Invite code: ${createdCommunity.invite_code}`;
+    const text = `Join my community "${createdCommunity.name}" on Cosello! Invite code: ${createdCommunity.invite_code}`;
     navigator.clipboard.writeText(text);
     setCopiedConfirm(true);
     setTimeout(() => setCopiedConfirm(false), 2000);
@@ -3988,6 +3976,21 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     <span className="text-green-400 font-medium">{confirmSummaryData.confirmedTime}</span>
                   </div>
                 )}
+                {confirmSummaryData.pickupAddress && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40">Pickup Location</span>
+                    <a
+                      href={`https://maps.apple.com/?q=${encodeURIComponent(confirmSummaryData.pickupAddress)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MapPin className="size-3" />
+                      {confirmSummaryData.pickupAddress}
+                    </a>
+                  </div>
+                )}
                 <div className="flex justify-between text-xs">
                   <span className="text-white/40">Status</span>
                   <span className="text-green-400 font-medium">Confirmed</span>
@@ -3995,13 +3998,78 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
             </div>
 
-            <Button
-              onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-              className="w-full mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 border-0 text-white text-xs"
-              size="sm"
-            >
-              Done
-            </Button>
+            {(() => {
+              const countdown = getPickupCountdown(confirmSummaryData.order);
+              const hasReviewed = confirmSummaryData.role === "buyer"
+                ? confirmSummaryData.order.buyer_reviewed
+                : confirmSummaryData.order.seller_reviewed;
+              if (countdown.expired && !hasReviewed) {
+                return (
+                  <Button
+                    onClick={() => setShowPickupAttestation(true)}
+                    className="w-full mt-4 bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-400 text-xs"
+                    size="sm"
+                  >
+                    Confirm Pickup
+                  </Button>
+                );
+              }
+              return (
+                <Button
+                  onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
+                  className="w-full mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 border-0 text-white text-xs"
+                  size="sm"
+                >
+                  Done
+                </Button>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {showPickupAttestation && confirmSummaryData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowPickupAttestation(false)}
+          />
+          <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
+            <div className="text-center mb-5">
+              <div className="size-12 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto mb-3">
+                <AlertTriangle className="size-6 text-amber-400" />
+              </div>
+              <h3 className="text-sm font-medium">Confirm Pickup & Payment</h3>
+              <p className="text-xs text-white/50 mt-2 leading-relaxed">
+                By selecting Confirm, I verify that the item has been picked up and payment has been exchanged.
+                Do not confirm until you have received your item and completed payment.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => {
+                  setShowPickupAttestation(false);
+                  setShowConfirmSummary(false);
+                  setConfirmSummaryData(null);
+                }}
+                variant="outline"
+                className="flex-1 border-white/20 text-white/60 hover:text-white hover:bg-white/5 text-xs"
+                size="sm"
+              >
+                Still Waiting
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowPickupAttestation(false);
+                  setShowConfirmSummary(false);
+                  openRatingModal(confirmSummaryData.order);
+                }}
+                className="flex-1 bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-400 text-xs"
+                size="sm"
+              >
+                Confirm
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -4072,6 +4140,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                         options.push(`${hour}:${m.toString().padStart(2, "0")} ${ampm}`);
                       }
                     }
+                    // Include the end hour itself as a valid pickup time
+                    const endHour = endH % 12 || 12;
+                    const endAmpm = endH >= 12 ? "PM" : "AM";
+                    options.push(`${endHour}:00 ${endAmpm}`);
                     return options;
                   };
 

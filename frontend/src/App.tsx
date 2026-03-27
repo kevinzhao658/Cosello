@@ -90,7 +90,7 @@ export default function App() {
 
   const [homeSearch, setHomeSearch] = useState("");
   const [displayText, setDisplayText] = useState("");
-  const fullText = "GRAND EXCHANGE";
+  const fullText = "COSELLO";
   const [isTypingComplete, setIsTypingComplete] = useState(false);
   const [currentLetterIndex, setCurrentLetterIndex] = useState(-1);
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
@@ -147,6 +147,13 @@ export default function App() {
   const notificationsRef = useRef<HTMLDivElement>(null);
   const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; related_user_id: number | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null }[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Notification countdown tick (forces re-render every 60s for live pickup countdowns)
+  const [notifCountdownTick, setNotifCountdownTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setNotifCountdownTick((p) => p + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
@@ -289,8 +296,11 @@ export default function App() {
     const startDate = new Date(now);
     startDate.setHours(0, 0, 0, 0);
     const todayStr = startDate.toISOString().split("T")[0];
+    const currentHour = now.getHours();
     for (let d = new Date(startDate); d <= expiresAt; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split("T")[0];
+      // Skip today if current time is past 9 PM (21:00)
+      if (dateStr === todayStr && currentHour >= 21) continue;
       const dayLabel = dateStr === todayStr
         ? "Today"
         : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -1292,12 +1302,21 @@ export default function App() {
                             <p className="text-xs text-white/30">No notifications</p>
                           </div>
                         ) : (
-                          notifications.map((n) => (
+                          [...notifications].sort((a, b) => {
+                            // Pin address_released notifications with pickup data to top
+                            const hasPickupData = (n: typeof notifications[0]) =>
+                              n.type === "address_released" && n.message.includes("||");
+                            const aPin = hasPickupData(a);
+                            const bPin = hasPickupData(b);
+                            if (aPin && !bPin) return -1;
+                            if (!aPin && bPin) return 1;
+                            return 0; // preserve original order for ties
+                          }).map((n) => (
                             <div
                               key={n.id}
                               className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${
                                 n.is_read ? "opacity-40" : ""
-                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated" || n.type === "pickup_ready" || n.type === "order_completed" || n.type === "order_expired") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
+                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated" || n.type === "order_completed" || n.type === "order_expired") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
                               onClick={() => {
                                 if ((n.type === "purchase" || n.type === "order_withdrawn" || n.type === "order_updated") && n.listing_id) {
                                   setNotificationsOpen(false);
@@ -1310,7 +1329,7 @@ export default function App() {
                                   if (unreadCount > 0) handleMarkAllRead();
                                   setPage("account");
                                 }
-                                if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released" || n.type === "pickup_ready" || n.type === "order_completed") && n.listing_id) {
+                                if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_completed") && n.listing_id) {
                                   setNotificationsOpen(false);
                                   if (unreadCount > 0) handleMarkAllRead();
                                   setPendingListingId(n.listing_id);
@@ -1332,8 +1351,6 @@ export default function App() {
                                           ? "bg-amber-500/15"
                                           : n.type === "order_updated"
                                             ? "bg-cyan-500/15"
-                                          : n.type === "pickup_ready"
-                                            ? "bg-green-500/15"
                                           : n.type === "order_completed"
                                             ? "bg-fuchsia-500/15"
                                           : n.type === "review_submitted"
@@ -1352,8 +1369,6 @@ export default function App() {
                                     <XCircle className="size-3.5 text-amber-400" />
                                   ) : n.type === "order_updated" ? (
                                     <ShoppingBag className="size-3.5 text-cyan-400" />
-                                  ) : n.type === "pickup_ready" ? (
-                                    <CheckCircle className="size-3.5 text-green-400" />
                                   ) : n.type === "order_completed" ? (
                                     <CheckCircle className="size-3.5 text-fuchsia-400" />
                                   ) : n.type === "review_submitted" ? (
@@ -1377,6 +1392,24 @@ export default function App() {
                                       </button>
                                       {" "}{n.message.replace(n.related_user_name, "").trimStart()}
                                     </>
+                                  ) : n.type === "address_released" && n.message.includes("||") ? (
+                                    (() => {
+                                      void notifCountdownTick; // force re-render on tick
+                                      const parts = n.message.split("||");
+                                      const baseText = parts[0];
+                                      const pickupTimeDisplay = parts[1] || "";
+                                      const targetIso = parts[2] || "";
+                                      const target = new Date(targetIso);
+                                      const diff = target.getTime() - Date.now();
+                                      if (diff > 0) {
+                                        const days = Math.floor(diff / 86400000);
+                                        const hours = Math.floor((diff % 86400000) / 3600000);
+                                        const mins = Math.floor((diff % 3600000) / 60000);
+                                        const countdownLabel = days > 0 ? `${days}d ${hours}h ${mins}m` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                                        return <>{baseText} <span className="text-cyan-400 font-semibold">{countdownLabel}</span> until pickup at {pickupTimeDisplay}.</>;
+                                      }
+                                      return <>{baseText}</>;
+                                    })()
                                   ) : (
                                     n.message
                                   )}
@@ -1404,6 +1437,25 @@ export default function App() {
                                 )}
                                 {n.type === "join_request" && n.join_request_status === "rejected" && (
                                   <p className="text-[10px] text-red-400 mt-1">Denied</p>
+                                )}
+                                {n.type === "address_released" && n.message.includes("||") && (() => {
+                                  const targetIso = n.message.split("||")[2] || "";
+                                  const target = new Date(targetIso);
+                                  return !isNaN(target.getTime()) && Date.now() >= target.getTime();
+                                })() && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setNotificationsOpen(false);
+                                      if (unreadCount > 0) handleMarkAllRead();
+                                      if (n.listing_id) setPendingListingId(n.listing_id);
+                                      setPage("account");
+                                    }}
+                                    className="flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors"
+                                  >
+                                    <CheckCircle className="size-3" />
+                                    Confirm Pickup
+                                  </button>
                                 )}
                                 {n.created_at && (
                                   <p className="text-[10px] text-white/25 mt-0.5">
@@ -2495,7 +2547,7 @@ export default function App() {
       {/* Features Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
-          <h3 className="text-3xl text-center mb-12">Why Choose Grand Exchange?</h3>
+          <h3 className="text-3xl text-center mb-12">Why Choose Cosello?</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
@@ -2799,8 +2851,8 @@ export default function App() {
                   1. Acceptance of Terms
                 </h3>
                 <p>
-                  By accessing or using Grand Exchange ("the Platform"), you agree to be bound by these Terms & Conditions.
-                  If you do not agree, you may not use the Platform. Grand Exchange reserves the right to modify these terms
+                  By accessing or using Cosello ("the Platform"), you agree to be bound by these Terms & Conditions.
+                  If you do not agree, you may not use the Platform. Cosello reserves the right to modify these terms
                   at any time, and continued use constitutes acceptance of any changes.
                 </p>
               </div>
@@ -2811,7 +2863,7 @@ export default function App() {
                   2. Eligibility
                 </h3>
                 <p>
-                  You must be at least 18 years old to use Grand Exchange. By creating an account, you represent that you are
+                  You must be at least 18 years old to use Cosello. By creating an account, you represent that you are
                   of legal age and have the legal capacity to enter into a binding agreement. Accounts are limited to one per
                   individual and are non-transferable.
                 </p>
@@ -2840,7 +2892,7 @@ export default function App() {
                   <li>Prices listed must be in US Dollars and reflect the actual asking price.</li>
                   <li>By posting a listing, you confirm that you legally own the item or are authorized to sell it.</li>
                   <li>Sellers agree to make items available for pickup within <strong className="text-white">7 days</strong> of posting.</li>
-                  <li>Grand Exchange is a platform connecting buyers and sellers — it is not a party to any transaction between users.</li>
+                  <li>Cosello is a platform connecting buyers and sellers — it is not a party to any transaction between users.</li>
                   <li>All sales are final unless both parties mutually agree to a return or exchange.</li>
                 </ul>
               </div>
@@ -2853,8 +2905,8 @@ export default function App() {
                 <ul className="list-disc list-inside space-y-1.5 ml-2">
                   <li>All transactions default to local pickup at the seller's designated pickup location.</li>
                   <li>Sellers and buyers must agree on a mutually convenient and safe meeting location.</li>
-                  <li>Grand Exchange recommends meeting in well-lit, public spaces during daytime hours.</li>
-                  <li>Grand Exchange is not responsible for any incidents during pickup or delivery.</li>
+                  <li>Cosello recommends meeting in well-lit, public spaces during daytime hours.</li>
+                  <li>Cosello is not responsible for any incidents during pickup or delivery.</li>
                 </ul>
               </div>
 
@@ -2876,7 +2928,7 @@ export default function App() {
                   <Ban className="size-4 text-cyan-400" />
                   7. Prohibited Items
                 </h3>
-                <p className="mb-2">The following may not be listed or sold on Grand Exchange:</p>
+                <p className="mb-2">The following may not be listed or sold on Cosello:</p>
                 <ul className="list-disc list-inside space-y-1.5 ml-2">
                   <li>Illegal substances, drugs, or drug paraphernalia</li>
                   <li>Weapons, firearms, ammunition, or explosives</li>
@@ -2894,8 +2946,8 @@ export default function App() {
                   8. Dispute Resolution
                 </h3>
                 <p>
-                  Grand Exchange encourages buyers and sellers to resolve disputes directly. If a resolution cannot be reached,
-                  users may submit a dispute through our support channel. Grand Exchange may mediate but is not obligated to
+                  Cosello encourages buyers and sellers to resolve disputes directly. If a resolution cannot be reached,
+                  users may submit a dispute through our support channel. Cosello may mediate but is not obligated to
                   resolve disputes and shall not be held liable for the outcome of any transaction. Any unresolved legal disputes
                   shall be governed by the laws of the State of New York.
                 </p>
@@ -2907,10 +2959,10 @@ export default function App() {
                   9. Limitation of Liability
                 </h3>
                 <p>
-                  Grand Exchange is provided "as is" without warranties of any kind. To the fullest extent permitted by law,
-                  Grand Exchange shall not be liable for any indirect, incidental, special, consequential, or punitive damages
+                  Cosello is provided "as is" without warranties of any kind. To the fullest extent permitted by law,
+                  Cosello shall not be liable for any indirect, incidental, special, consequential, or punitive damages
                   arising from your use of the Platform, including but not limited to loss of profits, data, or goodwill.
-                  Our total liability for any claim shall not exceed the amount you paid to Grand Exchange (if any) in the
+                  Our total liability for any claim shall not exceed the amount you paid to Cosello (if any) in the
                   12 months preceding the claim.
                 </p>
               </div>
@@ -2921,7 +2973,7 @@ export default function App() {
                   10. Modifications & Termination
                 </h3>
                 <p>
-                  Grand Exchange reserves the right to modify, suspend, or discontinue any part of the Platform at any time.
+                  Cosello reserves the right to modify, suspend, or discontinue any part of the Platform at any time.
                   We may terminate or suspend your account at our discretion if you violate these terms. Upon termination,
                   your right to use the Platform ceases immediately, but sections regarding liability, disputes, and
                   intellectual property survive termination.
@@ -2930,7 +2982,7 @@ export default function App() {
 
               <div className="pt-4 border-t border-white/10">
                 <p className="text-white/40">
-                  If you have questions about these terms, contact us at <span className="text-cyan-400">support@grandexchange.app</span>.
+                  If you have questions about these terms, contact us at <span className="text-cyan-400">support@cosello.app</span>.
                 </p>
               </div>
             </div>
@@ -3116,7 +3168,7 @@ export default function App() {
               </p>
               <div className="mt-4 flex items-center gap-2 bg-white/5 rounded-lg px-4 py-3">
                 <MessageSquare className="size-4 text-cyan-400 shrink-0" />
-                <span className="text-sm text-cyan-400">support@grandexchange.app</span>
+                <span className="text-sm text-cyan-400">support@cosello.app</span>
               </div>
             </div>
 
@@ -3125,9 +3177,9 @@ export default function App() {
               <h3 className="text-lg font-medium mb-4">Frequently Asked Questions</h3>
               <div className="space-y-3">
                 <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">What is Grand Exchange?</h4>
+                  <h4 className="text-sm font-medium text-white/90 mb-2">What is Cosello?</h4>
                   <p className="text-sm text-white/50 leading-relaxed">
-                    Grand Exchange is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.
+                    Cosello is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.
                   </p>
                 </div>
 
@@ -3162,7 +3214,7 @@ export default function App() {
                 <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                   <h4 className="text-sm font-medium text-white/90 mb-2">Is it free to use?</h4>
                   <p className="text-sm text-white/50 leading-relaxed">
-                    Yes! Grand Exchange is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.
+                    Yes! Cosello is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.
                   </p>
                 </div>
 
@@ -3205,7 +3257,7 @@ export default function App() {
             </div>
 
             <p className="text-sm text-white/60 leading-relaxed mb-8">
-              At Grand Exchange, we believe that every item deserves a second life and every community deserves a marketplace it can trust. We're building more than an app — we're building a movement toward more sustainable, connected, and responsible consumption.
+              At Cosello, we believe that every item deserves a second life and every community deserves a marketplace it can trust. We're building more than an app — we're building a movement toward more sustainable, connected, and responsible consumption.
             </p>
 
             {/* Pillars */}
@@ -3237,7 +3289,7 @@ export default function App() {
                 </div>
                 <h4 className="text-sm font-medium mb-1.5">Bringing Communities Closer</h4>
                 <p className="text-xs text-white/50 leading-relaxed">
-                  Trading with your neighbors builds trust, sparks conversation, and strengthens the social fabric of your community. Grand Exchange is designed around communities — not algorithms — so every transaction feels personal, local, and meaningful.
+                  Trading with your neighbors builds trust, sparks conversation, and strengthens the social fabric of your community. Cosello is designed around communities — not algorithms — so every transaction feels personal, local, and meaningful.
                 </p>
               </div>
 
