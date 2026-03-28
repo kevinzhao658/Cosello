@@ -196,7 +196,7 @@ export default function App() {
   const [buyerOrderStatus, setBuyerOrderStatus] = useState<{ status: string | null; order_id?: number } | null>(null);
   const [myOrderStatuses, setMyOrderStatuses] = useState<Record<string, { status: string; orderId: number }>>({});
   const [showBuyModal, setShowBuyModal] = useState(false);
-  const [pickupDaySelections, setPickupDaySelections] = useState<Record<string, { from: number; to: number; dayLabel: string }>>({});
+  const [pickupDaySelections, setPickupDaySelections] = useState<Record<string, { slots: { from: number; to: number }[]; dayLabel: string }>>({});
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [buyTosAgreed, setBuyTosAgreed] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
@@ -219,7 +219,7 @@ export default function App() {
     setEditDescription(listingDetailData.description || "");
     setEditPrice(listingDetailData.price);
     setEditCondition(listingDetailData.condition);
-    setEditLocation(listingDetailData.location || "");
+    setEditLocation(user?.neighborhood || listingDetailData.location || "");
     setEditTags(listingDetailData.tags || []);
     setEditNewTag("");
     setShowEditListingModal(true);
@@ -314,10 +314,12 @@ export default function App() {
     if (!listingDetailData || dayEntries.length === 0 || !token) return;
     setIsSubmittingOrder(true);
     try {
-      const slots = dayEntries.map(([date, { from, to }]) => ({
-        date,
-        time: `${formatHour(from)} – ${formatHour(to)}`,
-      }));
+      const slots = dayEntries.flatMap(([date, { slots: timeSlots }]) =>
+        timeSlots.map(({ from, to }) => ({
+          date,
+          time: `${formatHour(from)} – ${formatHour(to)}`,
+        }))
+      );
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -353,10 +355,12 @@ export default function App() {
     if (!editingOrderId || dayEntries.length === 0 || !token) return;
     setIsSubmittingOrder(true);
     try {
-      const slots = dayEntries.map(([date, { from, to }]) => ({
-        date,
-        time: `${formatHour(from)} – ${formatHour(to)}`,
-      }));
+      const slots = dayEntries.flatMap(([date, { slots: timeSlots }]) =>
+        timeSlots.map(({ from, to }) => ({
+          date,
+          time: `${formatHour(from)} – ${formatHour(to)}`,
+        }))
+      );
       const res = await fetch(`/api/orders/${editingOrderId}/update-slots`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -389,16 +393,18 @@ export default function App() {
   const openEditPickupSlots = (listing: Listing, orderId: number, existingSlots: { date: string; time: string }[]) => {
     setListingDetailData(listing);
     setEditingOrderId(orderId);
-    // Parse existing slots back into pickupDaySelections
-    const selections: Record<string, { from: number; to: number; dayLabel: string }> = {};
+    // Parse existing slots back into pickupDaySelections (multiple per day)
+    const selections: Record<string, { slots: { from: number; to: number }[]; dayLabel: string }> = {};
     for (const slot of existingSlots) {
       const parts = slot.time.split("–").map((s: string) => s.trim());
       if (parts.length === 2) {
-        selections[slot.date] = {
+        if (!selections[slot.date]) {
+          selections[slot.date] = { slots: [], dayLabel: slot.date };
+        }
+        selections[slot.date].slots.push({
           from: parseTimeToHour(parts[0]),
           to: parseTimeToHour(parts[1]),
-          dayLabel: slot.date,
-        };
+        });
       }
     }
     setPickupDaySelections(selections);
@@ -1303,11 +1309,18 @@ export default function App() {
                           </div>
                         ) : (
                           [...notifications].sort((a, b) => {
-                            // Pin address_released notifications with pickup data to top
-                            const hasPickupData = (n: typeof notifications[0]) =>
-                              n.type === "address_released" && n.message.includes("||");
-                            const aPin = hasPickupData(a);
-                            const bPin = hasPickupData(b);
+                            // Pin address_released notifications only when within 1 hour of pickup AND unread
+                            const isActivePickup = (n: typeof notifications[0]) => {
+                              if (n.type !== "address_released" || !n.message.includes("||") || n.is_read) return false;
+                              const targetIso = n.message.split("||")[2] || "";
+                              const target = new Date(targetIso);
+                              if (isNaN(target.getTime())) return false;
+                              const diff = target.getTime() - Date.now();
+                              // Pin if within 1 hour before pickup or pickup time has passed (awaiting confirmation)
+                              return diff <= 3600000;
+                            };
+                            const aPin = isActivePickup(a);
+                            const bPin = isActivePickup(b);
                             if (aPin && !bPin) return -1;
                             if (!aPin && bPin) return 1;
                             return 0; // preserve original order for ties
@@ -3689,7 +3702,7 @@ export default function App() {
                                   }
                                   const defaultFrom = isToday ? Math.max(currentHour, 8) : 8;
                                   const defaultTo = isToday ? Math.min(Math.max(currentHour + 1, 9), 21) : 21;
-                                  return { ...prev, [day.date]: { from: defaultFrom, to: defaultTo, dayLabel: day.dayLabel } };
+                                  return { ...prev, [day.date]: { slots: [{ from: defaultFrom, to: defaultTo }], dayLabel: day.dayLabel } };
                                 });
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left"
@@ -3699,42 +3712,84 @@ export default function App() {
                               </div>
                               <span className={`text-xs font-medium flex-1 ${sel ? "text-white" : "text-white/50"}`}>{day.dayLabel}</span>
                               {sel && (
-                                <span className="text-[10px] text-fuchsia-300/70">{formatHour(sel.from)} – {formatHour(sel.to)}</span>
+                                <span className="text-[10px] text-fuchsia-300/70">
+                                  {sel.slots.map((s, i) => `${formatHour(s.from)} – ${formatHour(s.to)}`).join(", ")}
+                                </span>
                               )}
                             </button>
                             {sel && (
-                              <div className="flex items-center gap-2 px-3 pb-2.5 pt-0">
-                                <label className="text-[10px] text-white/30">From</label>
-                                <select
-                                  value={sel.from}
-                                  onChange={(e) => {
-                                    const newFrom = Number(e.target.value);
-                                    setPickupDaySelections((prev) => ({
-                                      ...prev,
-                                      [day.date]: { ...prev[day.date], from: newFrom, to: Math.max(prev[day.date].to, newFrom + 1) },
-                                    }));
+                              <div className="px-3 pb-2.5 pt-0 space-y-2">
+                                {sel.slots.map((slot, slotIdx) => (
+                                  <div key={slotIdx} className="flex items-center gap-2">
+                                    <label className="text-[10px] text-white/30">From</label>
+                                    <select
+                                      value={slot.from}
+                                      onChange={(e) => {
+                                        const newFrom = Number(e.target.value);
+                                        setPickupDaySelections((prev) => {
+                                          const updated = { ...prev[day.date] };
+                                          const newSlots = [...updated.slots];
+                                          newSlots[slotIdx] = { from: newFrom, to: Math.max(newSlots[slotIdx].to, newFrom + 1) };
+                                          return { ...prev, [day.date]: { ...updated, slots: newSlots } };
+                                        });
+                                      }}
+                                      className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
+                                    >
+                                      {HOURS.slice(0, -1).map((h) => (
+                                        <option key={h} value={h}>{formatHour(h)}</option>
+                                      ))}
+                                    </select>
+                                    <label className="text-[10px] text-white/30">To</label>
+                                    <select
+                                      value={slot.to}
+                                      onChange={(e) => {
+                                        setPickupDaySelections((prev) => {
+                                          const updated = { ...prev[day.date] };
+                                          const newSlots = [...updated.slots];
+                                          newSlots[slotIdx] = { ...newSlots[slotIdx], to: Number(e.target.value) };
+                                          return { ...prev, [day.date]: { ...updated, slots: newSlots } };
+                                        });
+                                      }}
+                                      className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
+                                    >
+                                      {HOURS.filter((h) => h > slot.from).map((h) => (
+                                        <option key={h} value={h}>{formatHour(h)}</option>
+                                      ))}
+                                    </select>
+                                    {sel.slots.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPickupDaySelections((prev) => {
+                                            const updated = { ...prev[day.date] };
+                                            const newSlots = updated.slots.filter((_, i) => i !== slotIdx);
+                                            return { ...prev, [day.date]: { ...updated, slots: newSlots } };
+                                          });
+                                        }}
+                                        className="text-white/30 hover:text-red-400 transition-colors"
+                                      >
+                                        <X className="size-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPickupDaySelections((prev) => {
+                                      const updated = { ...prev[day.date] };
+                                      const lastSlot = updated.slots[updated.slots.length - 1];
+                                      const newFrom = Math.min(lastSlot.to, 20);
+                                      const newTo = Math.min(newFrom + 1, 21);
+                                      if (newFrom >= 20) return prev;
+                                      return { ...prev, [day.date]: { ...updated, slots: [...updated.slots, { from: newFrom, to: newTo }] } };
+                                    });
                                   }}
-                                  className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
+                                  className="flex items-center gap-1 text-[10px] text-fuchsia-400/70 hover:text-fuchsia-300 transition-colors"
                                 >
-                                  {HOURS.slice(0, -1).map((h) => (
-                                    <option key={h} value={h}>{formatHour(h)}</option>
-                                  ))}
-                                </select>
-                                <label className="text-[10px] text-white/30">To</label>
-                                <select
-                                  value={sel.to}
-                                  onChange={(e) => {
-                                    setPickupDaySelections((prev) => ({
-                                      ...prev,
-                                      [day.date]: { ...prev[day.date], to: Number(e.target.value) },
-                                    }));
-                                  }}
-                                  className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
-                                >
-                                  {HOURS.filter((h) => h > sel.from).map((h) => (
-                                    <option key={h} value={h}>{formatHour(h)}</option>
-                                  ))}
-                                </select>
+                                  <Plus className="size-3" />
+                                  Add another time window
+                                </button>
                               </div>
                             )}
                           </div>
@@ -3872,9 +3927,11 @@ export default function App() {
                   <label className="text-xs text-white/40 mb-1 block">Location</label>
                   <Input
                     value={editLocation}
-                    onChange={(e) => setEditLocation(e.target.value)}
-                    className="bg-white/5 border-white/10 text-white text-sm"
+                    readOnly
+                    disabled
+                    className="bg-white/5 border-white/10 text-white/50 text-sm cursor-not-allowed"
                   />
+                  <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
                 </div>
 
                 <div>

@@ -280,7 +280,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setEditDescription(listing.description || "");
     setEditPrice(listing.price);
     setEditCondition(listing.condition);
-    setEditLocation(listing.location || "");
+    setEditLocation(user?.neighborhood || listing.location || "");
     setEditTags(listing.tags || []);
     setEditNewTag("");
     setShowEditListingModal(true);
@@ -3842,9 +3842,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <label className="text-xs text-white/40 mb-1 block">Location</label>
                 <Input
                   value={editLocation}
-                  onChange={(e) => setEditLocation(e.target.value)}
-                  className="bg-white/5 border-white/10 text-white text-sm"
+                  readOnly
+                  disabled
+                  className="bg-white/5 border-white/10 text-white/50 text-sm cursor-not-allowed"
                 />
+                <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
               </div>
 
               <div>

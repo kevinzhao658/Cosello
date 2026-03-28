@@ -227,7 +227,7 @@ async def confirm_order(
             user_id=other.buyer_id,
             type="order_declined",
             title="Order Update",
-            message=f'Your order for "{listing_title}" could not be fulfilled \u2014 the seller may have had scheduling conflicts, accepted another offer, or withdrawn the listing.',
+            message=f'Seller of "{listing_title}" has opted for another offer.',
             related_user_id=current_user.id,
             listing_id=order.listing_id,
         ))
@@ -267,7 +267,7 @@ async def decline_order(
         user_id=order.buyer_id,
         type="order_declined",
         title="Order Update",
-        message=f'Your order for "{listing_title}" could not be fulfilled \u2014 the seller may have had scheduling conflicts, accepted another offer, or withdrawn the listing.',
+        message=f'Seller of "{listing_title}" has opted for another offer.',
         related_user_id=current_user.id,
         listing_id=order.listing_id,
     )
@@ -510,20 +510,28 @@ async def complete_order(
         if order.seller_reviewed:
             notif_title = "Transaction Complete!"
             notif_type = "order_completed"
-            notif_message = f'Both parties confirmed pickup for "{listing_title}" — transaction complete!'
+            notif_message = f'"{listing_title}" pickup complete.'
         else:
             notif_title = "Pickup Confirmed — Your Turn!"
             notif_type = "review_submitted"
-            notif_message = f'{reviewer_name} confirmed pickup and rated your sale of "{listing_title}". Please confirm on your end!'
+            notif_message = f'{reviewer_name} confirmed pickup for "{listing_title}". Please confirm on your end.'
     else:
         if order.buyer_reviewed:
             notif_title = "Transaction Complete!"
             notif_type = "order_completed"
-            notif_message = f'Both parties confirmed pickup for "{listing_title}" — transaction complete!'
+            notif_message = f'"{listing_title}" pickup complete.'
         else:
             notif_title = "Pickup Confirmed — Your Turn!"
             notif_type = "review_submitted"
-            notif_message = f'{reviewer_name} confirmed pickup and rated your purchase of "{listing_title}". Please confirm on your end!'
+            notif_message = f'{reviewer_name} confirmed pickup for "{listing_title}". Please confirm on your end.'
+
+    # Mark address_released and pickup_ready notifications as read for the confirming user
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.type.in_(["address_released", "pickup_ready"]),
+        Notification.listing_id == order.listing_id,
+        Notification.is_read == False,
+    ).update({"is_read": True}, synchronize_session=False)
 
     notification = Notification(
         user_id=reviewee_id,
