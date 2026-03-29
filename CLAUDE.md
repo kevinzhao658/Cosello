@@ -19,7 +19,7 @@ Cosello is a trust-first hyperlocal C2C secondhand marketplace, initially target
 | Auth | PyJWT (phone-based OTP), no SMS provider yet |
 | AI | Anthropic SDK (Claude Vision API for listing generation) |
 | Image Processing | Pillow (server-side resize/compression) |
-| Storage | Local disk (`backend/uploads/`), in-memory listings store |
+| Storage | Local disk (`backend/uploads/`), SQLite (via SQLAlchemy) |
 
 Flag uncertainty about stack decisions rather than assume. Do not suggest technologies that conflict with this stack without flagging the trade-off explicitly.
 
