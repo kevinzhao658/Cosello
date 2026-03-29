@@ -15,7 +15,7 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from database import engine, Base, get_db
-from models import User, Community, CommunityMember, WishlistItem, PurchaseOrder, Notification
+from models import User, Community, CommunityMember, WishlistItem, PurchaseOrder, Notification, Listing
 from auth import get_current_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
@@ -96,7 +96,6 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
-from listings_store import listings_db
 import random
 
 LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -107,7 +106,11 @@ async def seed_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Dev-only: seed the in-memory store with sample listings using existing uploaded images."""
+    """Dev-only: seed the database with sample listings using existing uploaded images."""
+    # Clear previous seed listings for this user to avoid duplicates
+    db.query(Listing).filter(Listing.user_id == current_user.id).delete(synchronize_session=False)
+    db.commit()
+
     upload_dir = Path(__file__).parent / "uploads"
     available_images = [f.name for f in upload_dir.iterdir() if f.suffix in (".jpeg", ".jpg", ".png")]
     if len(available_images) < 3:
@@ -137,26 +140,27 @@ async def seed_listings(
         imgs = available_images[i * 2 : i * 2 + 2] if i * 2 + 2 <= len(available_images) else [available_images[i % len(available_images)]]
         image_urls = [f"/uploads/{img}" for img in imgs]
 
-        listing = {
-            "id": uuid.uuid4().hex[:12],
-            "userId": current_user.id,
-            "title": item["title"],
-            "description": item["description"],
-            "price": item["price"],
-            "condition": item["condition"],
-            "location": current_user.neighborhood or random.choice(neighborhoods),
-            "tags": item["tags"],
-            "communities": ["neighborhood"],
-            "visibility": "public",
-            "imageUrl": image_urls[0],
-            "imageUrls": image_urls,
-            "pickup_location": current_user.pickup_address or "",
-            "status": "open",
-            "postedAt": time.time() - random.randint(0, 86400 * 3),
-        }
-        listings_db.insert(0, listing)
-        created.append({"id": listing["id"], "title": listing["title"]})
+        listing = Listing(
+            id=uuid.uuid4().hex[:12],
+            user_id=current_user.id,
+            title=item["title"],
+            description=item["description"],
+            price=item["price"],
+            condition=item["condition"],
+            location=current_user.neighborhood or random.choice(neighborhoods),
+            tags=json.dumps(item["tags"]),
+            communities=json.dumps(["neighborhood"]),
+            visibility="public",
+            image_url=image_urls[0],
+            image_urls=json.dumps(image_urls),
+            pickup_location=current_user.pickup_address or "",
+            status="open",
+            posted_at=time.time() - random.randint(0, 86400 * 3),
+        )
+        db.add(listing)
+        created.append({"id": listing.id, "title": listing.title})
 
+    db.commit()
     return {"seeded": len(created), "listings": created}
 
 
@@ -473,26 +477,26 @@ async def create_listing(
         filepath.write_bytes(contents)
         image_urls.append(f"/uploads/{filename}")
 
-    listing = {
-        "id": uuid.uuid4().hex[:12],
-        "userId": current_user.id,
-        "title": details.get("title", ""),
-        "description": details.get("description", ""),
-        "price": details.get("price", "0"),
-        "condition": details.get("condition", "Good"),
-        "location": current_user.neighborhood or details.get("location", ""),
-        "tags": details.get("tags", []),
-        "communities": community_ids,
-        "visibility": visibility,
-        "imageUrl": image_urls[0],
-        "imageUrls": image_urls,
-        "pickup_location": pickup_location or current_user.pickup_address or "",
-        "status": "open",
-        "postedAt": time.time(),
-    }
-
-    listings_db.insert(0, listing)
-    return listing
+    listing = Listing(
+        id=uuid.uuid4().hex[:12],
+        user_id=current_user.id,
+        title=details.get("title", ""),
+        description=details.get("description", ""),
+        price=details.get("price", "0"),
+        condition=details.get("condition", "Good"),
+        location=current_user.neighborhood or details.get("location", ""),
+        tags=json.dumps(details.get("tags", [])),
+        communities=json.dumps(community_ids),
+        visibility=visibility,
+        image_url=image_urls[0],
+        image_urls=json.dumps(image_urls),
+        pickup_location=pickup_location or current_user.pickup_address or "",
+        status="open",
+        posted_at=time.time(),
+    )
+    db.add(listing)
+    db.commit()
+    return listing.to_dict()
 
 
 @app.get("/api/listings")
@@ -506,7 +510,9 @@ async def get_listings(
     db: Session = Depends(get_db),
 ):
     now = time.time()
-    results = [l for l in listings_db if now - l.get("postedAt", 0) < LISTING_EXPIRY_SECONDS and l.get("status") != "sold"]
+    cutoff = now - LISTING_EXPIRY_SECONDS
+    rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
+    results = [r.to_dict() for r in rows]
 
     all_public_ids: set[int] = {
         c.id for c in db.query(Community).filter(Community.is_public == True).all()
@@ -549,11 +555,8 @@ async def get_listings(
             return True
         vis = _infer_visibility(listing)
         if vis == "public":
-            # All public listings are visible (including neighborhood listings
-            # from other neighborhoods — they just rank lower via _tier)
             return True
         else:
-            # Private listings only visible to members
             for c in lc:
                 nc = _ncid(c)
                 if isinstance(nc, int) and nc in my_community_ids:
@@ -630,7 +633,6 @@ async def get_listings(
 
         results.sort(key=_relevance)
     else:
-        # --- Sort with tier ranking ---
         if sort == "price_low":
             results.sort(key=lambda l: (_tier(l), float(l.get("price", 0))))
         elif sort == "price_high":
@@ -666,7 +668,6 @@ async def get_listings(
         listing_copy["seller_picture"] = poster.profile_picture if poster else None
         if poster and poster.neighborhood:
             listing_copy["location"] = poster.neighborhood
-            l["location"] = poster.neighborhood
         all_comms = []
         mutual = []
         for cid in l.get("communities", []):
@@ -701,7 +702,9 @@ async def get_public_listings(
     db: Session = Depends(get_db),
 ):
     now = time.time()
-    results = [l for l in listings_db if now - l.get("postedAt", 0) < LISTING_EXPIRY_SECONDS and l.get("status") != "sold"]
+    cutoff = now - LISTING_EXPIRY_SECONDS
+    rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
+    results = [r.to_dict() for r in rows]
 
     all_public_ids: set[int] = {
         c.id for c in db.query(Community).filter(Community.is_public == True).all()
@@ -772,7 +775,6 @@ async def get_public_listings(
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
             pub_info[c.id] = {"name": c.name, "is_public": c.is_public}
 
-    # Poster map for neighborhood name lookup
     pub_poster_ids = {l.get("userId") for l in results if l.get("userId")}
     pub_poster_map: dict[int, User] = {}
     if pub_poster_ids:
@@ -787,7 +789,6 @@ async def get_public_listings(
         listing_copy["seller_picture"] = poster.profile_picture if poster else None
         if poster and poster.neighborhood:
             listing_copy["location"] = poster.neighborhood
-            l["location"] = poster.neighborhood
         all_comms = []
         for cid in l.get("communities", []):
             if cid == "neighborhood":
@@ -807,7 +808,8 @@ async def get_my_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    my_listings = [l for l in listings_db if l.get("userId") == current_user.id]
+    rows = db.query(Listing).filter(Listing.user_id == current_user.id).order_by(Listing.posted_at.desc()).all()
+    my_listings = [r.to_dict() for r in rows]
 
     # Enrich with pending order count and latest order timestamp
     listing_ids = [l["id"] for l in my_listings]
@@ -846,35 +848,36 @@ async def relist_listing(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    for listing in listings_db:
-        if listing["id"] == listing_id and listing.get("userId") == current_user.id:
-            listing["postedAt"] = time.time()
-            listing["status"] = "open"
+    listing = db.query(Listing).filter(Listing.id == listing_id, Listing.user_id == current_user.id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
 
-            # Cancel pending orders and notify buyers
-            pending_orders = db.query(PurchaseOrder).filter(
-                PurchaseOrder.listing_id == listing_id,
-                PurchaseOrder.status == "pending",
-            ).all()
-            for o in pending_orders:
-                o.status = "withdrawn"
-                db.add(Notification(
-                    user_id=o.buyer_id,
-                    type="order_cancelled",
-                    title="Order Cancelled",
-                    message=f'The listing "{listing["title"]}" was relisted. Your order has been cancelled.',
-                    listing_id=listing_id,
-                ))
+    listing.posted_at = time.time()
+    listing.status = "open"
 
-            # Delete old declined/withdrawn orders to unlock previously declined buyers
-            db.query(PurchaseOrder).filter(
-                PurchaseOrder.listing_id == listing_id,
-                PurchaseOrder.status.in_(["declined", "withdrawn"]),
-            ).delete(synchronize_session=False)
-            db.commit()
+    # Cancel pending orders and notify buyers
+    pending_orders = db.query(PurchaseOrder).filter(
+        PurchaseOrder.listing_id == listing_id,
+        PurchaseOrder.status == "pending",
+    ).all()
+    for o in pending_orders:
+        o.status = "withdrawn"
+        db.add(Notification(
+            user_id=o.buyer_id,
+            type="order_cancelled",
+            title="Order Cancelled",
+            message=f'The listing "{listing.title}" was relisted. Your order has been cancelled.',
+            listing_id=listing_id,
+        ))
 
-            return listing
-    raise HTTPException(status_code=404, detail="Listing not found")
+    # Delete old declined/withdrawn orders to unlock previously declined buyers
+    db.query(PurchaseOrder).filter(
+        PurchaseOrder.listing_id == listing_id,
+        PurchaseOrder.status.in_(["declined", "withdrawn"]),
+    ).delete(synchronize_session=False)
+    db.commit()
+
+    return listing.to_dict()
 
 
 @app.put("/api/listings/{listing_id}")
@@ -882,21 +885,28 @@ async def update_listing(
     listing_id: str,
     data: str = Form(...),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     try:
         details = json.loads(data)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in data field")
 
-    for listing in listings_db:
-        if listing["id"] == listing_id and listing.get("userId") == current_user.id:
-            if listing.get("status") == "sold":
-                raise HTTPException(status_code=400, detail="Cannot edit a sold listing")
-            for field in ("title", "description", "price", "condition", "location", "tags"):
-                if field in details:
-                    listing[field] = details[field]
-            return listing
-    raise HTTPException(status_code=404, detail="Listing not found")
+    listing = db.query(Listing).filter(Listing.id == listing_id, Listing.user_id == current_user.id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.status == "sold":
+        raise HTTPException(status_code=400, detail="Cannot edit a sold listing")
+
+    field_map = {"title": "title", "description": "description", "price": "price",
+                 "condition": "condition", "location": "location"}
+    for field, attr in field_map.items():
+        if field in details:
+            setattr(listing, attr, details[field])
+    if "tags" in details:
+        listing.tags = json.dumps(details["tags"])
+    db.commit()
+    return listing.to_dict()
 
 
 @app.get("/api/wishlist")
@@ -920,8 +930,12 @@ async def get_wishlist_listings(
         .all()
     )
     wishlisted_ids = {item.listing_id for item in items}
+    if not wishlisted_ids:
+        return []
     now = time.time()
-    return [l for l in listings_db if l["id"] in wishlisted_ids and now - l.get("postedAt", 0) < LISTING_EXPIRY_SECONDS]
+    cutoff = now - LISTING_EXPIRY_SECONDS
+    rows = db.query(Listing).filter(Listing.id.in_(wishlisted_ids), Listing.posted_at >= cutoff).all()
+    return [r.to_dict() for r in rows]
 
 
 @app.post("/api/wishlist/{listing_id}")

@@ -8,9 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, PurchaseOrder, Notification, Review
+from models import User, PurchaseOrder, Notification, Review, Listing
 from auth import get_current_user
-from listings_store import listings_db
 
 LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
@@ -36,14 +35,13 @@ class CompleteOrderRequest(BaseModel):
     comment: str = ""
 
 
-def _find_listing(listing_id: str, check_expiry: bool = False):
-    now = time.time()
-    for l in listings_db:
-        if l["id"] == listing_id:
-            if check_expiry and now - l.get("postedAt", 0) >= LISTING_EXPIRY_SECONDS:
-                return None
-            return l
-    return None
+def _find_listing(listing_id: str, db: Session, check_expiry: bool = False):
+    row = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not row:
+        return None
+    if check_expiry and time.time() - row.posted_at >= LISTING_EXPIRY_SECONDS:
+        return None
+    return row
 
 
 def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
@@ -69,8 +67,8 @@ def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
             return False
     # All slots expired
     order.status = "expired"
-    listing = _find_listing(order.listing_id)
-    listing_title = listing["title"] if listing else "an item"
+    listing = _find_listing(order.listing_id, db)
+    listing_title = listing.title if listing else "an item"
     db.add(Notification(
         user_id=order.buyer_id,
         type="order_expired",
@@ -97,14 +95,14 @@ async def create_order(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing = _find_listing(req.listing_id, check_expiry=True)
+    listing = _find_listing(req.listing_id, db, check_expiry=True)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    if listing.get("status") == "sold":
+    if listing.status == "sold":
         raise HTTPException(status_code=400, detail="This listing has already been sold")
 
-    seller_id = listing.get("userId")
+    seller_id = listing.user_id
     if seller_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot buy your own listing")
 
@@ -139,7 +137,7 @@ async def create_order(
         user_id=seller_id,
         type="purchase",
         title="New Purchase!",
-        message=f'{buyer_name} wants to buy your "{listing["title"]}"',
+        message=f'{buyer_name} wants to buy your "{listing.title}"',
         related_user_id=current_user.id,
         listing_id=req.listing_id,
     )
@@ -181,18 +179,17 @@ async def confirm_order(
         order.confirmed_time = req.confirmed_time
 
     # Snapshot seller's pickup address for neighborhood listings
-    listing = _find_listing(order.listing_id)
-    if listing and "neighborhood" in listing.get("communities", []):
-        if current_user.pickup_address:
-            order.pickup_address = current_user.pickup_address
-
-    # Update listing status to sold
+    listing = _find_listing(order.listing_id, db)
     if listing:
-        listing["status"] = "sold"
+        communities = json.loads(listing.communities) if listing.communities else []
+        if "neighborhood" in communities and current_user.pickup_address:
+            order.pickup_address = current_user.pickup_address
+        # Update listing status to sold
+        listing.status = "sold"
 
     # Notify the buyer
     seller_name = current_user.display_name or "Seller"
-    listing_title = listing["title"] if listing else "an item"
+    listing_title = listing.title if listing else "an item"
     slot_date = req.confirmed_slot.get("date", "")
     slot_time = req.confirmed_slot.get("time", "")
     time_labels = {"morning": "8am-12pm", "afternoon": "12-5pm", "evening": "5-9pm"}
@@ -261,8 +258,8 @@ async def decline_order(
     order.status = "declined"
 
     # Notify the buyer
-    listing = _find_listing(order.listing_id)
-    listing_title = listing["title"] if listing else "an item"
+    listing = _find_listing(order.listing_id, db)
+    listing_title = listing.title if listing else "an item"
     notification = Notification(
         user_id=order.buyer_id,
         type="order_declined",
@@ -295,9 +292,9 @@ async def withdraw_order(
 
     order.status = "withdrawn"
 
-    listing = _find_listing(order.listing_id)
+    listing = _find_listing(order.listing_id, db)
     buyer_name = current_user.display_name or "Someone"
-    listing_title = listing["title"] if listing else "an item"
+    listing_title = listing.title if listing else "an item"
     db.add(Notification(
         user_id=order.seller_id,
         type="order_withdrawn",
@@ -354,9 +351,9 @@ async def update_order_slots(
 
     order.selected_pickup_slots = json.dumps(req.selected_pickup_slots)
 
-    listing = _find_listing(order.listing_id)
+    listing = _find_listing(order.listing_id, db)
     buyer_name = current_user.display_name or "Someone"
-    listing_title = listing["title"] if listing else "an item"
+    listing_title = listing.title if listing else "an item"
     db.add(Notification(
         user_id=order.seller_id,
         type="order_updated",
@@ -396,8 +393,8 @@ async def notify_pickup_ready(
 
     order.pickup_notified = 1
 
-    listing = _find_listing(order.listing_id)
-    listing_title = listing["title"] if listing else "an item"
+    listing = _find_listing(order.listing_id, db)
+    listing_title = listing.title if listing else "an item"
 
     db.add(Notification(
         user_id=order.buyer_id,
@@ -502,8 +499,8 @@ async def complete_order(
         order.status = "completed"
 
     # Notify the other party
-    listing = _find_listing(order.listing_id)
-    listing_title = listing["title"] if listing else "an item"
+    listing = _find_listing(order.listing_id, db)
+    listing_title = listing.title if listing else "an item"
     reviewer_name = current_user.display_name or "Someone"
 
     if role == "buyer":
@@ -576,15 +573,16 @@ async def release_address(
             "pickup_address": order.pickup_address,
         }
 
-    listing = _find_listing(order.listing_id)
-    is_neighborhood = listing and "neighborhood" in listing.get("communities", [])
+    listing = _find_listing(order.listing_id, db)
+    communities = json.loads(listing.communities) if listing and listing.communities else []
+    is_neighborhood = listing and "neighborhood" in communities
 
     if not is_neighborhood or not order.pickup_address:
         raise HTTPException(status_code=400, detail="Address release not applicable")
 
     order.address_released = 1
 
-    listing_title = listing["title"] if listing else "an item"
+    listing_title = listing.title if listing else "an item"
     buyer = db.query(User).filter(User.id == order.buyer_id).first()
     seller = db.query(User).filter(User.id == order.seller_id).first()
     buyer_name = buyer.display_name if buyer else "Buyer"
@@ -678,12 +676,12 @@ async def get_orders(
     orphaned_ids = []
     results = []
     for o in orders:
-        listing = _find_listing(o.listing_id, check_expiry=True)
+        listing = _find_listing(o.listing_id, db, check_expiry=True)
         if listing is None:
             # Notify buyers with pending orders that the listing expired
             if o.status == "pending" and o.buyer_id == current_user.id:
-                raw_listing = _find_listing(o.listing_id, check_expiry=False)
-                listing_title = raw_listing["title"] if raw_listing else "an item"
+                raw_listing = _find_listing(o.listing_id, db, check_expiry=False)
+                listing_title = raw_listing.title if raw_listing else "an item"
                 db.add(Notification(
                     user_id=o.buyer_id,
                     type="order_cancelled",
@@ -698,12 +696,13 @@ async def get_orders(
         if o.status == "pending":
             _check_and_expire_order(o, db)
 
+        communities = json.loads(listing.communities) if listing.communities else []
         results.append({
             "id": o.id,
             "listing_id": o.listing_id,
-            "listing_title": listing.get("title", ""),
-            "listing_image": listing.get("imageUrl", ""),
-            "listing_price": listing.get("price", ""),
+            "listing_title": listing.title or "",
+            "listing_image": listing.image_url or "",
+            "listing_price": listing.price or "",
             "buyer_id": o.buyer_id,
             "buyer_name": buyer_map.get(o.buyer_id, {}).get("name", "Someone"),
             "buyer_picture": buyer_map.get(o.buyer_id, {}).get("picture"),
@@ -717,7 +716,7 @@ async def get_orders(
             "seller_reviewed": bool(o.seller_reviewed),
             "pickup_address": o.pickup_address if o.address_released else None,
             "address_released": bool(o.address_released),
-            "is_neighborhood": "neighborhood" in listing.get("communities", []),
+            "is_neighborhood": "neighborhood" in communities,
             "pickup_notified": bool(o.pickup_notified),
         })
 

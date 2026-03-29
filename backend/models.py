@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, UniqueConstraint
+import json
+
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.sql import func
 
 from database import Base
@@ -128,6 +130,46 @@ class PurchaseOrder(Base):
     address_released = Column(Integer, default=0)
     pickup_notified = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Listing(Base):
+    __tablename__ = "listings"
+
+    id = Column(String(20), primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(String(2000), nullable=True)
+    price = Column(String(20), nullable=False)
+    condition = Column(String(20), nullable=True)
+    location = Column(String(100), nullable=True)
+    tags = Column(String(1000), nullable=True)  # JSON array
+    communities = Column(String(1000), nullable=True)  # JSON array of int|"neighborhood"
+    visibility = Column(String(20), default="public")
+    image_url = Column(String(500), nullable=True)
+    image_urls = Column(String(2000), nullable=True)  # JSON array
+    pickup_location = Column(String(255), nullable=True)
+    status = Column(String(20), default="open")
+    posted_at = Column(Float, nullable=False)
+
+    def to_dict(self) -> dict:
+        """Serialize to the dict format the API currently returns."""
+        return {
+            "id": self.id,
+            "userId": self.user_id,
+            "title": self.title,
+            "description": self.description or "",
+            "price": self.price,
+            "condition": self.condition or "Good",
+            "location": self.location or "",
+            "tags": json.loads(self.tags) if self.tags else [],
+            "communities": json.loads(self.communities) if self.communities else [],
+            "visibility": self.visibility or "public",
+            "imageUrl": self.image_url or "",
+            "imageUrls": json.loads(self.image_urls) if self.image_urls else [],
+            "pickup_location": self.pickup_location or "",
+            "status": self.status or "open",
+            "postedAt": self.posted_at,
+        }
 
 
 class Review(Base):

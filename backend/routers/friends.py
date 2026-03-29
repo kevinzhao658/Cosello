@@ -1,3 +1,4 @@
+import json
 import time
 from typing import Optional
 
@@ -8,9 +9,8 @@ from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Friendship, CommunityMember, Community, PurchaseOrder, Review
+from models import User, Friendship, CommunityMember, Community, PurchaseOrder, Review, Listing
 from auth import get_current_user
-from listings_store import listings_db
 
 router = APIRouter(prefix="/api/friends", tags=["friends"])
 
@@ -265,7 +265,7 @@ async def get_stats(
         )
         .scalar()
     )
-    total_listings = sum(1 for l in listings_db if l.get("userId") == current_user.id)
+    total_listings = db.query(sa_func.count(Listing.id)).filter(Listing.user_id == current_user.id).scalar() or 0
     purchases_count = (
         db.query(sa_func.count(PurchaseOrder.id))
         .filter(PurchaseOrder.buyer_id == current_user.id)
@@ -336,20 +336,23 @@ async def get_user_profile(
     # Active listings
     LISTING_EXPIRY_SECONDS = 7 * 24 * 3600
     now = time.time()
+    cutoff = now - LISTING_EXPIRY_SECONDS
+    active_rows = (
+        db.query(Listing)
+        .filter(Listing.user_id == user_id, Listing.posted_at >= cutoff, Listing.status != "sold")
+        .all()
+    )
     active_listings = [
         {
-            "id": l["id"],
-            "title": l.get("title", ""),
-            "price": l.get("price", ""),
-            "imageUrl": l.get("imageUrl", ""),
-            "imageUrls": l.get("imageUrls", []),
-            "condition": l.get("condition", ""),
-            "status": l.get("status", "active"),
+            "id": r.id,
+            "title": r.title or "",
+            "price": r.price or "",
+            "imageUrl": r.image_url or "",
+            "imageUrls": json.loads(r.image_urls) if r.image_urls else [],
+            "condition": r.condition or "",
+            "status": r.status or "active",
         }
-        for l in listings_db
-        if l.get("userId") == user_id
-        and now - l.get("postedAt", 0) < LISTING_EXPIRY_SECONDS
-        and l.get("status") != "sold"
+        for r in active_rows
     ]
 
     # Reviews received
@@ -373,7 +376,7 @@ async def get_user_profile(
     ]
 
     # Stats
-    total_listings = sum(1 for l in listings_db if l.get("userId") == user_id)
+    total_listings = db.query(sa_func.count(Listing.id)).filter(Listing.user_id == user_id).scalar() or 0
     avg_rating = None
     if reviews_list:
         avg_rating = round(sum(r["rating"] for r in reviews_list) / len(reviews_list), 1)
