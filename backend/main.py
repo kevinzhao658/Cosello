@@ -22,6 +22,7 @@ from routers.communities import router as communities_router
 from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
+from category_schemas import CATEGORY_SCHEMAS
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -73,6 +74,16 @@ with engine.connect() as conn:
             conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN pickup_notified INTEGER DEFAULT 0"))
             conn.commit()
 
+    # Add category, category_attributes to listings if missing
+    if "listings" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("listings")]
+        if "category" not in cols:
+            conn.execute(text("ALTER TABLE listings ADD COLUMN category VARCHAR(30) DEFAULT 'other'"))
+            conn.commit()
+        if "category_attributes" not in cols:
+            conn.execute(text("ALTER TABLE listings ADD COLUMN category_attributes VARCHAR(2000)"))
+            conn.commit()
+
 app = FastAPI()
 
 app.add_middleware(
@@ -93,6 +104,12 @@ app.include_router(orders_router)
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+
+@app.get("/api/categories")
+async def get_categories():
+    return CATEGORY_SCHEMAS
+
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
@@ -119,18 +136,18 @@ async def seed_listings(
     random.shuffle(available_images)
 
     sample_items = [
-        {"title": "Vintage Denim Jacket", "description": "Classic 90s cut, minimal wear. Fits like a medium.", "price": "45", "condition": "Good", "tags": ["vintage", "denim", "jacket"]},
-        {"title": "IKEA Standing Desk", "description": "BEKANT sit/stand desk, white top, electric height adjustment. Minor scuff on one corner.", "price": "120", "condition": "Good", "tags": ["furniture", "desk", "ikea"]},
-        {"title": "AirPods Pro (2nd Gen)", "description": "Lightly used, includes original case and cable. Battery health still strong.", "price": "85", "condition": "Like New", "tags": ["electronics", "airpods", "apple"]},
-        {"title": "Le Creuset Dutch Oven", "description": "5.5 qt, flame orange. A few marks on the outside but cooks like new.", "price": "95", "condition": "Good", "tags": ["kitchen", "cookware", "le-creuset"]},
-        {"title": "North Face Puffer Vest", "description": "Black, size L. Super warm, no rips or stains.", "price": "55", "condition": "Like New", "tags": ["clothing", "vest", "north-face"]},
-        {"title": "Yoga Mat — Manduka Pro", "description": "6mm thick, charcoal. Used for about 3 months.", "price": "35", "condition": "Good", "tags": ["fitness", "yoga", "mat"]},
-        {"title": "Sonos One Speaker", "description": "White, works perfectly. Includes power cable. Moving and need to downsize.", "price": "75", "condition": "Good", "tags": ["electronics", "speaker", "sonos"]},
-        {"title": "Patagonia Fleece Pullover", "description": "Better Sweater, size M, oatmeal color. Barely worn.", "price": "60", "condition": "Like New", "tags": ["clothing", "fleece", "patagonia"]},
-        {"title": "Cast Iron Skillet 12\"", "description": "Lodge pre-seasoned. Solid everyday pan, just upgraded to a bigger one.", "price": "20", "condition": "Fair", "tags": ["kitchen", "cookware", "cast-iron"]},
-        {"title": "Kindle Paperwhite", "description": "2022 model, 8GB, no ads. Screen is perfect. Comes with a leather case.", "price": "70", "condition": "Like New", "tags": ["electronics", "kindle", "amazon"]},
-        {"title": "Mid-Century Side Table", "description": "Walnut finish, tapered legs. Small ring mark on top but barely noticeable.", "price": "40", "condition": "Fair", "tags": ["furniture", "table", "mid-century"]},
-        {"title": "Running Shoes — Nike Pegasus 40", "description": "Size 10, about 50 miles on them. Still plenty of life.", "price": "45", "condition": "Good", "tags": ["shoes", "running", "nike"]},
+        {"title": "Vintage Denim Jacket", "description": "Classic 90s cut, minimal wear. Fits like a medium.", "price": "45", "condition": "Good", "tags": ["vintage", "denim", "jacket"], "category": "clothing", "category_attributes": {"brand": "Levi's", "size": "M", "gender": "Unisex"}},
+        {"title": "IKEA Standing Desk", "description": "BEKANT sit/stand desk, white top, electric height adjustment. Minor scuff on one corner.", "price": "120", "condition": "Good", "tags": ["furniture", "desk", "ikea"], "category": "furniture", "category_attributes": {"brand": "IKEA", "model": "BEKANT", "carry_difficulty": "Two people"}},
+        {"title": "AirPods Pro (2nd Gen)", "description": "Lightly used, includes original case and cable. Battery health still strong.", "price": "85", "condition": "Like New", "tags": ["electronics", "airpods", "apple"], "category": "electronics", "category_attributes": {"brand": "Apple", "model": "AirPods Pro 2nd Gen"}},
+        {"title": "Le Creuset Dutch Oven", "description": "5.5 qt, flame orange. A few marks on the outside but cooks like new.", "price": "95", "condition": "Good", "tags": ["kitchen", "cookware", "le-creuset"], "category": "other", "category_attributes": {"brand": "Le Creuset"}},
+        {"title": "North Face Puffer Vest", "description": "Black, size L. Super warm, no rips or stains.", "price": "55", "condition": "Like New", "tags": ["clothing", "vest", "north-face"], "category": "clothing", "category_attributes": {"brand": "The North Face", "size": "L", "gender": "Unisex"}},
+        {"title": "Yoga Mat — Manduka Pro", "description": "6mm thick, charcoal. Used for about 3 months.", "price": "35", "condition": "Good", "tags": ["fitness", "yoga", "mat"], "category": "sports", "category_attributes": {"brand": "Manduka", "model": "Pro"}},
+        {"title": "Sonos One Speaker", "description": "White, works perfectly. Includes power cable. Moving and need to downsize.", "price": "75", "condition": "Good", "tags": ["electronics", "speaker", "sonos"], "category": "electronics", "category_attributes": {"brand": "Sonos", "model": "One"}},
+        {"title": "Patagonia Fleece Pullover", "description": "Better Sweater, size M, oatmeal color. Barely worn.", "price": "60", "condition": "Like New", "tags": ["clothing", "fleece", "patagonia"], "category": "clothing", "category_attributes": {"brand": "Patagonia", "size": "M", "gender": "Unisex"}},
+        {"title": "Cast Iron Skillet 12\"", "description": "Lodge pre-seasoned. Solid everyday pan, just upgraded to a bigger one.", "price": "20", "condition": "Fair", "tags": ["kitchen", "cookware", "cast-iron"], "category": "other", "category_attributes": {"brand": "Lodge"}},
+        {"title": "Kindle Paperwhite", "description": "2022 model, 8GB, no ads. Screen is perfect. Comes with a leather case.", "price": "70", "condition": "Like New", "tags": ["electronics", "kindle", "amazon"], "category": "electronics", "category_attributes": {"brand": "Amazon", "model": "Kindle Paperwhite 2022"}},
+        {"title": "Mid-Century Side Table", "description": "Walnut finish, tapered legs. Small ring mark on top but barely noticeable.", "price": "40", "condition": "Fair", "tags": ["furniture", "table", "mid-century"], "category": "furniture", "category_attributes": {"brand": "Unknown", "model": "Mid-Century Side Table", "carry_difficulty": "One person"}},
+        {"title": "Running Shoes — Nike Pegasus 40", "description": "Size 10, about 50 miles on them. Still plenty of life.", "price": "45", "condition": "Good", "tags": ["shoes", "running", "nike"], "category": "sports", "category_attributes": {"brand": "Nike", "model": "Pegasus 40", "size": "10"}},
     ]
 
     neighborhoods = ["Chelsea", "Murray Hill", "East Village", "West Village", "SoHo", "Tribeca", "UES", "UWS"]
@@ -154,6 +171,8 @@ async def seed_listings(
             image_url=image_urls[0],
             image_urls=json.dumps(image_urls),
             pickup_location=current_user.pickup_address or "",
+            category=item.get("category", "other"),
+            category_attributes=json.dumps(item.get("category_attributes", {})),
             status="open",
             posted_at=time.time() - random.randint(0, 86400 * 3),
         )
@@ -165,12 +184,18 @@ async def seed_listings(
 
 
 @app.post("/api/generate-listing")
-async def generate_listing(images: list[UploadFile] = File(...)):
+async def generate_listing(
+    images: list[UploadFile] = File(...),
+    hint_brand: Optional[str] = Form(None),
+    hint_model: Optional[str] = Form(None),
+    hint_category: Optional[str] = Form(None),
+):
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
-    # Build image content blocks for Claude (resize if over 4MB)
-    MAX_BYTES = 4 * 1024 * 1024  # 4MB to stay safely under Claude's 5MB limit
+    # Build image content blocks for Claude (resize if raw would exceed Claude's 5MB base64 limit).
+    # Base64 inflates by 4/3, so Claude's 5MB encoded cap = ~3.93MB raw. Use 3.5MB for safety.
+    MAX_BYTES = 3_500_000
     MAX_DIMENSION = 2048
 
     content = []
@@ -197,28 +222,79 @@ async def generate_listing(images: list[UploadFile] = File(...)):
             },
         })
 
+    hints = []
+    if hint_brand:
+        hints.append(f"brand={hint_brand}")
+    if hint_model:
+        hints.append(f"model={hint_model}")
+    if hint_category:
+        hints.append(f"category={hint_category}")
+    hint_section = ""
+    if hints:
+        hint_section = (
+            "\nThe user has confirmed the following identifiers — use these as definitive "
+            "anchors and derive everything else from them: "
+            + ", ".join(hints)
+            + ". Reverse-trace the exact product using these anchors.\n"
+        )
+
     content.append({
         "type": "text",
         "text": (
-            "You are a product listing assistant for a neighborhood marketplace. "
-            "Analyze the product image(s) and generate a listing. "
-            "Return ONLY valid JSON with these exact fields:\n"
+            "You are a product identification assistant for a secondhand marketplace. "
+            "The seller has uploaded photos and has NOT provided any product details — "
+            "you must derive everything from the image(s) alone.\n\n"
+            + hint_section +
+            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
+            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
+            "1. Printed brand logos or wordmarks\n"
+            "2. Model names or numbers printed on the product\n"
+            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
+            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
+            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
+            "STEP 2 — CATEGORIZE\n"
+            "Assign one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
+            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
+            "Using the identifiers you extracted, reason as if performing a reverse image search: "
+            "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
+            "- Accurate current secondhand market price (NOT retail)\n"
+            "- Description (key features + visible condition)\n"
+            "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
+            "STEP 4 — RETURN JSON ONLY\n"
             "{\n"
-            '  "title": "short product title",\n'
-            '  "description": "2-3 sentence description highlighting key features and condition",\n'
-            '  "price": "estimated fair market price as a number string like 85.00",\n'
-            '  "condition": "one of: New, Like New, Good, Fair, Poor",\n'
-            '  "location": "suggest a Manhattan neighborhood",\n'
-            '  "tags": ["3-5 short relevant tags like Electronics, Vintage, Nike, etc."]\n'
-            "}\n"
-            "Be realistic with pricing. No markdown, no code fences, just the JSON object."
+            '  "title": "concise product title — include brand and model if identified",\n'
+            '  "description": "2-3 sentences, key features plus condition observations",\n'
+            '  "price": "fair secondhand market price as string",\n'
+            '  "condition": "New | Like New | Good | Fair | Poor",\n'
+            '  "location": "Manhattan neighborhood",\n'
+            '  "tags": ["3-5 tags"],\n'
+            '  "category": "<category_slug>",\n'
+            '  "categoryAttributes": { ...fields per category below... },\n'
+            '  "identifierConfidence": "high | medium | low"\n'
+            "}\n\n"
+            "Category-specific attributes:\n"
+            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
+            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+            "dimensions (format: L x W x H if identifiable)\n"
+            "- electronics: brand, model\n"
+            "- sports: brand, model, size (if determinable)\n"
+            "- collectibles: brand_or_creator, year\n"
+            "- other: {} (empty object)\n\n"
+            "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
+            "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
+            "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
+            "CONFIDENCE RULES:\n"
+            "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
+            "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
+            "- \"low\": brand cannot be confidently determined from the image alone\n\n"
+            "Return ONLY the JSON object. No markdown, no code fences, no commentary."
         ),
     })
 
     try:
         response = client.messages.create(
             model="claude-sonnet-4-5-20250929",
-            max_tokens=512,
+            max_tokens=1024,
             messages=[{"role": "user", "content": content}],
         )
 
@@ -230,7 +306,146 @@ async def generate_listing(images: list[UploadFile] = File(...)):
             raw = raw.strip()
         # Parse to validate it's real JSON, then return
         listing = json.loads(raw)
+        # Strip any leading $ from price — frontend adds its own
+        if "price" in listing and isinstance(listing["price"], str):
+            listing["price"] = listing["price"].lstrip("$").strip()
         return listing
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="AI returned invalid JSON")
+    except anthropic.APIError as e:
+        raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
+
+
+@app.post("/api/regenerate-from-urls")
+async def regenerate_from_urls(
+    image_urls: str = Form(...),
+    hint_brand: Optional[str] = Form(None),
+    hint_model: Optional[str] = Form(None),
+    hint_category: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-run AI generation using existing listing images (by URL path) + user-provided hints."""
+    urls = json.loads(image_urls)
+    if not urls:
+        raise HTTPException(status_code=400, detail="At least one image URL is required")
+
+    MAX_DIMENSION = 2048
+    content = []
+    for url in urls:
+        # Resolve local file path from URL (e.g. /uploads/abc123.jpg)
+        if url.startswith("/uploads/"):
+            filepath = UPLOADS_DIR / url.replace("/uploads/", "")
+        else:
+            continue
+        if not filepath.exists():
+            continue
+
+        data = filepath.read_bytes()
+        # Detect media type
+        ext = filepath.suffix.lower()
+        media_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext.lstrip("."), "image/jpeg")
+
+        # Resize if too large for Claude
+        if len(data) > 3_500_000:
+            pil_img = Image.open(io.BytesIO(data))
+            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="JPEG", quality=85)
+            data = buf.getvalue()
+            media_type = "image/jpeg"
+
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(data).decode("utf-8"),
+            },
+        })
+
+    if not content:
+        raise HTTPException(status_code=400, detail="No valid images found")
+
+    hints = []
+    if hint_brand:
+        hints.append(f"brand={hint_brand}")
+    if hint_model:
+        hints.append(f"model={hint_model}")
+    if hint_category:
+        hints.append(f"category={hint_category}")
+    hint_section = ""
+    if hints:
+        hint_section = (
+            "\nThe user has confirmed the following identifiers — use these as definitive "
+            "anchors and derive everything else from them: "
+            + ", ".join(hints)
+            + ". Reverse-trace the exact product using these anchors.\n"
+        )
+
+    content.append({
+        "type": "text",
+        "text": (
+            "You are a product identification assistant for a secondhand marketplace. "
+            "The seller has uploaded photos and wants you to re-analyze using confirmed identifiers.\n\n"
+            + hint_section +
+            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
+            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
+            "1. Printed brand logos or wordmarks\n"
+            "2. Model names or numbers printed on the product\n"
+            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
+            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
+            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
+            "STEP 2 — CATEGORIZE\n"
+            "Assign one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
+            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
+            "Using the identifiers you extracted plus any confirmed hints above, reason as if performing "
+            "a reverse image search: what specific product from which brand does this most closely match? "
+            "Use that product's known profile to inform all fields.\n\n"
+            "STEP 4 — RETURN JSON ONLY\n"
+            "{\n"
+            '  "title": "concise product title — include brand and model if identified",\n'
+            '  "description": "2-3 sentences, key features plus condition observations",\n'
+            '  "price": "fair secondhand market price as string",\n'
+            '  "condition": "New | Like New | Good | Fair | Poor",\n'
+            '  "tags": ["3-5 tags"],\n'
+            '  "category": "<category_slug>",\n'
+            '  "categoryAttributes": { ...fields per category below... },\n'
+            '  "identifierConfidence": "high | medium | low"\n'
+            "}\n\n"
+            "Category-specific attributes:\n"
+            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible)\n"
+            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+            "dimensions (format: L x W x H if identifiable)\n"
+            "- electronics: brand, model\n"
+            "- sports: brand, model, size (if determinable)\n"
+            "- collectibles: brand_or_creator, year\n"
+            "- other: {} (empty object)\n\n"
+            "CONFIDENCE RULES:\n"
+            '- "high": brand AND model clearly identified\n'
+            '- "medium": brand identified but model uncertain\n'
+            '- "low": brand cannot be confidently determined\n\n'
+            "Return ONLY the JSON object. No markdown, no code fences, no commentary."
+        ),
+    })
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": content}],
+        )
+
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            raw = raw.rsplit("```", 1)[0]
+            raw = raw.strip()
+        result = json.loads(raw)
+        if "price" in result and isinstance(result["price"], str):
+            result["price"] = result["price"].lstrip("$").strip()
+        return result
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="AI returned invalid JSON")
@@ -243,7 +458,8 @@ async def generate_bulk_listing(images: list[UploadFile] = File(...)):
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
-    MAX_BYTES = 4 * 1024 * 1024
+    # 3.5MB raw → ~4.67MB base64, safely under Claude's 5MB encoded cap
+    MAX_BYTES = 3_500_000
     MAX_DIMENSION = 2048
 
     content = []
@@ -273,25 +489,57 @@ async def generate_bulk_listing(images: list[UploadFile] = File(...)):
     content.append({
         "type": "text",
         "text": (
-            "You are a product listing assistant for a neighborhood marketplace. "
-            "The user has uploaded multiple photos that may contain MULTIPLE DIFFERENT items for sale. "
-            "Some photos may show the same item from different angles.\n\n"
-            "Your task:\n"
-            "1. Identify each distinct item across all photos\n"
-            "2. Group photos that show the same item together\n"
-            "3. Generate a listing for each distinct item\n\n"
-            "Return ONLY valid JSON — an array of objects. Each object must have:\n"
+            "You are a product identification assistant for a secondhand marketplace. "
+            "The seller has uploaded multiple photos that may contain MULTIPLE DIFFERENT items for sale. "
+            "Some photos may show the same item from different angles. "
+            "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
+            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
+            "Examine each image carefully for visible identifiers in this priority order:\n"
+            "1. Printed brand logos or wordmarks\n"
+            "2. Model names or numbers printed on the product\n"
+            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
+            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
+            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
+            "Then identify each distinct item across all photos and group photos showing the same item together.\n\n"
+            "STEP 2 — CATEGORIZE\n"
+            "Assign each item one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
+            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
+            "For each item, using the identifiers you extracted, reason as if performing a reverse image search: "
+            "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
+            "- Accurate current secondhand market price (NOT retail)\n"
+            "- Description (key features + visible condition)\n"
+            "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
+            "STEP 4 — RETURN JSON ONLY\n"
+            "Return a JSON array of objects. Each object must have:\n"
             "{\n"
-            '  "title": "short product title",\n'
-            '  "description": "2-3 sentence description highlighting key features and condition",\n'
-            '  "price": "estimated fair market price as a number string like 85.00",\n'
-            '  "condition": "one of: New, Like New, Good, Fair, Poor",\n'
-            '  "location": "suggest a Manhattan neighborhood",\n'
-            '  "tags": ["3-5 short relevant tags"],\n'
-            '  "imageIndices": [0, 1]  // which image indices (0-based) belong to this item\n'
+            '  "title": "concise product title — include brand and model if identified",\n'
+            '  "description": "2-3 sentences, key features plus condition observations",\n'
+            '  "price": "fair secondhand market price as string",\n'
+            '  "condition": "New | Like New | Good | Fair | Poor",\n'
+            '  "location": "Manhattan neighborhood",\n'
+            '  "tags": ["3-5 tags"],\n'
+            '  "category": "<category_slug>",\n'
+            '  "categoryAttributes": { ...fields per category below... },\n'
+            '  "identifierConfidence": "high | medium | low",\n'
+            '  "imageIndices": [0, 1]  // which image indices belong to this item\n'
             "}\n\n"
-            "Important: Every image index must appear in exactly one item's imageIndices array. "
-            "Be realistic with pricing. No markdown, no code fences, just the JSON array."
+            "Category-specific attributes:\n"
+            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
+            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+            "dimensions (format: L x W x H if identifiable)\n"
+            "- electronics: brand, model\n"
+            "- sports: brand, model, size (if determinable)\n"
+            "- collectibles: brand_or_creator, year\n"
+            "- other: {} (empty object)\n\n"
+            "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
+            "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
+            "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
+            "CONFIDENCE RULES:\n"
+            "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
+            "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
+            "- \"low\": brand cannot be confidently determined from the image alone\n\n"
+            "Important: Every image index must appear in exactly one item's imageIndices array.\n"
+            "Return ONLY the JSON array. No markdown, no code fences, no commentary."
         ),
     })
 
@@ -312,6 +560,11 @@ async def generate_bulk_listing(images: list[UploadFile] = File(...)):
         if isinstance(items, dict):
             items = [items]
 
+        # Strip any leading $ from price — frontend adds its own
+        for item in items:
+            if "price" in item and isinstance(item["price"], str):
+                item["price"] = item["price"].lstrip("$").strip()
+
         return items
 
     except json.JSONDecodeError:
@@ -330,7 +583,8 @@ async def regenerate_bulk_listing(
 
     groups = json.loads(groupings)  # list of lists of image indices
 
-    MAX_BYTES = 4 * 1024 * 1024
+    # 3.5MB raw → ~4.67MB base64, safely under Claude's 5MB encoded cap
+    MAX_BYTES = 3_500_000
     MAX_DIMENSION = 2048
 
     content = []
@@ -363,22 +617,56 @@ async def regenerate_bulk_listing(
     content.append({
         "type": "text",
         "text": (
-            "You are a product listing assistant for a neighborhood marketplace. "
-            "The user has uploaded photos and has already grouped them into items. "
-            "Use the groupings below exactly as provided — do NOT change the groupings.\n\n"
+            "You are a product identification assistant for a secondhand marketplace. "
+            "The seller has uploaded photos and has already grouped them into items. "
+            "Use the groupings below exactly as provided — do NOT change the groupings. "
+            "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
             f"Groupings:\n{groups_desc}\n\n"
-            "For each group, generate a listing. "
-            "Return ONLY valid JSON — an array of objects in the same order as the groups. Each object must have:\n"
+            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
+            "For each group, examine the image(s) carefully for visible identifiers in this priority order:\n"
+            "1. Printed brand logos or wordmarks\n"
+            "2. Model names or numbers printed on the product\n"
+            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
+            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
+            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
+            "STEP 2 — CATEGORIZE\n"
+            "Assign each item one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
+            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
+            "For each item, using the identifiers you extracted, reason as if performing a reverse image search: "
+            "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
+            "- Accurate current secondhand market price (NOT retail)\n"
+            "- Description (key features + visible condition)\n"
+            "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
+            "STEP 4 — RETURN JSON ONLY\n"
+            "Return a JSON array of objects in the same order as the groups. Each object must have:\n"
             "{\n"
-            '  "title": "short product title",\n'
-            '  "description": "2-3 sentence description highlighting key features and condition",\n'
-            '  "price": "estimated fair market price as a number string like 85.00",\n'
-            '  "condition": "one of: New, Like New, Good, Fair, Poor",\n'
-            '  "location": "suggest a Manhattan neighborhood",\n'
-            '  "tags": ["3-5 short relevant tags"],\n'
+            '  "title": "concise product title — include brand and model if identified",\n'
+            '  "description": "2-3 sentences, key features plus condition observations",\n'
+            '  "price": "fair secondhand market price as string",\n'
+            '  "condition": "New | Like New | Good | Fair | Poor",\n'
+            '  "location": "Manhattan neighborhood",\n'
+            '  "tags": ["3-5 tags"],\n'
+            '  "category": "<category_slug>",\n'
+            '  "categoryAttributes": { ...fields per category below... },\n'
+            '  "identifierConfidence": "high | medium | low",\n'
             '  "imageIndices": [0, 1]  // the exact image indices from the grouping above\n'
             "}\n\n"
-            "Be realistic with pricing. No markdown, no code fences, just the JSON array."
+            "Category-specific attributes:\n"
+            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
+            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+            "dimensions (format: L x W x H if identifiable)\n"
+            "- electronics: brand, model\n"
+            "- sports: brand, model, size (if determinable)\n"
+            "- collectibles: brand_or_creator, year\n"
+            "- other: {} (empty object)\n\n"
+            "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
+            "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
+            "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
+            "CONFIDENCE RULES:\n"
+            "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
+            "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
+            "- \"low\": brand cannot be confidently determined from the image alone\n\n"
+            "Return ONLY the JSON array. No markdown, no code fences, no commentary."
         ),
     })
 
@@ -398,6 +686,11 @@ async def regenerate_bulk_listing(
 
         if isinstance(items, dict):
             items = [items]
+
+        # Strip any leading $ from price — frontend adds its own
+        for item in items:
+            if "price" in item and isinstance(item["price"], str):
+                item["price"] = item["price"].lstrip("$").strip()
 
         return items
 
@@ -441,7 +734,7 @@ async def create_listing(
 
     # Validate community selection against visibility
     if visibility == "public":
-        # Auto-attach user's public community memberships + neighborhood
+        # Auto-attach user's public community memberships + neighborhood + private communities
         community_ids = []
         if current_user.neighborhood:
             community_ids.append("neighborhood")
@@ -450,7 +743,7 @@ async def create_listing(
         ).all()
         for m in memberships:
             comm = db.query(Community).filter(Community.id == m.community_id).first()
-            if comm and comm.is_public:
+            if comm:
                 community_ids.append(comm.id)
     else:
         if len(community_ids) == 0:
@@ -466,6 +759,11 @@ async def create_listing(
                 CommunityMember.user_id == current_user.id,
             ).first():
                 raise HTTPException(status_code=400, detail=f"You are not a member of community {cid}")
+
+    # Validate category slug
+    category_slug = details.get("category", "other")
+    if category_slug not in CATEGORY_SCHEMAS:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {category_slug}")
 
     # Save all uploaded images to disk
     image_urls: list[str] = []
@@ -491,6 +789,8 @@ async def create_listing(
         image_url=image_urls[0],
         image_urls=json.dumps(image_urls),
         pickup_location=pickup_location or current_user.pickup_address or "",
+        category=category_slug,
+        category_attributes=json.dumps(details.get("categoryAttributes", {})) if details.get("categoryAttributes") else None,
         status="open",
         posted_at=time.time(),
     )
@@ -503,6 +803,7 @@ async def create_listing(
 async def get_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
     sort: Optional[str] = Query("newest"),
     community: Optional[str] = Query(None),
     neighborhood: Optional[str] = Query(None),
@@ -647,6 +948,15 @@ async def get_listings(
             if tag.lower() in [t.lower() for t in l.get("tags", [])]
         ]
 
+    # Filter by category
+    if category:
+        cat_list = [c.strip().lower() for c in category.split(",") if c.strip()]
+        if cat_list:
+            results = [
+                l for l in results
+                if l.get("category", "other").lower() in cat_list
+            ]
+
     # --- Enrich response ---
     all_community_ids_set: set[int] = set()
     for l in results:
@@ -682,6 +992,9 @@ async def get_listings(
             elif isinstance(cid, int) and cid in community_info_map:
                 info = community_info_map[cid]
                 is_mutual = cid in my_community_ids
+                # Private communities only visible to members — skip for non-members
+                if not info.get("is_public", True) and not is_mutual:
+                    continue
                 all_comms.append({**info, "is_mutual": is_mutual})
                 if is_mutual:
                     mutual.append(info)
@@ -697,6 +1010,7 @@ async def get_listings(
 async def get_public_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
     sort: Optional[str] = Query("newest"),
     community: Optional[str] = Query(None),
     db: Session = Depends(get_db),
@@ -757,6 +1071,15 @@ async def get_public_listings(
     if tag and tag != "All":
         results = [l for l in results if tag.lower() in [t.lower() for t in l.get("tags", [])]]
 
+    # Filter by category
+    if category:
+        cat_list = [c.strip().lower() for c in category.split(",") if c.strip()]
+        if cat_list:
+            results = [
+                l for l in results
+                if l.get("category", "other").lower() in cat_list
+            ]
+
     if sort == "price_low":
         results.sort(key=lambda l: float(l.get("price", 0)))
     elif sort == "price_high":
@@ -796,7 +1119,9 @@ async def get_public_listings(
                 hood_name = poster.neighborhood if poster and poster.neighborhood else l.get("location", "Neighborhood")
                 all_comms.append({"name": hood_name, "is_public": True, "is_mutual": False, "is_neighborhood": True})
             elif isinstance(cid, int) and cid in pub_info:
-                all_comms.append({**pub_info[cid], "is_mutual": False})
+                # Only show public communities on unauthenticated endpoint
+                if pub_info[cid].get("is_public", True):
+                    all_comms.append({**pub_info[cid], "is_mutual": False})
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
         enriched_pub.append(listing_copy)
@@ -899,12 +1224,14 @@ async def update_listing(
         raise HTTPException(status_code=400, detail="Cannot edit a sold listing")
 
     field_map = {"title": "title", "description": "description", "price": "price",
-                 "condition": "condition", "location": "location"}
+                 "condition": "condition", "location": "location", "category": "category"}
     for field, attr in field_map.items():
         if field in details:
             setattr(listing, attr, details[field])
     if "tags" in details:
         listing.tags = json.dumps(details["tags"])
+    if "categoryAttributes" in details:
+        listing.category_attributes = json.dumps(details["categoryAttributes"])
     db.commit()
     return listing.to_dict()
 

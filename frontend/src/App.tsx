@@ -8,6 +8,23 @@ import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
 import UserProfileOverlay from "./pages/UserProfilePage";
+import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
+
+type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
+
+interface CategoryField {
+  key: string;
+  label: string;
+  type: "text" | "select";
+  required: boolean;
+  options?: string[];
+  tooltip?: string;
+}
+
+interface CategorySchema {
+  label: string;
+  fields: CategoryField[];
+}
 
 interface ProductDetails {
   title: string;
@@ -16,6 +33,9 @@ interface ProductDetails {
   condition: string;
   location: string;
   tags: string[];
+  category?: CategorySlug;
+  categoryAttributes?: Record<string, string>;
+  identifierConfidence?: "high" | "medium" | "low";
 }
 
 interface BulkItemDetails extends ProductDetails {
@@ -36,6 +56,8 @@ interface Listing extends ProductDetails {
   status?: string;
   seller_name?: string | null;
   seller_picture?: string | null;
+  category?: CategorySlug;
+  categoryAttributes?: Record<string, string>;
 }
 
 type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
@@ -133,6 +155,8 @@ export default function App() {
   const [postVisibility, setPostVisibility] = useState<"public" | "private">("public");
   const [selectedPostPrivateCommunities, setSelectedPostPrivateCommunities] = useState<(string | number)[]>([]);
   const [postPickupLocation, setPostPickupLocation] = useState("");
+  const [categorySchemas, setCategorySchemas] = useState<Record<string, CategorySchema>>({});
+  const [selectedCategories, setSelectedCategories] = useState<CategorySlug[]>([]);
 
   // Wishlist state
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
@@ -211,6 +235,8 @@ export default function App() {
   const [editLocation, setEditLocation] = useState("");
   const [editTags, setEditTags] = useState<string[]>([]);
   const [editNewTag, setEditNewTag] = useState("");
+  const [editCategory, setEditCategory] = useState<CategorySlug>("other");
+  const [editCategoryAttributes, setEditCategoryAttributes] = useState<Record<string, string>>({});
   const [isSavingListing, setIsSavingListing] = useState(false);
 
   const openEditFromDetail = () => {
@@ -222,6 +248,8 @@ export default function App() {
     setEditLocation(user?.neighborhood || listingDetailData.location || "");
     setEditTags(listingDetailData.tags || []);
     setEditNewTag("");
+    setEditCategory(listingDetailData.category || "other");
+    setEditCategoryAttributes(listingDetailData.categoryAttributes || {});
     setShowEditListingModal(true);
   };
 
@@ -237,6 +265,8 @@ export default function App() {
         condition: editCondition,
         location: editLocation,
         tags: editTags,
+        category: editCategory,
+        categoryAttributes: editCategoryAttributes,
       }));
       const res = await fetch(`/api/listings/${listingDetailData.id}`, {
         method: "PUT",
@@ -710,6 +740,11 @@ export default function App() {
       if (sellerNeighborhood) {
         items.forEach((item) => { item.location = sellerNeighborhood; });
       }
+      items.forEach((item) => {
+        if (!item.category) item.category = "other";
+        if (!item.categoryAttributes) item.categoryAttributes = {};
+        if (!item.identifierConfidence) item.identifierConfidence = "low";
+      });
       setBulkItems(items);
       setCurrentCardIndex(0);
       setBulkReviewPhase("cards");
@@ -750,6 +785,9 @@ export default function App() {
           condition: items[0].condition,
           location: user?.neighborhood || items[0].location,
           tags: items[0].tags,
+          category: items[0].category || "other",
+          categoryAttributes: items[0].categoryAttributes || {},
+          identifierConfidence: items[0].identifierConfidence || "low",
         });
         setPostPickupLocation(user?.pickup_address || "");
       } else {
@@ -758,6 +796,11 @@ export default function App() {
         if (sellerNeighborhood) {
           items.forEach((item) => { item.location = sellerNeighborhood; });
         }
+        items.forEach((item) => {
+          if (!item.category) item.category = "other";
+          if (!item.categoryAttributes) item.categoryAttributes = {};
+          if (!item.identifierConfidence) item.identifierConfidence = "low";
+        });
         setBulkItems(items);
         setCurrentCardIndex(0);
         setBulkReviewPhase("cards");
@@ -813,6 +856,11 @@ export default function App() {
         throw new Error(err.detail || "Failed to regenerate listings");
       }
       const newItems: BulkItemDetails[] = await res.json();
+      newItems.forEach((item) => {
+        if (!item.category) item.category = "other";
+        if (!item.categoryAttributes) item.categoryAttributes = {};
+        if (!item.identifierConfidence) item.identifierConfidence = "low";
+      });
 
       // Merge: replace only the modified groups, keep unmodified ones intact
       setBulkItems((prev) => {
@@ -850,7 +898,8 @@ export default function App() {
     try {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
-      formData.append("data", JSON.stringify(productDetails));
+      const { identifierConfidence: _, ...postData } = productDetails;
+      formData.append("data", JSON.stringify(postData));
 
       // Build communities + visibility for the form
       const communityIds: string[] = [];
@@ -910,7 +959,7 @@ export default function App() {
             formData.append("images", uploadedImages[imgIdx].file);
           }
         }
-        const { imageIndices: _, ...productData } = item;
+        const { imageIndices: _indices, identifierConfidence: _conf, ...productData } = item;
         formData.append("data", JSON.stringify(productData));
         formData.append("communities", communityIds.join(","));
         formData.append("visibility", postVisibility);
@@ -962,7 +1011,6 @@ export default function App() {
     localStorage.removeItem("ge_history");
     setPublicCommunities([]);
     setPrivateCommunities([]);
-    setSelectedHomeCommunities([]);
     setSelectedMarketCommunities([]);
     setPostVisibility("public");
     setSelectedPostPrivateCommunities([]);
@@ -988,13 +1036,6 @@ export default function App() {
         const data = await res.json();
         setPublicCommunities(data.public || []);
         setPrivateCommunities(data.private || []);
-        const allIds = [...(data.public || []), ...(data.private || [])].map(
-          (c: { id: string | number }) => String(c.id)
-        );
-        setSelectedHomeCommunities(allIds);
-        setHomeShowAll(true);
-        // Market default: no filter (empty = show tier-ranked feed)
-        setSelectedMarketCommunities([]);
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
@@ -1003,12 +1044,20 @@ export default function App() {
 
   useEffect(() => {
     if (isAuthenticated) fetchFilterCommunities();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, page]);
+
+  useEffect(() => {
+    fetch("/api/categories")
+      .then((res) => res.json())
+      .then((data) => setCategorySchemas(data))
+      .catch((err) => console.error("Failed to fetch category schemas:", err));
+  }, []);
 
   const fetchListings = async () => {
     const params = new URLSearchParams();
     if (marketSearch) params.set("search", marketSearch);
     params.set("sort", marketSort);
+    if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
     if (isAuthenticated && token) {
       if (selectedMarketCommunities.length > 0) {
@@ -1086,7 +1135,7 @@ export default function App() {
 
   useEffect(() => {
     if (page === "market") fetchListings();
-  }, [page, marketSearch, selectedMarketCommunities, marketSort, isAuthenticated]);
+  }, [page, marketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated]);
 
   useEffect(() => {
     if (token) fetchWishlist();
@@ -1983,6 +2032,26 @@ export default function App() {
                           </select>
                         </div>
                       </div>
+                      {/* Category */}
+                      {Object.keys(categorySchemas).length > 0 && (
+                        <>
+                          <CategorySelector
+                            category={productDetails.category || "other"}
+                            schemas={categorySchemas}
+                            onChange={(slug) => setProductDetails({ ...productDetails, category: slug, categoryAttributes: productDetails.categoryAttributes || {} })}
+                          />
+                          <CategoryAttributeFields
+                            category={productDetails.category || "other"}
+                            schemas={categorySchemas}
+                            attributes={productDetails.categoryAttributes || {}}
+                            identifierConfidence={productDetails.identifierConfidence}
+                            onChange={(key, value) => setProductDetails({
+                              ...productDetails,
+                              categoryAttributes: { ...(productDetails.categoryAttributes || {}), [key]: value },
+                            })}
+                          />
+                        </>
+                      )}
                       <div>
                         <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
                         <div className="flex flex-wrap gap-2 mt-1">
@@ -2238,6 +2307,34 @@ export default function App() {
                             </select>
                           </div>
                         </div>
+                        {/* Category */}
+                        {Object.keys(categorySchemas).length > 0 && (
+                          <>
+                            <CategorySelector
+                              category={bulkItems[currentCardIndex].category || "other"}
+                              schemas={categorySchemas}
+                              onChange={(slug) => {
+                                const updated = [...bulkItems];
+                                updated[currentCardIndex] = { ...updated[currentCardIndex], category: slug };
+                                setBulkItems(updated);
+                              }}
+                            />
+                            <CategoryAttributeFields
+                              category={bulkItems[currentCardIndex].category || "other"}
+                              schemas={categorySchemas}
+                              attributes={bulkItems[currentCardIndex].categoryAttributes || {}}
+                              identifierConfidence={bulkItems[currentCardIndex].identifierConfidence}
+                              onChange={(key, value) => {
+                                const updated = [...bulkItems];
+                                updated[currentCardIndex] = {
+                                  ...updated[currentCardIndex],
+                                  categoryAttributes: { ...(updated[currentCardIndex].categoryAttributes || {}), [key]: value },
+                                };
+                                setBulkItems(updated);
+                              }}
+                            />
+                          </>
+                        )}
                         <div>
                           <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
                           <div className="flex flex-wrap gap-2 mt-1">
@@ -2676,6 +2773,40 @@ export default function App() {
               </div>
             )}
 
+            {/* Category Filters */}
+            {Object.keys(categorySchemas).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3 mb-4">
+                {Object.entries(categorySchemas).map(([slug, schema]) => {
+                  const isSelected = selectedCategories.includes(slug as CategorySlug);
+                  return (
+                    <button
+                      key={slug}
+                      onClick={() => {
+                        setSelectedCategories((prev) =>
+                          isSelected ? prev.filter((c) => c !== slug) : [...prev, slug as CategorySlug]
+                        );
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
+                        isSelected
+                          ? "bg-fuchsia-500/20 border-fuchsia-400/40 text-fuchsia-300"
+                          : "bg-white/5 border-white/15 text-white/50 hover:text-white/70 hover:border-white/30"
+                      }`}
+                    >
+                      {schema.label}
+                    </button>
+                  );
+                })}
+                {selectedCategories.length > 0 && (
+                  <button
+                    onClick={() => setSelectedCategories([])}
+                    className="px-3 py-1.5 rounded-full text-xs border border-white/15 text-white/30 hover:text-white/50 transition-all"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Listings */}
             {listings.length === 0 ? (
               <div className="text-center py-20">
@@ -2717,6 +2848,30 @@ export default function App() {
                         <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{listing.condition}</span>
                         {listing.status === "sold" && <span className="px-2 py-0.5 rounded bg-white/10 text-xs text-white/40">Sold</span>}
                       </div>
+                      {/* Key category attributes */}
+                      {listing.categoryAttributes && (() => {
+                        const attrs = listing.categoryAttributes;
+                        const cat = listing.category || "other";
+                        const display: string[] = [];
+                        if (cat === "clothing") {
+                          if (attrs.brand) display.push(attrs.brand);
+                          if (attrs.size) display.push(attrs.size);
+                        } else if (cat === "furniture") {
+                          if (attrs.brand) display.push(attrs.brand);
+                          if (attrs.carry_difficulty) display.push(attrs.carry_difficulty);
+                        } else {
+                          if (attrs.brand || attrs.brand_or_creator) display.push(attrs.brand || attrs.brand_or_creator || "");
+                          if (attrs.model) display.push(attrs.model);
+                        }
+                        if (display.length === 0) return null;
+                        return (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            {display.map((d, i) => (
+                              <span key={i} className="text-xs text-white/50">{d}{i < display.length - 1 ? " \u00b7 " : ""}</span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       {/* Seller */}
                       {listing.seller_name && (
                         <div className="flex items-center gap-2 mt-2">
@@ -3493,6 +3648,34 @@ export default function App() {
                 </div>
               )}
 
+              {/* Category Attributes */}
+              {listingDetailData.categoryAttributes && Object.keys(listingDetailData.categoryAttributes).filter(k => listingDetailData.categoryAttributes![k]).length > 0 ? (
+                <div className="space-y-1.5 mt-3 mb-4">
+                  {listingDetailData.category && listingDetailData.category !== "other" && (
+                    <span className="inline-block px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300 mb-2">
+                      {categorySchemas[listingDetailData.category]?.label || listingDetailData.category}
+                    </span>
+                  )}
+                  {Object.entries(listingDetailData.categoryAttributes).map(([key, value]) => {
+                    if (!value) return null;
+                    const label = key === "carry_difficulty" ? "Carry Difficulty"
+                      : key === "brand_or_creator" ? "Brand / Creator"
+                      : key === "style_code" ? "Style Code"
+                      : key.charAt(0).toUpperCase() + key.slice(1);
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-sm">
+                        <span className="text-white/40">{label}:</span>
+                        <span className={`text-white/80 ${key === "carry_difficulty" ? "font-medium text-amber-300" : ""}`}>{value}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : isAuthenticated && listingDetailData.userId === user?.id && listingDetailData.status !== "sold" ? (
+                <div className="mt-3 mb-4 p-3 rounded-lg border border-cyan-400/20 bg-cyan-500/5">
+                  <p className="text-xs text-cyan-300/70">Add category details like brand, size, or condition specifics to help buyers find your listing and increase your chances of selling.</p>
+                </div>
+              ) : null}
+
               {listingDetailData.mutualCommunities && listingDetailData.mutualCommunities.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-4">
                   {listingDetailData.mutualCommunities.map((c, i) => (
@@ -3933,6 +4116,26 @@ export default function App() {
                   />
                   <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
                 </div>
+
+                {/* Category */}
+                {Object.keys(categorySchemas).length > 0 && (
+                  <>
+                    <CategorySelector
+                      category={editCategory}
+                      schemas={categorySchemas}
+                      onChange={(slug) => setEditCategory(slug)}
+                    />
+                    <CategoryAttributeFields
+                      category={editCategory}
+                      schemas={categorySchemas}
+                      attributes={editCategoryAttributes}
+                      onChange={(key, value) => setEditCategoryAttributes({
+                        ...editCategoryAttributes,
+                        [key]: value,
+                      })}
+                    />
+                  </>
+                )}
 
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Tags</label>

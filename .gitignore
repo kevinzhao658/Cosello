@@ -7,3 +7,5 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 .env
 .vite/
+backend/.secrets/
+*.serviceaccount.json

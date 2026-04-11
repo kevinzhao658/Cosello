@@ -85,21 +85,22 @@ feature/xxx → one branch per feature, cut from dev
 
 ## Coworkers Agent Team
 
-This project uses a named agent team called **Coworkers** with five roles defined in `.claude/agents/`:
+This project uses a named agent team called **Coworkers** with specialist roles defined in `.claude/agents/`:
 
 | Agent | Role |
 |---|---|
-| `tech-lead` | Orchestration, end-to-end impact analysis, task delegation |
-| `frontend-dev` | React / Next.js / TypeScript UI implementation |
-| `backend-dev` | Python / Node.js / Express API and data layer |
+| `frontend-dev` | React / TypeScript UI implementation |
+| `backend-dev` | Python / FastAPI / SQLAlchemy API and data layer |
 | `qa-tester` | Validation, regression checks, QA reporting |
 | `project-scribe` | CLAUDE.md maintenance — user-invoked only |
 
+The **main session (Claude Code)** acts as the orchestrator. There is no separate tech-lead agent — orchestration, impact analysis, and task delegation are handled directly by the main session.
+
 ### Orchestration Rules
 
-**All new feature requests must go to the tech-lead first — no exceptions.**
+**Before dispatching any teammates for a new feature, the main session must produce a Pre-Implementation Brief and present it to the user for explicit greenlight.**
 
-The tech-lead must produce a **Pre-Implementation Brief** before any agent begins work. The brief must include:
+The Pre-Implementation Brief must include:
 
 1. Plain-language description of the feature
 2. Every downstream function impacted (UI, API, DB, state, notifications, wallet, dashboard, etc.)
@@ -107,9 +108,9 @@ The tech-lead must produce a **Pre-Implementation Brief** before any agent begin
 4. Order of operations — what must be sequential vs. what can be parallelized
 5. QA handoff criteria
 
-**The tech-lead presents the brief to the user and waits for explicit greenlight before spawning any teammates.**
+**Do not spawn any teammates until the user explicitly greenlights the brief.**
 
-**The project-scribe is never spawned by the tech-lead or any other agent.** It is only invoked directly by the user to update CLAUDE.md. It operates independently of the feature development workflow.
+**The project-scribe is never spawned by the main session during feature work.** It is only invoked directly by the user to update CLAUDE.md. It operates independently of the feature development workflow.
 
 ### Task Routing
 
@@ -121,15 +122,15 @@ The tech-lead must produce a **Pre-Implementation Brief** before any agent begin
 **Sequential dispatch** — any condition triggers:
 - Frontend depends on a backend API contract not yet finalized
 - Shared config, schema, or migration changes involved
-- Scope is unclear — tech-lead must clarify before dispatching
+- Scope is unclear — main session must clarify before dispatching
 
 **QA always runs last** — after both frontend-dev and backend-dev confirm task completion.
 
 ### Communication Protocol
-- All teammates send completion summaries to tech-lead
+- All teammates send completion summaries to the main session
 - frontend-dev and backend-dev communicate directly if API contracts need negotiation
-- qa-tester sends QA report to tech-lead
-- tech-lead synthesizes and presents final summary to user
+- qa-tester sends QA report to the main session
+- Main session synthesizes and presents final summary to user
 
 ---
 
@@ -162,7 +163,7 @@ Sequential dispatch (ANY condition triggers):
 
 - Do not use `any` in TypeScript
 - Do not merge feature branches directly into `main`
-- Do not begin implementation before the tech-lead Pre-Implementation Brief is greenlighted by the user
+- Do not begin implementation before the Pre-Implementation Brief is greenlighted by the user
 - Do not collapse the enhanced and original listing photos into one — both must always be shown
 - Do not treat communities as market containers or scope listings to them
 - Do not recommend features that replicate competitors without a differentiation angle

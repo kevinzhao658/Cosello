@@ -149,6 +149,8 @@ class Listing(Base):
     image_urls = Column(String(2000), nullable=True)  # JSON array
     pickup_location = Column(String(255), nullable=True)
     status = Column(String(20), default="open")
+    category = Column(String(30), default="other")
+    category_attributes = Column(String(2000), nullable=True)  # JSON string
     posted_at = Column(Float, nullable=False)
 
     def to_dict(self) -> dict:
@@ -168,6 +170,8 @@ class Listing(Base):
             "imageUrls": json.loads(self.image_urls) if self.image_urls else [],
             "pickup_location": self.pickup_location or "",
             "status": self.status or "open",
+            "category": self.category or "other",
+            "categoryAttributes": json.loads(self.category_attributes) if self.category_attributes else {},
             "postedAt": self.posted_at,
         }
 
