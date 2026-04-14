@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
-import { useAuth } from "../contexts/AuthContext";
 
 const MANHATTAN_NEIGHBORHOODS = [
   "Battery Park City",
@@ -50,12 +49,23 @@ const MANHATTAN_NEIGHBORHOODS = [
   "Yorkville",
 ];
 
-interface SignUpPageProps {
-  onComplete: () => void;
+interface SignUpUser {
+  id: number;
+  phone_number: string;
+  display_name: string | null;
+  neighborhood: string | null;
+  profile_picture: string | null;
+  pickup_address: string | null;
+  zip_code: string | null;
 }
 
-export default function SignUpPage({ onComplete }: SignUpPageProps) {
-  const { token, updateUser } = useAuth();
+interface SignUpPageProps {
+  pendingToken: string;
+  onComplete: (user: SignUpUser) => void;
+  onCancel: () => void;
+}
+
+export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignUpPageProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [pickupAddress, setPickupAddress] = useState("");
@@ -108,7 +118,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${pendingToken}`,
         },
         body: JSON.stringify({
           display_name: `${firstName.trim()} ${lastName.trim()}`,
@@ -124,8 +134,7 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
       }
 
       const user = await res.json();
-      updateUser(user);
-      onComplete();
+      onComplete(user);
     } catch (err: any) {
       setError(err.message || "Registration failed");
     } finally {
@@ -301,6 +310,13 @@ export default function SignUpPage({ onComplete }: SignUpPageProps) {
                 "Get Started"
               )}
             </Button>
+
+            <button
+              onClick={onCancel}
+              className="w-full text-sm text-white/40 hover:text-white/60 transition-colors mt-2"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       </div>

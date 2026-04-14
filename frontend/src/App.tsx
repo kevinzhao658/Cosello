@@ -3,7 +3,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
 import React, { useState, useEffect, useRef } from "react";
-import { useAuth } from "./contexts/AuthContext";
+import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
@@ -109,6 +109,9 @@ function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
+
+  const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
+  const [pendingSignupUser, setPendingSignupUser] = useState<AuthUser | null>(null);
 
   const [homeSearch, setHomeSearch] = useState("");
   const [displayText, setDisplayText] = useState("");
@@ -1166,10 +1169,13 @@ export default function App() {
 
   // Redirect to home if user logs out while on a protected page
   useEffect(() => {
-    if (!isAuthenticated && (page === "account" || page === "signup")) {
+    if (!isAuthenticated && page === "account") {
       setPage("home");
     }
-  }, [isAuthenticated, page]);
+    if (!isAuthenticated && page === "signup" && !pendingSignupToken) {
+      setPage("home");
+    }
+  }, [isAuthenticated, page, pendingSignupToken]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -1212,10 +1218,10 @@ export default function App() {
 
   // If user needs registration, redirect to signup
   useEffect(() => {
-    if (needsRegistration && page !== "signup") {
+    if (needsRegistration && pendingSignupToken && page !== "signup") {
       setPage("signup");
     }
-  }, [needsRegistration]);
+  }, [needsRegistration, pendingSignupToken]);
 
   return (
     <div className="size-full bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white overflow-auto">
@@ -1614,10 +1620,12 @@ export default function App() {
       {page === "signin" && (
         <SignInPage
           onSuccess={(newToken, userExists, newUser) => {
-            login(newToken, newUser);
             if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
+              setPendingSignupToken(newToken);
+              setPendingSignupUser(newUser);
               setPage("signup");
             } else {
+              login(newToken, newUser);
               setPage("home");
             }
           }}
@@ -1626,8 +1634,21 @@ export default function App() {
       )}
 
       {/* Sign Up Page */}
-      {page === "signup" && (
-        <SignUpPage onComplete={() => setPage("account")} />
+      {page === "signup" && pendingSignupToken && (
+        <SignUpPage
+          pendingToken={pendingSignupToken}
+          onComplete={(completedUser) => {
+            login(pendingSignupToken, completedUser);
+            setPendingSignupToken(null);
+            setPendingSignupUser(null);
+            setPage("account");
+          }}
+          onCancel={() => {
+            setPendingSignupToken(null);
+            setPendingSignupUser(null);
+            setPage("home");
+          }}
+        />
       )}
 
       {page === "home" && (
