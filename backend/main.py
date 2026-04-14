@@ -1,11 +1,15 @@
 import base64
 import io
 import json
+import logging
 import os
 import time
 import uuid
 from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import anthropic
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depends
@@ -23,6 +27,11 @@ from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
 from category_schemas import CATEGORY_SCHEMAS
+from services.google import vision
+from services.evidence import build_evidence_block
+from services.cache import PHashCache
+
+logger = logging.getLogger(__name__)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -112,6 +121,7 @@ async def get_categories():
 
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+_phash_cache = PHashCache()
 
 import random
 
@@ -183,334 +193,114 @@ async def seed_listings(
     return {"seeded": len(created), "listings": created}
 
 
-@app.post("/api/generate-listing")
-async def generate_listing(
-    images: list[UploadFile] = File(...),
-    hint_brand: Optional[str] = Form(None),
-    hint_model: Optional[str] = Form(None),
-    hint_category: Optional[str] = Form(None),
-):
-    if not images:
-        raise HTTPException(status_code=400, detail="At least one image is required")
-
-    # Build image content blocks for Claude (resize if raw would exceed Claude's 5MB base64 limit).
-    # Base64 inflates by 4/3, so Claude's 5MB encoded cap = ~3.93MB raw. Use 3.5MB for safety.
-    MAX_BYTES = 3_500_000
-    MAX_DIMENSION = 2048
-
-    content = []
-    for img in images:
-        data = await img.read()
-
-        # Resize large images
-        if len(data) > MAX_BYTES:
-            pil_img = Image.open(io.BytesIO(data))
-            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG", quality=85)
-            data = buf.getvalue()
-            media_type = "image/jpeg"
-        else:
-            media_type = img.content_type or "image/jpeg"
-
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64.b64encode(data).decode("utf-8"),
-            },
-        })
-
-    hints = []
-    if hint_brand:
-        hints.append(f"brand={hint_brand}")
-    if hint_model:
-        hints.append(f"model={hint_model}")
-    if hint_category:
-        hints.append(f"category={hint_category}")
-    hint_section = ""
-    if hints:
-        hint_section = (
-            "\nThe user has confirmed the following identifiers — use these as definitive "
-            "anchors and derive everything else from them: "
-            + ", ".join(hints)
-            + ". Reverse-trace the exact product using these anchors.\n"
-        )
-
-    content.append({
-        "type": "text",
-        "text": (
-            "You are a product identification assistant for a secondhand marketplace. "
-            "The seller has uploaded photos and has NOT provided any product details — "
-            "you must derive everything from the image(s) alone.\n\n"
-            + hint_section +
-            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
-            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
-            "1. Printed brand logos or wordmarks\n"
-            "2. Model names or numbers printed on the product\n"
-            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
-            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
-            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
-            "STEP 2 — CATEGORIZE\n"
-            "Assign one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
-            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
-            "Using the identifiers you extracted, reason as if performing a reverse image search: "
-            "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
-            "- Accurate current secondhand market price (NOT retail)\n"
-            "- Description (key features + visible condition)\n"
-            "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
-            "STEP 4 — RETURN JSON ONLY\n"
-            "{\n"
-            '  "title": "concise product title — include brand and model if identified",\n'
-            '  "description": "2-3 sentences, key features plus condition observations",\n'
-            '  "price": "fair secondhand market price as string",\n'
-            '  "condition": "New | Like New | Good | Fair | Poor",\n'
-            '  "location": "Manhattan neighborhood",\n'
-            '  "tags": ["3-5 tags"],\n'
-            '  "category": "<category_slug>",\n'
-            '  "categoryAttributes": { ...fields per category below... },\n'
-            '  "identifierConfidence": "high | medium | low"\n'
-            "}\n\n"
-            "Category-specific attributes:\n"
-            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
-            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
-            "dimensions (format: L x W x H if identifiable)\n"
-            "- electronics: brand, model\n"
-            "- sports: brand, model, size (if determinable)\n"
-            "- collectibles: brand_or_creator, year\n"
-            "- other: {} (empty object)\n\n"
-            "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
-            "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
-            "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
-            "CONFIDENCE RULES:\n"
-            "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
-            "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
-            "- \"low\": brand cannot be confidently determined from the image alone\n\n"
-            "Return ONLY the JSON object. No markdown, no code fences, no commentary."
-        ),
-    })
-
+def _run_vision_with_cache(resized_bytes_list: list[bytes]) -> tuple[list, bool]:
+    """Run Google Vision on images, using phash cache for dedup. Returns (VisionResults, retrieval_fallback)."""
+    retrieval_fallback = False
+    vision_results = []
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": content}],
+        uncached_indices = []
+        uncached_bytes = []
+        for i, img_bytes in enumerate(resized_bytes_list):
+            cached = _phash_cache.get(img_bytes)
+            if cached is not None:
+                vision_results.append((i, cached))
+            else:
+                uncached_indices.append(i)
+                uncached_bytes.append(img_bytes)
+
+        if uncached_bytes:
+            fresh = vision.analyze_images(uncached_bytes)
+            for idx, result in zip(uncached_indices, fresh):
+                _phash_cache.set(resized_bytes_list[idx], result)
+                vision_results.append((idx, result))
+
+        vision_results.sort(key=lambda x: x[0])
+        vision_results = [r for _, r in vision_results]
+    except Exception as e:
+        logger.warning("Google Vision call failed, falling back to visual-only: %s", e)
+        retrieval_fallback = True
+        vision_results = []
+
+    return vision_results, retrieval_fallback
+
+
+def _build_prompt_text(evidence_block: str, *, bulk: bool, groups_desc: str = "") -> str:
+    """Build the Claude prompt, injecting evidence when available."""
+    preamble = (
+        "You are a product identification assistant for a secondhand marketplace. "
+    )
+    if bulk and groups_desc:
+        preamble += (
+            "The seller has uploaded photos and has already grouped them into items. "
+            "Use the groupings below exactly as provided — do NOT change the groupings. "
+            "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
+            f"Groupings:\n{groups_desc}\n\n"
         )
-
-        raw = response.content[0].text.strip()
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]  # remove first line (```json)
-            raw = raw.rsplit("```", 1)[0]  # remove closing ```
-            raw = raw.strip()
-        # Parse to validate it's real JSON, then return
-        listing = json.loads(raw)
-        # Strip any leading $ from price — frontend adds its own
-        if "price" in listing and isinstance(listing["price"], str):
-            listing["price"] = listing["price"].lstrip("$").strip()
-        return listing
-
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="AI returned invalid JSON")
-    except anthropic.APIError as e:
-        raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
-
-
-@app.post("/api/regenerate-from-urls")
-async def regenerate_from_urls(
-    image_urls: str = Form(...),
-    hint_brand: Optional[str] = Form(None),
-    hint_model: Optional[str] = Form(None),
-    hint_category: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Re-run AI generation using existing listing images (by URL path) + user-provided hints."""
-    urls = json.loads(image_urls)
-    if not urls:
-        raise HTTPException(status_code=400, detail="At least one image URL is required")
-
-    MAX_DIMENSION = 2048
-    content = []
-    for url in urls:
-        # Resolve local file path from URL (e.g. /uploads/abc123.jpg)
-        if url.startswith("/uploads/"):
-            filepath = UPLOADS_DIR / url.replace("/uploads/", "")
-        else:
-            continue
-        if not filepath.exists():
-            continue
-
-        data = filepath.read_bytes()
-        # Detect media type
-        ext = filepath.suffix.lower()
-        media_type = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext.lstrip("."), "image/jpeg")
-
-        # Resize if too large for Claude
-        if len(data) > 3_500_000:
-            pil_img = Image.open(io.BytesIO(data))
-            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG", quality=85)
-            data = buf.getvalue()
-            media_type = "image/jpeg"
-
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64.b64encode(data).decode("utf-8"),
-            },
-        })
-
-    if not content:
-        raise HTTPException(status_code=400, detail="No valid images found")
-
-    hints = []
-    if hint_brand:
-        hints.append(f"brand={hint_brand}")
-    if hint_model:
-        hints.append(f"model={hint_model}")
-    if hint_category:
-        hints.append(f"category={hint_category}")
-    hint_section = ""
-    if hints:
-        hint_section = (
-            "\nThe user has confirmed the following identifiers — use these as definitive "
-            "anchors and derive everything else from them: "
-            + ", ".join(hints)
-            + ". Reverse-trace the exact product using these anchors.\n"
-        )
-
-    content.append({
-        "type": "text",
-        "text": (
-            "You are a product identification assistant for a secondhand marketplace. "
-            "The seller has uploaded photos and wants you to re-analyze using confirmed identifiers.\n\n"
-            + hint_section +
-            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
-            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
-            "1. Printed brand logos or wordmarks\n"
-            "2. Model names or numbers printed on the product\n"
-            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
-            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
-            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
-            "STEP 2 — CATEGORIZE\n"
-            "Assign one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
-            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
-            "Using the identifiers you extracted plus any confirmed hints above, reason as if performing "
-            "a reverse image search: what specific product from which brand does this most closely match? "
-            "Use that product's known profile to inform all fields.\n\n"
-            "STEP 4 — RETURN JSON ONLY\n"
-            "{\n"
-            '  "title": "concise product title — include brand and model if identified",\n'
-            '  "description": "2-3 sentences, key features plus condition observations",\n'
-            '  "price": "fair secondhand market price as string",\n'
-            '  "condition": "New | Like New | Good | Fair | Poor",\n'
-            '  "tags": ["3-5 tags"],\n'
-            '  "category": "<category_slug>",\n'
-            '  "categoryAttributes": { ...fields per category below... },\n'
-            '  "identifierConfidence": "high | medium | low"\n'
-            "}\n\n"
-            "Category-specific attributes:\n"
-            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible)\n"
-            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
-            "dimensions (format: L x W x H if identifiable)\n"
-            "- electronics: brand, model\n"
-            "- sports: brand, model, size (if determinable)\n"
-            "- collectibles: brand_or_creator, year\n"
-            "- other: {} (empty object)\n\n"
-            "CONFIDENCE RULES:\n"
-            '- "high": brand AND model clearly identified\n'
-            '- "medium": brand identified but model uncertain\n'
-            '- "low": brand cannot be confidently determined\n\n'
-            "Return ONLY the JSON object. No markdown, no code fences, no commentary."
-        ),
-    })
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": content}],
-        )
-
-        raw = response.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]
-            raw = raw.rsplit("```", 1)[0]
-            raw = raw.strip()
-        result = json.loads(raw)
-        if "price" in result and isinstance(result["price"], str):
-            result["price"] = result["price"].lstrip("$").strip()
-        return result
-
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="AI returned invalid JSON")
-    except anthropic.APIError as e:
-        raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
-
-
-@app.post("/api/generate-bulk-listing")
-async def generate_bulk_listing(images: list[UploadFile] = File(...)):
-    if not images:
-        raise HTTPException(status_code=400, detail="At least one image is required")
-
-    # 3.5MB raw → ~4.67MB base64, safely under Claude's 5MB encoded cap
-    MAX_BYTES = 3_500_000
-    MAX_DIMENSION = 2048
-
-    content = []
-    for idx, img in enumerate(images):
-        data = await img.read()
-
-        if len(data) > MAX_BYTES:
-            pil_img = Image.open(io.BytesIO(data))
-            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG", quality=85)
-            data = buf.getvalue()
-            media_type = "image/jpeg"
-        else:
-            media_type = img.content_type or "image/jpeg"
-
-        content.append({"type": "text", "text": f"[Image {idx}]"})
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64.b64encode(data).decode("utf-8"),
-            },
-        })
-
-    content.append({
-        "type": "text",
-        "text": (
-            "You are a product identification assistant for a secondhand marketplace. "
+    elif bulk:
+        preamble += (
             "The seller has uploaded multiple photos that may contain MULTIPLE DIFFERENT items for sale. "
             "Some photos may show the same item from different angles. "
             "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
+        )
+    else:
+        preamble += (
+            "The seller has uploaded photos and has NOT provided any product details — "
+            "you must derive everything from the image(s) alone.\n\n"
+        )
+
+    if evidence_block:
+        step1 = (
+            f"{evidence_block}\n\n"
+            "STEP 1 — READ THE RETRIEVAL EVIDENCE\n"
+            "The evidence above was retrieved from a reverse image search. Treat it as ground truth for "
+            "product identification unless the photo clearly contradicts it. Use visible identifiers to confirm:\n"
+        )
+        step3_heading = "STEP 3 — WRITE THE LISTING AROUND THIS EVIDENCE\n"
+    else:
+        step1 = (
             "STEP 1 — METHODICAL IMAGE INSPECTION\n"
-            "Examine each image carefully for visible identifiers in this priority order:\n"
-            "1. Printed brand logos or wordmarks\n"
-            "2. Model names or numbers printed on the product\n"
-            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
-            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
-            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
-            "Then identify each distinct item across all photos and group photos showing the same item together.\n\n"
-            "STEP 2 — CATEGORIZE\n"
-            "Assign each item one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
-            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
-            "For each item, using the identifiers you extracted, reason as if performing a reverse image search: "
+            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
+        )
+        step3_heading = "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
+
+    step1 += (
+        "1. Printed brand logos or wordmarks\n"
+        "2. Model names or numbers printed on the product\n"
+        "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
+        "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
+        "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
+    )
+
+    if bulk and not groups_desc:
+        step1 += "Then identify each distinct item across all photos and group photos showing the same item together.\n\n"
+
+    step2 = (
+        "STEP 2 — CATEGORIZE\n"
+        "Assign " + ("each item " if bulk else "") + "one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
+    )
+
+    if evidence_block:
+        step3 = (
+            step3_heading
+            + "Using the retrieval evidence and visible identifiers, write the listing. "
+            "Use the identified product's known profile to inform:\n"
+        )
+    else:
+        step3 = (
+            step3_heading
+            + ("For each item, u" if bulk else "U") + "sing the identifiers you extracted, reason as if performing a reverse image search: "
             "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
-            "- Accurate current secondhand market price (NOT retail)\n"
-            "- Description (key features + visible condition)\n"
-            "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
+        )
+    step3 += (
+        "- Accurate current secondhand market price (NOT retail)\n"
+        "- Description (key features + visible condition)\n"
+        "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
+    )
+
+    if bulk:
+        step4 = (
             "STEP 4 — RETURN JSON ONLY\n"
-            "Return a JSON array of objects. Each object must have:\n"
+            "Return a JSON array of objects" + (" in the same order as the groups" if groups_desc else "") + ". Each object must have:\n"
             "{\n"
             '  "title": "concise product title — include brand and model if identified",\n'
             '  "description": "2-3 sentences, key features plus condition observations",\n'
@@ -521,27 +311,96 @@ async def generate_bulk_listing(images: list[UploadFile] = File(...)):
             '  "category": "<category_slug>",\n'
             '  "categoryAttributes": { ...fields per category below... },\n'
             '  "identifierConfidence": "high | medium | low",\n'
-            '  "imageIndices": [0, 1]  // which image indices belong to this item\n'
+            '  "imageIndices": [0, 1]  // ' + ("the exact image indices from the grouping above" if groups_desc else "which image indices belong to this item") + '\n'
             "}\n\n"
-            "Category-specific attributes:\n"
-            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
-            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
-            "dimensions (format: L x W x H if identifiable)\n"
-            "- electronics: brand, model\n"
-            "- sports: brand, model, size (if determinable)\n"
-            "- collectibles: brand_or_creator, year\n"
-            "- other: {} (empty object)\n\n"
-            "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
-            "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
-            "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
-            "CONFIDENCE RULES:\n"
-            "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
-            "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
-            "- \"low\": brand cannot be confidently determined from the image alone\n\n"
-            "Important: Every image index must appear in exactly one item's imageIndices array.\n"
-            "Return ONLY the JSON array. No markdown, no code fences, no commentary."
-        ),
-    })
+        )
+    else:
+        step4 = (
+            "STEP 4 — RETURN JSON ONLY\n"
+            "{\n"
+            '  "title": "concise product title — include brand and model if identified",\n'
+            '  "description": "2-3 sentences, key features plus condition observations",\n'
+            '  "price": "fair secondhand market price as string",\n'
+            '  "condition": "New | Like New | Good | Fair | Poor",\n'
+            '  "location": "Manhattan neighborhood",\n'
+            '  "tags": ["3-5 tags"],\n'
+            '  "category": "<category_slug>",\n'
+            '  "categoryAttributes": { ...fields per category below... },\n'
+            '  "identifierConfidence": "high | medium | low"\n'
+            "}\n\n"
+        )
+
+    category_attrs = (
+        "Category-specific attributes:\n"
+        "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
+        "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+        "dimensions (format: L x W x H if identifiable)\n"
+        "- electronics: brand, model\n"
+        "- sports: brand, model, size (if determinable)\n"
+        "- collectibles: brand_or_creator, year\n"
+        "- other: {} (empty object)\n\n"
+        "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
+        "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
+        "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
+    )
+
+    confidence = (
+        "CONFIDENCE RULES:\n"
+        "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
+        "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
+        "- \"low\": brand cannot be confidently determined from the image alone\n\n"
+    )
+
+    footer = ""
+    if bulk and not groups_desc:
+        footer = "Important: Every image index must appear in exactly one item's imageIndices array.\n"
+    footer += "Return ONLY the JSON " + ("array" if bulk else "object") + ". No markdown, no code fences, no commentary."
+
+    return preamble + step1 + step2 + step3 + step4 + category_attrs + confidence + footer
+
+
+@app.post("/api/generate-listing")
+async def generate_listing(images: list[UploadFile] = File(...)):
+    if not images:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    MAX_BYTES = 3_500_000
+    MAX_DIMENSION = 2048
+
+    content = []
+    resized_bytes_list = []
+    for idx, img in enumerate(images):
+        data = await img.read()
+
+        pil_img = Image.open(io.BytesIO(data))
+        if pil_img.mode == "RGBA":
+            pil_img = pil_img.convert("RGB")
+        if len(data) > MAX_BYTES or pil_img.width > MAX_DIMENSION or pil_img.height > MAX_DIMENSION:
+            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG", quality=85)
+        data = buf.getvalue()
+        media_type = "image/jpeg"
+
+        resized_bytes_list.append(data)
+        content.append({"type": "text", "text": f"[Image {idx}]"})
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(data).decode("utf-8"),
+            },
+        })
+
+    vision_results, retrieval_fallback = _run_vision_with_cache(resized_bytes_list)
+    evidence_block = "" if retrieval_fallback else build_evidence_block(vision_results)
+    if not evidence_block:
+        retrieval_fallback = True
+
+    prompt_text = _build_prompt_text(evidence_block, bulk=True)
+
+    content.append({"type": "text", "text": prompt_text})
 
     try:
         response = client.messages.create(
@@ -560,10 +419,10 @@ async def generate_bulk_listing(images: list[UploadFile] = File(...)):
         if isinstance(items, dict):
             items = [items]
 
-        # Strip any leading $ from price — frontend adds its own
         for item in items:
             if "price" in item and isinstance(item["price"], str):
                 item["price"] = item["price"].lstrip("$").strip()
+            item["retrieval_fallback"] = retrieval_fallback
 
         return items
 
@@ -583,23 +442,24 @@ async def regenerate_bulk_listing(
 
     groups = json.loads(groupings)  # list of lists of image indices
 
-    # 3.5MB raw → ~4.67MB base64, safely under Claude's 5MB encoded cap
     MAX_BYTES = 3_500_000
     MAX_DIMENSION = 2048
 
     content = []
+    resized_bytes_list = []
     for idx, img in enumerate(images):
         data = await img.read()
-        if len(data) > MAX_BYTES:
-            pil_img = Image.open(io.BytesIO(data))
+        pil_img = Image.open(io.BytesIO(data))
+        if pil_img.mode == "RGBA":
+            pil_img = pil_img.convert("RGB")
+        if len(data) > MAX_BYTES or pil_img.width > MAX_DIMENSION or pil_img.height > MAX_DIMENSION:
             pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
-            buf = io.BytesIO()
-            pil_img.save(buf, format="JPEG", quality=85)
-            data = buf.getvalue()
-            media_type = "image/jpeg"
-        else:
-            media_type = img.content_type or "image/jpeg"
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG", quality=85)
+        data = buf.getvalue()
+        media_type = "image/jpeg"
 
+        resized_bytes_list.append(data)
         content.append({"type": "text", "text": f"[Image {idx}]"})
         content.append({
             "type": "image",
@@ -610,65 +470,17 @@ async def regenerate_bulk_listing(
             },
         })
 
+    vision_results, retrieval_fallback = _run_vision_with_cache(resized_bytes_list)
+    evidence_block = "" if retrieval_fallback else build_evidence_block(vision_results)
+    if not evidence_block:
+        retrieval_fallback = True
+
     groups_desc = "\n".join(
         f"Item {i + 1}: images {g}" for i, g in enumerate(groups)
     )
 
-    content.append({
-        "type": "text",
-        "text": (
-            "You are a product identification assistant for a secondhand marketplace. "
-            "The seller has uploaded photos and has already grouped them into items. "
-            "Use the groupings below exactly as provided — do NOT change the groupings. "
-            "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
-            f"Groupings:\n{groups_desc}\n\n"
-            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
-            "For each group, examine the image(s) carefully for visible identifiers in this priority order:\n"
-            "1. Printed brand logos or wordmarks\n"
-            "2. Model names or numbers printed on the product\n"
-            "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
-            "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
-            "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
-            "STEP 2 — CATEGORIZE\n"
-            "Assign each item one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
-            "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
-            "For each item, using the identifiers you extracted, reason as if performing a reverse image search: "
-            "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
-            "- Accurate current secondhand market price (NOT retail)\n"
-            "- Description (key features + visible condition)\n"
-            "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
-            "STEP 4 — RETURN JSON ONLY\n"
-            "Return a JSON array of objects in the same order as the groups. Each object must have:\n"
-            "{\n"
-            '  "title": "concise product title — include brand and model if identified",\n'
-            '  "description": "2-3 sentences, key features plus condition observations",\n'
-            '  "price": "fair secondhand market price as string",\n'
-            '  "condition": "New | Like New | Good | Fair | Poor",\n'
-            '  "location": "Manhattan neighborhood",\n'
-            '  "tags": ["3-5 tags"],\n'
-            '  "category": "<category_slug>",\n'
-            '  "categoryAttributes": { ...fields per category below... },\n'
-            '  "identifierConfidence": "high | medium | low",\n'
-            '  "imageIndices": [0, 1]  // the exact image indices from the grouping above\n'
-            "}\n\n"
-            "Category-specific attributes:\n"
-            "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
-            "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
-            "dimensions (format: L x W x H if identifiable)\n"
-            "- electronics: brand, model\n"
-            "- sports: brand, model, size (if determinable)\n"
-            "- collectibles: brand_or_creator, year\n"
-            "- other: {} (empty object)\n\n"
-            "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
-            "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
-            "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
-            "CONFIDENCE RULES:\n"
-            "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
-            "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
-            "- \"low\": brand cannot be confidently determined from the image alone\n\n"
-            "Return ONLY the JSON array. No markdown, no code fences, no commentary."
-        ),
-    })
+    prompt_text = _build_prompt_text(evidence_block, bulk=True, groups_desc=groups_desc)
+    content.append({"type": "text", "text": prompt_text})
 
     try:
         response = client.messages.create(
@@ -687,10 +499,10 @@ async def regenerate_bulk_listing(
         if isinstance(items, dict):
             items = [items]
 
-        # Strip any leading $ from price — frontend adds its own
         for item in items:
             if "price" in item and isinstance(item["price"], str):
                 item["price"] = item["price"].lstrip("$").strip()
+            item["retrieval_fallback"] = retrieval_fallback
 
         return items
 

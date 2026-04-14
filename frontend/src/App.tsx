@@ -3,7 +3,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
 import React, { useState, useEffect, useRef } from "react";
-import { useAuth } from "./contexts/AuthContext";
+import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
@@ -36,6 +36,7 @@ interface ProductDetails {
   category?: CategorySlug;
   categoryAttributes?: Record<string, string>;
   identifierConfidence?: "high" | "medium" | "low";
+  retrieval_fallback?: boolean;
 }
 
 interface BulkItemDetails extends ProductDetails {
@@ -109,6 +110,10 @@ function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
+
+  // Temporary token for new users who haven't completed profile yet
+  const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
+  const [pendingSignupUser, setPendingSignupUser] = useState<AuthUser | null>(null);
 
   const [homeSearch, setHomeSearch] = useState("");
   const [displayText, setDisplayText] = useState("");
@@ -727,7 +732,7 @@ export default function App() {
     try {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
-      const res = await fetch("/api/generate-bulk-listing", {
+      const res = await fetch("/api/generate-listing", {
         method: "POST",
         body: formData,
       });
@@ -744,6 +749,7 @@ export default function App() {
         if (!item.category) item.category = "other";
         if (!item.categoryAttributes) item.categoryAttributes = {};
         if (!item.identifierConfidence) item.identifierConfidence = "low";
+        if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
       });
       setBulkItems(items);
       setCurrentCardIndex(0);
@@ -766,7 +772,7 @@ export default function App() {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
 
-      const res = await fetch("/api/generate-bulk-listing", {
+      const res = await fetch("/api/generate-listing", {
         method: "POST",
         body: formData,
       });
@@ -788,6 +794,7 @@ export default function App() {
           category: items[0].category || "other",
           categoryAttributes: items[0].categoryAttributes || {},
           identifierConfidence: items[0].identifierConfidence || "low",
+          retrieval_fallback: items[0].retrieval_fallback === true,
         });
         setPostPickupLocation(user?.pickup_address || "");
       } else {
@@ -800,6 +807,7 @@ export default function App() {
           if (!item.category) item.category = "other";
           if (!item.categoryAttributes) item.categoryAttributes = {};
           if (!item.identifierConfidence) item.identifierConfidence = "low";
+          if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
         });
         setBulkItems(items);
         setCurrentCardIndex(0);
@@ -860,6 +868,7 @@ export default function App() {
         if (!item.category) item.category = "other";
         if (!item.categoryAttributes) item.categoryAttributes = {};
         if (!item.identifierConfidence) item.identifierConfidence = "low";
+        if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
       });
 
       // Merge: replace only the modified groups, keep unmodified ones intact
@@ -898,7 +907,7 @@ export default function App() {
     try {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
-      const { identifierConfidence: _, ...postData } = productDetails;
+      const { identifierConfidence: _, retrieval_fallback: _rf, ...postData } = productDetails;
       formData.append("data", JSON.stringify(postData));
 
       // Build communities + visibility for the form
@@ -959,7 +968,7 @@ export default function App() {
             formData.append("images", uploadedImages[imgIdx].file);
           }
         }
-        const { imageIndices: _indices, identifierConfidence: _conf, ...productData } = item;
+        const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, ...productData } = item;
         formData.append("data", JSON.stringify(productData));
         formData.append("communities", communityIds.join(","));
         formData.append("visibility", postVisibility);
@@ -1166,10 +1175,13 @@ export default function App() {
 
   // Redirect to home if user logs out while on a protected page
   useEffect(() => {
-    if (!isAuthenticated && (page === "account" || page === "signup")) {
+    if (!isAuthenticated && page === "account") {
       setPage("home");
     }
-  }, [isAuthenticated, page]);
+    if (!isAuthenticated && page === "signup" && !pendingSignupToken) {
+      setPage("home");
+    }
+  }, [isAuthenticated, page, pendingSignupToken]);
 
   useEffect(() => {
     let currentIndex = 0;
@@ -1210,12 +1222,12 @@ export default function App() {
     return () => clearInterval(typingInterval);
   }, [tradeMode]);
 
-  // If user needs registration, redirect to signup
+  // If user needs registration and we have a pending token, redirect to signup
   useEffect(() => {
-    if (needsRegistration && page !== "signup") {
+    if (needsRegistration && pendingSignupToken && page !== "signup") {
       setPage("signup");
     }
-  }, [needsRegistration]);
+  }, [needsRegistration, pendingSignupToken]);
 
   return (
     <div className="size-full bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white overflow-auto">
@@ -1614,10 +1626,13 @@ export default function App() {
       {page === "signin" && (
         <SignInPage
           onSuccess={(newToken, userExists, newUser) => {
-            login(newToken, newUser);
             if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
+              // Don't log in yet — hold token until profile is completed
+              setPendingSignupToken(newToken);
+              setPendingSignupUser(newUser);
               setPage("signup");
             } else {
+              login(newToken, newUser);
               setPage("home");
             }
           }}
@@ -1626,8 +1641,21 @@ export default function App() {
       )}
 
       {/* Sign Up Page */}
-      {page === "signup" && (
-        <SignUpPage onComplete={() => setPage("account")} />
+      {page === "signup" && pendingSignupToken && (
+        <SignUpPage
+          pendingToken={pendingSignupToken}
+          onComplete={(completedUser) => {
+            login(pendingSignupToken, completedUser);
+            setPendingSignupToken(null);
+            setPendingSignupUser(null);
+            setPage("account");
+          }}
+          onCancel={() => {
+            setPendingSignupToken(null);
+            setPendingSignupUser(null);
+            setPage("home");
+          }}
+        />
       )}
 
       {page === "home" && (
@@ -1991,6 +2019,15 @@ export default function App() {
 
                   {productDetails && !isGenerating && (
                     <div className="mt-6 p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
+                      {productDetails.retrieval_fallback === true && (
+                        <div className="flex gap-3 p-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-200">
+                          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-yellow-300" />
+                          <div className="text-xs">
+                            <div className="font-medium text-yellow-100">Listing created with limited enrichment</div>
+                            <div className="mt-1 text-yellow-200/90">We couldn't reach our product lookup service, so this listing was generated from the photo alone. Double-check the brand, model, and price before posting.</div>
+                          </div>
+                        </div>
+                      )}
                       <div>
                         <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
                         <Input
@@ -2266,6 +2303,15 @@ export default function App() {
                           />
                         </div>
 
+                        {bulkItems[currentCardIndex].retrieval_fallback === true && (
+                          <div className="flex gap-3 p-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-200">
+                            <AlertTriangle className="size-4 shrink-0 mt-0.5 text-yellow-300" />
+                            <div className="text-xs">
+                              <div className="font-medium text-yellow-100">Listing created with limited enrichment</div>
+                              <div className="mt-1 text-yellow-200/90">We couldn't reach our product lookup service, so this listing was generated from the photo alone. Double-check the brand, model, and price before posting.</div>
+                            </div>
+                          </div>
+                        )}
                         <div>
                           <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
                           <Input

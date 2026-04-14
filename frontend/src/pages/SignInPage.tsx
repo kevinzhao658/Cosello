@@ -299,17 +299,30 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                 {isLoading ? <Loader2 className="size-4 animate-spin" /> : "Verify"}
               </Button>
 
-              <Button
-                onClick={() => {
-                  setStep("phone");
-                  setOtp("");
-                  setError("");
-                }}
-                variant="ghost"
-                className="w-full text-white/40 hover:text-white/60"
-              >
-                Use a different number
-              </Button>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => {
+                    setOtp("");
+                    setError("");
+                    handleSendOTP();
+                  }}
+                  disabled={isLoading}
+                  className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors disabled:opacity-50"
+                >
+                  Resend code
+                </button>
+                <span className="text-white/15">|</span>
+                <button
+                  onClick={() => {
+                    setStep("phone");
+                    setOtp("");
+                    setError("");
+                  }}
+                  className="text-sm text-white/40 hover:text-white/60 transition-colors"
+                >
+                  Use a different number
+                </button>
+              </div>
             </div>
           )}
         </div>
