@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import json
@@ -16,6 +17,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depen
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import engine, Base, get_db
@@ -28,7 +30,8 @@ from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
 from category_schemas import CATEGORY_SCHEMAS
 from services.google import vision
-from services.evidence import build_evidence_block
+from services.google.vision import VisionResult
+from services.evidence import build_evidence_block, _format_single_image_evidence
 from services.cache import PHashCache
 
 logger = logging.getLogger(__name__)
@@ -363,157 +366,495 @@ def _build_prompt_text(evidence_block: str, *, bulk: bool, groups_desc: str = ""
     return preamble + step1 + step2 + step3 + step4 + category_attrs + confidence + footer
 
 
-@app.post("/api/generate-listing")
-async def generate_listing(images: list[UploadFile] = File(...)):
-    if not images:
-        raise HTTPException(status_code=400, detail="At least one image is required")
+# --- Two-pass listing generation: segment-photos -> generate-listings ---
 
-    MAX_BYTES = 3_500_000
-    MAX_DIMENSION = 2048
-
-    content = []
-    resized_bytes_list = []
-    for idx, img in enumerate(images):
-        data = await img.read()
-
-        pil_img = Image.open(io.BytesIO(data))
-        if pil_img.mode == "RGBA":
-            pil_img = pil_img.convert("RGB")
-        if len(data) > MAX_BYTES or pil_img.width > MAX_DIMENSION or pil_img.height > MAX_DIMENSION:
-            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
-        buf = io.BytesIO()
-        pil_img.save(buf, format="JPEG", quality=85)
-        data = buf.getvalue()
-        media_type = "image/jpeg"
-
-        resized_bytes_list.append(data)
-        content.append({"type": "text", "text": f"[Image {idx}]"})
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64.b64encode(data).decode("utf-8"),
-            },
-        })
-
-    vision_results, retrieval_fallback = _run_vision_with_cache(resized_bytes_list)
-    evidence_block = "" if retrieval_fallback else build_evidence_block(vision_results)
-    if not evidence_block:
-        retrieval_fallback = True
-
-    prompt_text = _build_prompt_text(evidence_block, bulk=True)
-
-    content.append({"type": "text", "text": prompt_text})
-
-    try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": content}],
-        )
-
-        raw = response.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]
-            raw = raw.rsplit("```", 1)[0]
-            raw = raw.strip()
-        items = json.loads(raw)
-
-        if isinstance(items, dict):
-            items = [items]
-
-        for item in items:
-            if "price" in item and isinstance(item["price"], str):
-                item["price"] = item["price"].lstrip("$").strip()
-            item["retrieval_fallback"] = retrieval_fallback
-
-        return items
-
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="AI returned invalid JSON")
-    except anthropic.APIError as e:
-        raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
+MAX_IMAGE_BYTES = 3_500_000
+MAX_IMAGE_DIMENSION = 2048
 
 
-@app.post("/api/regenerate-bulk-listing")
-async def regenerate_bulk_listing(
-    images: list[UploadFile] = File(...),
-    groupings: str = Form(...),
-):
-    if not images:
-        raise HTTPException(status_code=400, detail="At least one image is required")
+def _vision_result_to_dict(r: VisionResult) -> dict:
+    """Serialize a VisionResult dataclass to a JSON-safe dict for client roundtrip."""
+    return {
+        "best_guess_labels": list(r.best_guess_labels),
+        "web_entities": [[name, float(score)] for name, score in r.web_entities],
+        "matching_page_titles": list(r.matching_page_titles),
+        "labels": [[name, float(score)] for name, score in r.labels],
+        "ocr_text": r.ocr_text,
+    }
 
-    groups = json.loads(groupings)  # list of lists of image indices
 
-    MAX_BYTES = 3_500_000
-    MAX_DIMENSION = 2048
-
-    content = []
-    resized_bytes_list = []
-    for idx, img in enumerate(images):
-        data = await img.read()
-        pil_img = Image.open(io.BytesIO(data))
-        if pil_img.mode == "RGBA":
-            pil_img = pil_img.convert("RGB")
-        if len(data) > MAX_BYTES or pil_img.width > MAX_DIMENSION or pil_img.height > MAX_DIMENSION:
-            pil_img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
-        buf = io.BytesIO()
-        pil_img.save(buf, format="JPEG", quality=85)
-        data = buf.getvalue()
-        media_type = "image/jpeg"
-
-        resized_bytes_list.append(data)
-        content.append({"type": "text", "text": f"[Image {idx}]"})
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": base64.b64encode(data).decode("utf-8"),
-            },
-        })
-
-    vision_results, retrieval_fallback = _run_vision_with_cache(resized_bytes_list)
-    evidence_block = "" if retrieval_fallback else build_evidence_block(vision_results)
-    if not evidence_block:
-        retrieval_fallback = True
-
-    groups_desc = "\n".join(
-        f"Item {i + 1}: images {g}" for i, g in enumerate(groups)
+def _vision_dict_to_result(d: dict) -> VisionResult:
+    """Reverse of _vision_result_to_dict — used when client passes signals back."""
+    return VisionResult(
+        best_guess_labels=list(d.get("best_guess_labels") or []),
+        web_entities=[(e[0], float(e[1])) for e in (d.get("web_entities") or []) if isinstance(e, (list, tuple)) and len(e) >= 2],
+        matching_page_titles=list(d.get("matching_page_titles") or []),
+        labels=[(l[0], float(l[1])) for l in (d.get("labels") or []) if isinstance(l, (list, tuple)) and len(l) >= 2],
+        ocr_text=d.get("ocr_text") or "",
     )
 
-    prompt_text = _build_prompt_text(evidence_block, bulk=True, groups_desc=groups_desc)
-    content.append({"type": "text", "text": prompt_text})
+
+def _preprocess_image_bytes(raw: bytes) -> bytes:
+    """Apply existing PIL resize/JPEG normalization. Returns processed bytes."""
+    pil_img = Image.open(io.BytesIO(raw))
+    if pil_img.mode == "RGBA":
+        pil_img = pil_img.convert("RGB")
+    if len(raw) > MAX_IMAGE_BYTES or pil_img.width > MAX_IMAGE_DIMENSION or pil_img.height > MAX_IMAGE_DIMENSION:
+        pil_img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
+    if pil_img.mode != "RGB":
+        pil_img = pil_img.convert("RGB")
+    buf = io.BytesIO()
+    pil_img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+async def _save_uploaded_images(images: list[UploadFile]) -> tuple[list[bytes], list[str]]:
+    """Read, preprocess, and persist uploads under backend/uploads/.
+
+    Returns (bytes_list, image_urls) preserving original order.
+    """
+    bytes_list: list[bytes] = []
+    image_urls: list[str] = []
+    for img in images:
+        raw = await img.read()
+        processed = _preprocess_image_bytes(raw)
+        filename = f"{uuid.uuid4().hex}.jpg"
+        (UPLOADS_DIR / filename).write_bytes(processed)
+        bytes_list.append(processed)
+        image_urls.append(f"/uploads/{filename}")
+    return bytes_list, image_urls
+
+
+def _resolve_image_url_to_path(url: str) -> Path | None:
+    """Map a /uploads/<name> URL to a Path on disk. Reject path traversal."""
+    if not url or not url.startswith("/uploads/"):
+        return None
+    name = url[len("/uploads/"):]
+    if "/" in name or "\\" in name or name in ("", ".", ".."):
+        return None
+    candidate = (UPLOADS_DIR / name).resolve()
+    try:
+        candidate.relative_to(UPLOADS_DIR.resolve())
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _build_segmentation_prompt(n: int) -> str:
+    return (
+        f"You are a photo grouper for a marketplace listing tool. The seller has uploaded {n} photos. "
+        "Some photos may show the same item from different angles; others may show distinct items.\n\n"
+        "Group the images by which depict the same physical item. Return ONLY a JSON array. "
+        f"Each element is an array of image indices that belong together. Every index 0..{n - 1} must appear in exactly one group.\n\n"
+        "Examples: 3 angles of one chair → [[0, 1, 2]]; chair + lamp → [[0], [1]].\n\n"
+        "Return ONLY the JSON array. No commentary, no fences."
+    )
+
+
+def _strip_fences(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        # split off first line ("```json" or "```")
+        parts = raw.split("\n", 1)
+        if len(parts) == 2:
+            raw = parts[1]
+        raw = raw.rsplit("```", 1)[0].strip()
+    return raw
+
+
+def _validate_groupings(parsed: object, n: int) -> list[list[int]] | None:
+    """Validate that parsed is a list-of-lists of int covering 0..N-1 exactly once."""
+    if not isinstance(parsed, list) or not parsed:
+        return None
+    seen: set[int] = set()
+    out: list[list[int]] = []
+    for group in parsed:
+        if not isinstance(group, list) or not group:
+            return None
+        normalized: list[int] = []
+        for idx in group:
+            if not isinstance(idx, int) or isinstance(idx, bool):
+                return None
+            if idx < 0 or idx >= n:
+                return None
+            if idx in seen:
+                return None
+            seen.add(idx)
+            normalized.append(idx)
+        out.append(normalized)
+    if seen != set(range(n)):
+        return None
+    return out
+
+
+def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[VisionResult]) -> list[list[int]]:
+    """Run a segmentation-only Claude call. Falls back to a single group on any failure."""
+    n = len(image_bytes_list)
+    if n <= 1:
+        return [[i for i in range(n)]] if n == 1 else []
+
+    content: list[dict] = []
+    for idx, data in enumerate(image_bytes_list):
+        content.append({"type": "text", "text": f"[Image {idx}]"})
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": base64.b64encode(data).decode("utf-8"),
+            },
+        })
+
+    evidence_block = build_evidence_block(vision_signals) if vision_signals else ""
+    if evidence_block:
+        content.append({"type": "text", "text": evidence_block})
+
+    content.append({"type": "text", "text": _build_segmentation_prompt(n)})
 
     try:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
+            max_tokens=256,
             messages=[{"role": "user", "content": content}],
         )
+        raw = _strip_fences(response.content[0].text)
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, anthropic.APIError, IndexError, AttributeError) as e:
+        logger.warning("Segmentation Claude call failed (%s); falling back to single group", e)
+        return [list(range(n))]
 
-        raw = response.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1]
-            raw = raw.rsplit("```", 1)[0]
-            raw = raw.strip()
-        items = json.loads(raw)
+    validated = _validate_groupings(parsed, n)
+    if validated is None:
+        logger.warning("Segmentation returned invalid groupings %r; falling back to single group", parsed)
+        return [list(range(n))]
+    return validated
 
-        if isinstance(items, dict):
-            items = [items]
 
-        for item in items:
-            if "price" in item and isinstance(item["price"], str):
-                item["price"] = item["price"].lstrip("$").strip()
-            item["retrieval_fallback"] = retrieval_fallback
+def _normalize_brand_hint(s: str) -> str:
+    """Normalize a seller-confirmed brand hint before it lands in a Claude prompt.
 
-        return items
+    Rules:
+    - Non-string -> ""
+    - Whitespace-only / empty -> ""
+    - 80+ chars -> "" (real brand names are short; long inputs are almost certainly noise or injection)
+    - Contains an HTML tag (`<` or `>`) -> "" (real brand names never contain these)
+    - Otherwise: trim outer whitespace and return.
+    """
+    if not isinstance(s, str):
+        return ""
+    cleaned = s.strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) >= 80:
+        return ""
+    if "<" in cleaned or ">" in cleaned:
+        return ""
+    return cleaned
 
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="AI returned invalid JSON")
+
+def _build_listing_prompt_for_group(group_indices: list[int], evidence_block: str, brand_hint: str) -> str:
+    """Build the per-group LISTING-GEN prompt. Single-listing schema (one item per call)."""
+    preamble = (
+        "You are a product identification assistant for a secondhand marketplace. "
+        "The seller has uploaded photos of a single item (possibly from multiple angles). "
+        "The seller has NOT provided any product details — you must derive everything from the images "
+        f"and the retrieval evidence below. The photos for this item are at indices {group_indices}.\n\n"
+    )
+
+    brand_block = ""
+    if brand_hint:
+        brand_block = (
+            f"SELLER-CONFIRMED BRAND\n"
+            f"The seller has confirmed the brand for this item is '{brand_hint}' — "
+            "treat as ground truth unless the photo clearly contradicts.\n\n"
+        )
+
+    if evidence_block:
+        step1 = (
+            f"{evidence_block}\n\n"
+            "STEP 1 — READ THE RETRIEVAL EVIDENCE\n"
+            "The evidence above was retrieved from a reverse image search and is keyed by image index. "
+            f"Use ONLY the evidence from the images that belong to this listing ({group_indices}); "
+            "ignore evidence keyed to other indices. "
+            "Treat each per-image block as ground truth for that image unless the photo clearly contradicts it.\n"
+        )
+        step3_heading = "STEP 3 — WRITE THE LISTING AROUND THIS EVIDENCE\n"
+    else:
+        step1 = (
+            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
+            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
+        )
+        step3_heading = "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
+
+    step1 += (
+        "1. Printed brand logos or wordmarks\n"
+        "2. Model names or numbers printed on the product\n"
+        "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
+        "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
+        "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
+    )
+
+    step2 = (
+        "STEP 2 — CATEGORIZE\n"
+        "Assign one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
+    )
+
+    if evidence_block:
+        step3 = (
+            step3_heading
+            + "Using the retrieval evidence and visible identifiers, write the listing. "
+            "Use the identified product's known profile to inform:\n"
+        )
+    else:
+        step3 = (
+            step3_heading
+            + "Using the identifiers you extracted, reason as if performing a reverse image search: "
+            "what specific product from which brand does this most closely match? "
+            "Use that product's known profile to inform:\n"
+        )
+    step3 += (
+        "- Accurate current secondhand market price (NOT retail)\n"
+        "- Description (key features + visible condition)\n"
+        "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
+    )
+
+    step4 = (
+        "STEP 4 — RETURN JSON ONLY\n"
+        "{\n"
+        '  "title": "concise product title — include brand and model if identified",\n'
+        '  "description": "2-3 sentences, key features plus condition observations",\n'
+        '  "price": "fair secondhand market price as string",\n'
+        '  "condition": "New | Like New | Good | Fair | Poor",\n'
+        '  "location": "Manhattan neighborhood",\n'
+        '  "tags": ["3-5 tags"],\n'
+        '  "category": "<category_slug>",\n'
+        '  "categoryAttributes": { ...fields per category below... },\n'
+        '  "identifierConfidence": "high | medium | low"\n'
+        "}\n\n"
+    )
+
+    category_attrs = (
+        "Category-specific attributes:\n"
+        "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
+        "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+        "dimensions (format: L x W x H if identifiable)\n"
+        "- electronics: brand, model\n"
+        "- sports: brand, model, size (if determinable)\n"
+        "- collectibles: brand_or_creator, year\n"
+        "- other: {} (empty object)\n\n"
+        "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
+        "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\".\n\n"
+    )
+
+    confidence = (
+        "CONFIDENCE RULES:\n"
+        "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
+        "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference\n"
+        "- \"low\": brand cannot be confidently determined from the image alone\n\n"
+    )
+
+    footer = "Return ONLY the JSON object. No markdown, no code fences, no commentary."
+    return preamble + brand_block + step1 + step2 + step3 + step4 + category_attrs + confidence + footer
+
+
+def _call_claude_listing_sync(group_indices: list[int], group_bytes: list[bytes], evidence_block: str, brand_hint: str) -> dict:
+    """Sync Claude call for a single listing. Raises on API/parse error."""
+    content: list[dict] = []
+    for original_idx, data in zip(group_indices, group_bytes):
+        content.append({"type": "text", "text": f"[Image {original_idx}]"})
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": base64.b64encode(data).decode("utf-8"),
+            },
+        })
+
+    prompt_text = _build_listing_prompt_for_group(group_indices, evidence_block, brand_hint)
+    content.append({"type": "text", "text": prompt_text})
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": content}],
+    )
+    raw = _strip_fences(response.content[0].text)
+    parsed = json.loads(raw)
+    if isinstance(parsed, list):
+        if not parsed:
+            raise ValueError("Claude returned empty list")
+        parsed = parsed[0]
+    if not isinstance(parsed, dict):
+        raise ValueError("Claude did not return a JSON object")
+    return parsed
+
+
+async def _generate_one_listing_async(
+    group_indices: list[int],
+    image_bytes_list: list[bytes],
+    vision_signals: list[VisionResult],
+    brand_hint: str,
+    retrieval_fallback: bool,
+    semaphore: asyncio.Semaphore,
+) -> dict:
+    """Async per-group listing-gen. Wraps errors as a placeholder dict; never raises."""
+    group_bytes = [image_bytes_list[i] for i in group_indices]
+    group_signals = [vision_signals[i] for i in group_indices] if vision_signals else []
+    # Re-build evidence block ONLY for the indices in this group, preserving original indices in [Image N]
+    if group_signals and not retrieval_fallback:
+        # Use the same global vision_signals so [Image N] tags match the group_indices the prompt references.
+        # build_evidence_block emits one [Image idx] block per result in order. We need the labels to match
+        # the original indices, so use a small inline formatter.
+        sections: list[str] = []
+        for orig_idx, r in zip(group_indices, group_signals):
+            section = _format_single_image_evidence(orig_idx, r)
+            if section is not None:
+                sections.append(section)
+        if sections:
+            header = (
+                "RETRIEVAL EVIDENCE PER IMAGE "
+                "(each block is ground truth ONLY for the image with the matching index — "
+                "do NOT mix brands, models, OCR, or entities across images):"
+            )
+            evidence_block = header + "\n\n" + "\n\n".join(sections)
+            if len(evidence_block) > 4000:
+                evidence_block = evidence_block[:4000] + "\n..."
+        else:
+            evidence_block = ""
+    else:
+        evidence_block = ""
+
+    async with semaphore:
+        try:
+            parsed = await asyncio.to_thread(
+                _call_claude_listing_sync,
+                group_indices,
+                group_bytes,
+                evidence_block,
+                brand_hint,
+            )
+        except Exception as e:
+            logger.warning("Per-group listing generation failed for indices %s: %s", group_indices, e)
+            return {
+                "title": "Listing generation failed",
+                "description": "Please try regenerating this item.",
+                "price": "0",
+                "condition": "Good",
+                "location": "",
+                "tags": [],
+                "category": "other",
+                "categoryAttributes": {},
+                "identifierConfidence": "low",
+                "imageIndices": list(group_indices),
+                "retrieval_fallback": retrieval_fallback,
+                "_error": str(e),
+            }
+
+    # Normalize fields
+    if "price" in parsed and isinstance(parsed["price"], str):
+        parsed["price"] = parsed["price"].lstrip("$").strip()
+    if "productYear" in parsed and isinstance(parsed["productYear"], str):
+        try:
+            parsed["productYear"] = int(parsed["productYear"])
+        except ValueError:
+            pass
+    parsed["imageIndices"] = list(group_indices)
+    parsed["retrieval_fallback"] = retrieval_fallback
+    return parsed
+
+
+@app.post("/api/segment-photos")
+async def segment_photos(images: list[UploadFile] = File(...)):
+    if not images:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    try:
+        bytes_list, image_urls = await _save_uploaded_images(images)
+    except Exception as e:
+        logger.exception("Failed to preprocess uploaded images")
+        raise HTTPException(status_code=502, detail=f"Image preprocessing failed: {e}")
+
+    vision_results, retrieval_fallback = _run_vision_with_cache(bytes_list)
+    if retrieval_fallback or not vision_results:
+        # Provide empty VisionResults per image so downstream length checks pass.
+        vision_results = [VisionResult() for _ in bytes_list]
+
+    try:
+        groupings = _segment_with_claude(bytes_list, vision_results)
     except anthropic.APIError as e:
         raise HTTPException(status_code=502, detail=f"Claude API error: {e.message}")
+
+    return {
+        "groupings": groupings,
+        "image_urls": image_urls,
+        "vision_signals": [_vision_result_to_dict(r) for r in vision_results],
+    }
+
+
+class GenerateListingsRequest(BaseModel):
+    groupings: list[list[int]]
+    image_urls: list[str]
+    vision_signals: list[dict]
+    brand_hints: list[str]
+
+
+@app.post("/api/generate-listings")
+async def generate_listings(req: GenerateListingsRequest):
+    if len(req.image_urls) != len(req.vision_signals):
+        raise HTTPException(
+            status_code=400,
+            detail="image_urls and vision_signals must have the same length",
+        )
+    if len(req.brand_hints) != len(req.groupings):
+        raise HTTPException(
+            status_code=400,
+            detail="brand_hints length must equal groupings length",
+        )
+
+    n = len(req.image_urls)
+    # Validate group indices and resolve image bytes from disk
+    image_bytes_list: list[bytes] = []
+    for url in req.image_urls:
+        path = _resolve_image_url_to_path(url)
+        if path is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image URL does not resolve to a file on disk: {url}",
+            )
+        image_bytes_list.append(path.read_bytes())
+
+    seen: set[int] = set()
+    for group in req.groupings:
+        for idx in group:
+            if not isinstance(idx, int) or idx < 0 or idx >= n:
+                raise HTTPException(status_code=400, detail=f"Invalid image index in groupings: {idx}")
+            seen.add(idx)
+
+    vision_results = [_vision_dict_to_result(d) for d in req.vision_signals]
+    retrieval_fallback = not any(
+        r.best_guess_labels or r.web_entities or r.matching_page_titles or r.labels or r.ocr_text
+        for r in vision_results
+    )
+
+    normalized_hints = [_normalize_brand_hint(h) for h in req.brand_hints]
+
+    semaphore = asyncio.Semaphore(5)
+    tasks = [
+        _generate_one_listing_async(
+            group_indices=group,
+            image_bytes_list=image_bytes_list,
+            vision_signals=vision_results,
+            brand_hint=hint,
+            retrieval_fallback=retrieval_fallback,
+            semaphore=semaphore,
+        )
+        for group, hint in zip(req.groupings, normalized_hints)
+    ]
+    results = await asyncio.gather(*tasks)
+    return results
 
 
 @app.post("/api/listings")

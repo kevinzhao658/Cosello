@@ -2,7 +2,7 @@ import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCir
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Fragment } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
@@ -41,6 +41,15 @@ interface ProductDetails {
 
 interface BulkItemDetails extends ProductDetails {
   imageIndices: number[];
+  // Per-group failure marker from /api/generate-listings: when set, the item rendered as a
+  // placeholder and the user is offered a "Regenerate this item" affordance.
+  _error?: string;
+}
+
+interface SegmentationResult {
+  groupings: number[][];
+  image_urls: string[];
+  vision_signals: unknown[]; // opaque, pass through
 }
 
 interface Listing extends ProductDetails {
@@ -132,7 +141,13 @@ export default function App() {
 
   const [bulkItems, setBulkItems] = useState<BulkItemDetails[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [bulkReviewPhase, setBulkReviewPhase] = useState<"cards" | "summary" | null>(null);
+  const [bulkReviewPhase, setBulkReviewPhase] = useState<"review" | "cards" | "summary" | null>(null);
+  // Segmentation (pass 1) result — held across the review screen, then forwarded to generate-listings.
+  const [segmentation, setSegmentation] = useState<SegmentationResult | null>(null);
+  // Per-group brand hints, length-aligned with segmentation.groupings.
+  const [brandHints, setBrandHints] = useState<string[]>([]);
+  // Inline error surfaced on the upload screen if /api/segment-photos fails.
+  const [segmentationError, setSegmentationError] = useState<string | null>(null);
   const [isPostingBulk, setIsPostingBulk] = useState(false);
   const [dragImageState, setDragImageState] = useState<{ imageIndex: number; sourceGroup: number } | null>(null);
   const [dragOverGroup, setDragOverGroup] = useState<number | null>(null);
@@ -564,6 +579,15 @@ export default function App() {
       preview: URL.createObjectURL(file),
     }));
     setUploadedImages((prev) => [...prev, ...newImages]);
+    // If user adds photos AFTER segmentation, the existing groupings reference
+    // stale image indices and the brand-hint slots no longer line up. Drop back
+    // to the flat upload state so the user re-triggers "Separate items".
+    if (bulkReviewPhase === "review") {
+      setBulkReviewPhase(null);
+      setSegmentation(null);
+      setBrandHints([]);
+      setSegmentationError(null);
+    }
     e.target.value = "";
   };
 
@@ -572,6 +596,146 @@ export default function App() {
       URL.revokeObjectURL(prev[index].preview);
       return prev.filter((_, i) => i !== index);
     });
+  };
+
+  /**
+   * Single source-of-truth helper for removing one photo from the in-flight
+   * seller upload state. Keeps every parallel array consistent in one
+   * transaction:
+   *
+   *   • uploadedImages          — entry removed at originalIndex
+   *   • segmentation.image_urls — entry removed at originalIndex
+   *   • segmentation.vision_signals — entry removed at originalIndex
+   *   • segmentation.groupings  — index filtered + remaining indices remapped;
+   *                               any group that empties is dropped
+   *   • brandHints              — group-aligned: when a group empties, its
+   *                               brandHint slot is dropped at the same group
+   *                               position to stay length-aligned
+   *   • bulkItems               — same filter+remap; an item with no images
+   *                               left is dropped entirely
+   *
+   * If uploadedImages becomes empty, the create flow is reset to the initial
+   * "no photos uploaded" state.
+   *
+   * The blob URL for the removed preview is revoked before the entry drops
+   * out of state.
+   *
+   * Idempotent under rapid clicks: each call works on the current state
+   * snapshot and React batches updates normally.
+   */
+  const deletePhoto = (originalIndex: number) => {
+    // Snapshot the preview URL up front so we can revoke it after state
+    // updates settle. Guard against out-of-range indices (race with a
+    // previous click that already shifted the array).
+    const removed = uploadedImages[originalIndex];
+    if (!removed) return;
+
+    // Helper: shift any index strictly greater than the removed slot down by 1.
+    const remap = (i: number): number => (i > originalIndex ? i - 1 : i);
+
+    const nextImages = uploadedImages.filter((_, i) => i !== originalIndex);
+
+    // If this was the last photo, reset everything to the empty upload state.
+    if (nextImages.length === 0) {
+      URL.revokeObjectURL(removed.preview);
+      setUploadedImages([]);
+      setProductDetails(null);
+      setBulkItems([]);
+      setBulkReviewPhase(null);
+      setCurrentCardIndex(0);
+      setSegmentation(null);
+      setBrandHints([]);
+      setSegmentationError(null);
+      setGroupingsModified(false);
+      setModifiedGroupIndices(new Set());
+      return;
+    }
+
+    // Track which group positions empty out so we can drop their brandHints.
+    const emptiedGroupPositions: number[] = [];
+
+    if (segmentation) {
+      const nextGroupings: number[][] = [];
+      segmentation.groupings.forEach((group, gIdx) => {
+        const filtered = group.filter((i) => i !== originalIndex).map(remap);
+        if (filtered.length === 0) {
+          emptiedGroupPositions.push(gIdx);
+        } else {
+          nextGroupings.push(filtered);
+        }
+      });
+      const nextImageUrls = segmentation.image_urls.filter((_, i) => i !== originalIndex);
+      const nextVisionSignals = segmentation.vision_signals.filter((_, i) => i !== originalIndex);
+      setSegmentation({
+        ...segmentation,
+        groupings: nextGroupings,
+        image_urls: nextImageUrls,
+        vision_signals: nextVisionSignals,
+      });
+    }
+
+    // brandHints is group-aligned; drop entries for groups that emptied.
+    if (emptiedGroupPositions.length > 0) {
+      const emptiedSet = new Set(emptiedGroupPositions);
+      setBrandHints((prev) => prev.filter((_, idx) => !emptiedSet.has(idx)));
+    }
+
+    // bulkItems: filter+remap each item's imageIndices; drop items with none left.
+    if (bulkItems.length > 0) {
+      let bulkChanged = false;
+      const nextBulk: BulkItemDetails[] = [];
+      bulkItems.forEach((item) => {
+        if (!item.imageIndices.includes(originalIndex)) {
+          // Even untouched items need their indices remapped down.
+          const remapped = item.imageIndices.map(remap);
+          if (remapped.some((v, i) => v !== item.imageIndices[i])) {
+            bulkChanged = true;
+            nextBulk.push({ ...item, imageIndices: remapped });
+          } else {
+            nextBulk.push(item);
+          }
+          return;
+        }
+        bulkChanged = true;
+        const filtered = item.imageIndices.filter((i) => i !== originalIndex).map(remap);
+        if (filtered.length > 0) {
+          nextBulk.push({ ...item, imageIndices: filtered });
+        }
+        // else: item dropped entirely
+      });
+      if (bulkChanged) {
+        setBulkItems(nextBulk);
+        // Keep currentCardIndex in range when items get dropped.
+        if (nextBulk.length === 0) {
+          setBulkReviewPhase(null);
+          setCurrentCardIndex(0);
+        } else if (currentCardIndex >= nextBulk.length) {
+          setCurrentCardIndex(nextBulk.length - 1);
+        }
+      }
+    }
+
+    // Finally update uploadedImages and revoke the freed blob URL.
+    URL.revokeObjectURL(removed.preview);
+    setUploadedImages(nextImages);
+  };
+
+  /**
+   * Stable click handler factory for thumbnail delete buttons. Stops
+   * propagation/default on both onMouseDown and onClick so the parent
+   * draggable thumbnail does not start a drag when the delete button is
+   * pressed (drag fires on mousedown).
+   */
+  const handleDeletePhotoClick = (originalIndex: number) =>
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deletePhoto(originalIndex);
+    };
+
+  const handleDeletePhotoMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const updateBulkItem = (index: number, field: string, value: unknown) => {
@@ -629,6 +793,12 @@ export default function App() {
     setDragImageState(null);
     if (sourceGroup === targetGroup) return;
 
+    // Review phase operates on segmentation.groupings + brandHints, not bulkItems.
+    if (bulkReviewPhase === "review") {
+      reviewReassignImage(imageIndex, sourceGroup, targetGroup);
+      return;
+    }
+
     const isLastInSource = bulkItems[sourceGroup].imageIndices.length <= 1;
 
     setBulkItems((prev) => {
@@ -679,6 +849,13 @@ export default function App() {
     if (!dragImageState) return;
     const { imageIndex, sourceGroup } = dragImageState;
     setDragImageState(null);
+
+    // Review phase operates on segmentation.groupings + brandHints, not bulkItems.
+    if (bulkReviewPhase === "review") {
+      reviewSplitImageToNewGroup(imageIndex, sourceGroup, gapIndex);
+      return;
+    }
+
     if (bulkItems[sourceGroup].imageIndices.length <= 1) return;
 
     setBulkItems((prev) => {
@@ -725,65 +902,105 @@ export default function App() {
     setDragOverGap(null);
   };
 
-  const handleSeparateItems = async () => {
-    if (uploadedImages.length < 2) return;
+  // ---- Two-pass review-and-edit listing flow ----
+  //
+  // Pass 1: POST /api/segment-photos → returns groupings + image_urls + vision_signals.
+  //         User edits groupings + types per-group brand hints in the review screen.
+  // Pass 2: POST /api/generate-listings → returns final listing dicts (same shape as today).
+  //
+  // vision_signals is opaque — passed back to /api/generate-listings unchanged.
+
+  const segmentPhotos = async (files: File[]): Promise<SegmentationResult> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("images", file));
+    const res = await fetch("/api/segment-photos", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Server error" }));
+      throw new Error(err.detail || "Failed to segment photos");
+    }
+    return (await res.json()) as SegmentationResult;
+  };
+
+  const generateListings = async (payload: {
+    groupings: number[][];
+    image_urls: string[];
+    vision_signals: unknown[];
+    brand_hints: string[];
+  }): Promise<BulkItemDetails[]> => {
+    const res = await fetch("/api/generate-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Server error" }));
+      throw new Error(err.detail || "Failed to generate listings");
+    }
+    return (await res.json()) as BulkItemDetails[];
+  };
+
+  // Triggered by the upload form's submit button (handles both single + multi photo uploads).
+  // Calls /api/segment-photos and transitions to the review phase. The review screen always
+  // renders, even for a single photo — UX consistency, ~5s overhead is acceptable.
+  const handleSellSubmit = async () => {
+    if (uploadedImages.length === 0) return;
     setProductDetails(null);
+    setSegmentationError(null);
     setIsGenerating(true);
     try {
-      const formData = new FormData();
-      uploadedImages.forEach((img) => formData.append("images", img.file));
-      const res = await fetch("/api/generate-listing", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Server error" }));
-        throw new Error(err.detail || "Failed to generate bulk listing");
+      const result = await segmentPhotos(uploadedImages.map((img) => img.file));
+      // Defensive: server should always return a non-empty groupings array; bail if not.
+      if (!Array.isArray(result.groupings) || result.groupings.length === 0) {
+        throw new Error("Segmentation returned no groupings");
       }
-      const items: BulkItemDetails[] = await res.json();
-      const sellerNeighborhood = user?.neighborhood;
-      if (sellerNeighborhood) {
-        items.forEach((item) => { item.location = sellerNeighborhood; });
-      }
-      items.forEach((item) => {
-        if (!item.category) item.category = "other";
-        if (!item.categoryAttributes) item.categoryAttributes = {};
-        if (!item.identifierConfidence) item.identifierConfidence = "low";
-        if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
-      });
-      setBulkItems(items);
+      setSegmentation(result);
+      setBrandHints(result.groupings.map(() => ""));
+      setBulkItems([]);
       setCurrentCardIndex(0);
-      setBulkReviewPhase("cards");
+      setBulkReviewPhase("review");
       setGroupingsModified(false);
       setModifiedGroupIndices(new Set());
+      setPostPickupLocation(user?.pickup_address || "");
     } catch (err) {
-      console.error("Separate items failed:", err);
-      alert(err instanceof Error ? err.message : "Something went wrong");
+      console.error("Segment photos failed:", err);
+      setSegmentationError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleSellSubmit = async () => {
-    if (uploadedImages.length === 0) return;
+  // Triggered by the "Generate Listings" button on the review screen. Forwards user-edited
+  // groupings + brand hints + the opaque vision_signals from segmentation.
+  const handleGenerateListings = async () => {
+    if (!segmentation) return;
+    // Validation: every group must be non-empty (every image is already covered by drag/split logic).
+    if (segmentation.groupings.some((g) => g.length === 0)) return;
     setIsGenerating(true);
-
     try {
-      const formData = new FormData();
-      uploadedImages.forEach((img) => formData.append("images", img.file));
-
-      const res = await fetch("/api/generate-listing", {
-        method: "POST",
-        body: formData,
+      const items = await generateListings({
+        groupings: segmentation.groupings,
+        image_urls: segmentation.image_urls,
+        vision_signals: segmentation.vision_signals,
+        brand_hints: brandHints,
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Server error" }));
-        throw new Error(err.detail || "Failed to generate listing");
-      }
-      const items: BulkItemDetails[] = await res.json();
+      // Backfill imageIndices from the user-confirmed groupings (server may not echo them).
+      const sellerNeighborhood = user?.neighborhood;
+      items.forEach((item, i) => {
+        if (!item.imageIndices || item.imageIndices.length === 0) {
+          item.imageIndices = segmentation.groupings[i] || [];
+        }
+        if (sellerNeighborhood) item.location = sellerNeighborhood;
+        if (!item.category) item.category = "other";
+        if (!item.categoryAttributes) item.categoryAttributes = {};
+        if (!item.identifierConfidence) item.identifierConfidence = "low";
+        if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
+      });
 
       if (items.length === 1) {
-        // Single item detected — use single-item edit form
+        // Single item — drop into the existing single-item edit form for UX continuity.
         setProductDetails({
           title: items[0].title,
           description: items[0].description,
@@ -796,104 +1013,114 @@ export default function App() {
           identifierConfidence: items[0].identifierConfidence || "low",
           retrieval_fallback: items[0].retrieval_fallback === true,
         });
-        setPostPickupLocation(user?.pickup_address || "");
+        setBulkItems([]);
+        setBulkReviewPhase(null);
       } else {
-        // Multiple items — enter bulk cards flow
-        const sellerNeighborhood = user?.neighborhood;
-        if (sellerNeighborhood) {
-          items.forEach((item) => { item.location = sellerNeighborhood; });
-        }
-        items.forEach((item) => {
-          if (!item.category) item.category = "other";
-          if (!item.categoryAttributes) item.categoryAttributes = {};
-          if (!item.identifierConfidence) item.identifierConfidence = "low";
-          if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
-        });
         setBulkItems(items);
         setCurrentCardIndex(0);
         setBulkReviewPhase("cards");
-        setGroupingsModified(false);
-        setModifiedGroupIndices(new Set());
-        setPostPickupLocation(user?.pickup_address || "");
       }
+      setGroupingsModified(false);
+      setModifiedGroupIndices(new Set());
     } catch (err) {
-      console.error("Generate listing failed:", err);
+      console.error("Generate listings failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleRefreshGroupings = async () => {
-    if (bulkItems.length === 0 || uploadedImages.length === 0) return;
+  // Per-item regenerate from the review-cards phase: re-runs /api/generate-listings for a
+  // single group when its first attempt returned a placeholder dict with `_error`.
+  const regenerateBulkItem = async (groupIdx: number) => {
+    if (!segmentation || !segmentation.groupings[groupIdx]) return;
     setIsGenerating(true);
     try {
-      // Only send modified groups to save credits
-      const modifiedIndices = Array.from(modifiedGroupIndices).filter((i) => i < bulkItems.length);
-      if (modifiedIndices.length === 0) return;
-
-      const modifiedGroupings = modifiedIndices.map((i) => bulkItems[i].imageIndices);
-
-      const formData = new FormData();
-      // Only send the images that are referenced by modified groups
-      const neededImageIndices = new Set<number>();
-      for (const group of modifiedGroupings) {
-        for (const idx of group) neededImageIndices.add(idx);
+      const items = await generateListings({
+        groupings: [segmentation.groupings[groupIdx]],
+        image_urls: segmentation.image_urls,
+        vision_signals: segmentation.vision_signals,
+        brand_hints: [brandHints[groupIdx] || ""],
+      });
+      if (items.length === 0) throw new Error("No listing returned");
+      const fresh = items[0];
+      if (!fresh.imageIndices || fresh.imageIndices.length === 0) {
+        fresh.imageIndices = segmentation.groupings[groupIdx];
       }
-      // Build a mapping from original index to position in the upload
-      const sortedNeeded = Array.from(neededImageIndices).sort((a, b) => a - b);
-      const indexMap = new Map<number, number>();
-      sortedNeeded.forEach((origIdx, newIdx) => {
-        indexMap.set(origIdx, newIdx);
-      });
-      sortedNeeded.forEach((origIdx) => {
-        formData.append("images", uploadedImages[origIdx].file);
-      });
-      // Remap groupings to use new indices
-      const remappedGroupings = modifiedGroupings.map((group) =>
-        group.map((idx) => indexMap.get(idx)!)
-      );
-      formData.append("groupings", JSON.stringify(remappedGroupings));
-
-      const res = await fetch("/api/regenerate-bulk-listing", {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Server error" }));
-        throw new Error(err.detail || "Failed to regenerate listings");
-      }
-      const newItems: BulkItemDetails[] = await res.json();
-      newItems.forEach((item) => {
-        if (!item.category) item.category = "other";
-        if (!item.categoryAttributes) item.categoryAttributes = {};
-        if (!item.identifierConfidence) item.identifierConfidence = "low";
-        if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
-      });
-
-      // Merge: replace only the modified groups, keep unmodified ones intact
+      if (user?.neighborhood) fresh.location = user.neighborhood;
+      if (!fresh.category) fresh.category = "other";
+      if (!fresh.categoryAttributes) fresh.categoryAttributes = {};
+      if (!fresh.identifierConfidence) fresh.identifierConfidence = "low";
+      if (fresh.retrieval_fallback === undefined) fresh.retrieval_fallback = false;
       setBulkItems((prev) => {
         const updated = [...prev];
-        modifiedIndices.forEach((groupIdx, i) => {
-          if (newItems[i]) {
-            updated[groupIdx] = {
-              ...newItems[i],
-              imageIndices: prev[groupIdx].imageIndices,
-            };
-          }
-        });
+        if (updated[groupIdx]) updated[groupIdx] = fresh;
         return updated;
       });
-      setCurrentCardIndex(modifiedIndices[0]);
-      setBulkReviewPhase("cards");
-      setGroupingsModified(false);
-      setModifiedGroupIndices(new Set());
     } catch (err) {
-      console.error("Regenerate listing failed:", err);
+      console.error("Regenerate item failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // ---- Review-screen group editors (operate on segmentation.groupings + brandHints) ----
+
+  const reviewReassignImage = (imageIndex: number, sourceGroup: number, targetGroup: number) => {
+    if (!segmentation || sourceGroup === targetGroup) return;
+    const groupings = segmentation.groupings;
+    const isLastInSource = groupings[sourceGroup].length <= 1;
+    let next = groupings.map((g, idx) => {
+      if (idx === sourceGroup) return g.filter((i) => i !== imageIndex);
+      if (idx === targetGroup) return [...g, imageIndex];
+      return g;
+    });
+    let nextHints = brandHints;
+    if (isLastInSource) {
+      next = next.filter((_, idx) => idx !== sourceGroup);
+      nextHints = brandHints.filter((_, idx) => idx !== sourceGroup);
+    }
+    setSegmentation({ ...segmentation, groupings: next });
+    setBrandHints(nextHints);
+  };
+
+  const reviewSplitImageToNewGroup = (imageIndex: number, sourceGroup: number, gapIndex: number) => {
+    if (!segmentation) return;
+    const groupings = segmentation.groupings;
+    if (groupings[sourceGroup].length <= 1) return;
+    // Brand-hint policy on split: the lower-index (existing) group keeps its hint; the new group's hint is empty.
+    const next = groupings.map((g, idx) =>
+      idx === sourceGroup ? g.filter((i) => i !== imageIndex) : g,
+    );
+    next.splice(gapIndex, 0, [imageIndex]);
+    const nextHints = [...brandHints];
+    nextHints.splice(gapIndex, 0, "");
+    setSegmentation({ ...segmentation, groupings: next });
+    setBrandHints(nextHints);
+  };
+
+  // Merge sourceGroup INTO destGroup: destGroup keeps its brand hint, source's hint is dropped.
+  const reviewMergeGroups = (sourceGroup: number, destGroup: number) => {
+    if (!segmentation || sourceGroup === destGroup) return;
+    const groupings = segmentation.groupings;
+    if (sourceGroup < 0 || sourceGroup >= groupings.length) return;
+    if (destGroup < 0 || destGroup >= groupings.length) return;
+    const merged = groupings.map((g, idx) => {
+      if (idx === destGroup) return [...g, ...groupings[sourceGroup]];
+      return g;
+    }).filter((_, idx) => idx !== sourceGroup);
+    const nextHints = brandHints.filter((_, idx) => idx !== sourceGroup);
+    setSegmentation({ ...segmentation, groupings: merged });
+    setBrandHints(nextHints);
+  };
+
+  const updateBrandHint = (groupIdx: number, value: string) => {
+    setBrandHints((prev) => {
+      const next = [...prev];
+      next[groupIdx] = value;
+      return next;
+    });
   };
 
   const handlePostListing = async () => {
@@ -1838,10 +2065,182 @@ export default function App() {
                     </Button>
                   </div>
 
-                  {/* Thumbnail Previews */}
+                  {/*
+                    Unified photo bar — single visual slot that morphs across phases:
+                      • bulkReviewPhase === null              → flat thumbnail row + "+Add"
+                      • bulkReviewPhase === "review"          → cluster row with thin
+                                                                 dividers + per-cluster
+                                                                 brand bubbles (replaces
+                                                                 the old standalone
+                                                                 "Review groupings" section)
+                      • bulkReviewPhase === "cards"|"summary" → legacy grouped scroll row
+                                                                 used by the cards flow
+                    All states share the same vertical slot so the upload-bar visually
+                    rhymes across phases — no separate review section is rendered below.
+                  */}
                   {uploadedImages.length > 0 && (
                     <>
-                      {bulkReviewPhase && bulkItems.length > 0 ? (
+                      {bulkReviewPhase === "review" && segmentation ? (
+                        /*
+                          Review phase: inline cluster layout. Each group is an
+                          inline-flex column (thumbs on top, brand bubble below).
+                          Clusters are separated by a thin vertical divider that
+                          sits BETWEEN cluster wrappers (never at the start of a
+                          wrapped line). The whole row wraps when it runs out of
+                          horizontal space. Trailing drop target captures
+                          drag-to-end-of-row for creating a new group. Clear-all
+                          / +Add controls live alongside so the bar stays
+                          self-contained (no separate review chrome).
+                        */
+                        <>
+                        {/*
+                          Helper instructions — only rendered in review phase.
+                          Sits above the cluster row (not inside the bar) as
+                          three concise lines of muted italic guidance.
+                        */}
+                        <p className="mt-3 text-sm text-white/60 italic leading-relaxed">
+                          Drag photos between groups to reorganize, or to the end to start a new group.<br />
+                          Type the brand for each item below its grouping (optional, but improves accuracy).<br />
+                          Click "Generate Listings" when ready.
+                        </p>
+                        <div className="flex flex-wrap items-stretch gap-x-3 gap-y-5 mt-2 mb-2">
+                          {segmentation.groupings.map((group, groupIdx) => {
+                            const isDropTarget = dragOverGroup === groupIdx;
+                            return (
+                              <Fragment key={groupIdx}>
+                                {groupIdx > 0 && (
+                                  <div
+                                    aria-hidden="true"
+                                    className="self-stretch border-l border-white/10"
+                                  />
+                                )}
+                                <div
+                                  className={`inline-flex flex-col gap-1 rounded-lg p-1 transition-colors ${
+                                    isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
+                                  }`}
+                                  onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
+                                  onDragLeave={() => setDragOverGroup(null)}
+                                  onDrop={() => handleDrop(groupIdx)}
+                                >
+                                  {/* Minimal group number — small muted text, no card chrome */}
+                                  <span className="text-xs text-white/40 leading-none pl-0.5">
+                                    {groupIdx + 1}
+                                  </span>
+                                  <div className="flex flex-nowrap items-center gap-1">
+                                    {group.map((imgIdx) => {
+                                      const img = uploadedImages[imgIdx];
+                                      const url = segmentation.image_urls[imgIdx];
+                                      const previewSrc = img?.preview || url;
+                                      if (!previewSrc) return null;
+                                      const isDragging = dragImageState?.imageIndex === imgIdx;
+                                      return (
+                                        <div
+                                          key={imgIdx}
+                                          draggable
+                                          onDragStart={() => handleDragStart(imgIdx, groupIdx)}
+                                          onDragEnd={handleDragEnd}
+                                          className={`relative size-16 rounded-lg border border-white/20 cursor-grab active:cursor-grabbing transition-opacity shrink-0 ${
+                                            isDragging ? "opacity-40" : "opacity-100"
+                                          }`}
+                                        >
+                                          <img
+                                            src={previewSrc}
+                                            alt={`Photo ${imgIdx + 1}`}
+                                            className="size-full object-cover rounded-lg"
+                                            draggable={false}
+                                          />
+                                          <button
+                                            type="button"
+                                            aria-label={`Delete photo ${imgIdx + 1}`}
+                                            onMouseDown={handleDeletePhotoMouseDown}
+                                            onClick={handleDeletePhotoClick(imgIdx)}
+                                            className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                                          >
+                                            <X className="size-3" />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <input
+                                    id={`brand-hint-${groupIdx}`}
+                                    type="text"
+                                    value={brandHints[groupIdx] ?? ""}
+                                    onChange={(e) => updateBrandHint(groupIdx, e.target.value)}
+                                    placeholder="Brand (optional)"
+                                    maxLength={80}
+                                    aria-label={`Brand for item ${groupIdx + 1}`}
+                                    style={{ fieldSizing: "content" }}
+                                    className="self-start min-w-[4rem] max-w-[20rem] rounded-full bg-white/5 px-3 py-1 text-xs text-white placeholder:text-white/40 focus:outline-none focus:bg-white/10 transition-colors"
+                                  />
+                                </div>
+                              </Fragment>
+                            );
+                          })}
+
+                          {/*
+                            End-of-row drop target — creates a new group when a
+                            photo is dragged to the trailing edge. Visible only
+                            while a drag is active so it doesn't add chrome to
+                            the resting state.
+                          */}
+                          {dragImageState && (
+                            <div
+                              className={`self-stretch min-w-[5rem] rounded-lg border border-dashed flex items-center justify-center text-[11px] px-3 transition-all ${
+                                dragOverGap === segmentation.groupings.length
+                                  ? "border-fuchsia-400/60 bg-fuchsia-500/10 text-fuchsia-200"
+                                  : "border-white/15 text-white/40"
+                              }`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                setDragOverGap(segmentation.groupings.length);
+                                setDragOverGroup(null);
+                              }}
+                              onDragLeave={() => setDragOverGap(null)}
+                              onDrop={() => handleDropNewGroup(segmentation.groupings.length)}
+                            >
+                              New group
+                            </div>
+                          )}
+
+                          {/*
+                            Bar-local controls — kept inline so the review-phase
+                            bar carries its own +Add / Clear-all (no separate
+                            wrapper section). +Add invalidates segmentation
+                            (handled in handleImageUpload) so newly added photos
+                            don't desync from existing groupings.
+                          */}
+                          <div className="ml-auto self-center shrink-0 flex flex-col gap-1">
+                            <button
+                              onClick={() => fileInputRef.current?.click()}
+                              className="size-8 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
+                              aria-label="Add more photos"
+                            >
+                              <Plus className="size-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
+                                setUploadedImages([]);
+                                setProductDetails(null);
+                                setBulkItems([]);
+                                setBulkReviewPhase(null);
+                                setCurrentCardIndex(0);
+                                setNewTag("");
+                                setGroupingsModified(false);
+                                setModifiedGroupIndices(new Set());
+                                setSegmentation(null);
+                                setBrandHints([]);
+                                setSegmentationError(null);
+                              }}
+                              className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                        </div>
+                        </>
+                      ) : bulkReviewPhase && bulkItems.length > 0 ? (
                         /* Grouped view — single scrollable row with white outlines per group */
                         <div className="flex items-center mt-3 mb-2 overflow-x-auto pb-2 pt-3 pl-2 scrollbar-thin">
                           {bulkItems.map((item, groupIdx) => {
@@ -1892,16 +2291,25 @@ export default function App() {
                                         draggable
                                         onDragStart={() => handleDragStart(imgIdx, groupIdx)}
                                         onDragEnd={handleDragEnd}
-                                        className={`relative size-16 rounded-lg overflow-hidden border border-white/20 cursor-grab active:cursor-grabbing transition-opacity ${
+                                        className={`relative size-16 rounded-lg border border-white/20 cursor-grab active:cursor-grabbing transition-opacity ${
                                           isDragging ? "opacity-40" : "opacity-100"
                                         }`}
                                       >
                                         <img
                                           src={img.preview}
                                           alt={`Upload ${imgIdx + 1}`}
-                                          className="size-full object-cover"
+                                          className="size-full object-cover rounded-lg"
                                           draggable={false}
                                         />
+                                        <button
+                                          type="button"
+                                          aria-label={`Delete photo ${imgIdx + 1}`}
+                                          onMouseDown={handleDeletePhotoMouseDown}
+                                          onClick={handleDeletePhotoClick(imgIdx)}
+                                          className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                                        >
+                                          <X className="size-3" />
+                                        </button>
                                       </div>
                                     );
                                   })}
@@ -1938,37 +2346,34 @@ export default function App() {
                                 setNewTag("");
                                 setGroupingsModified(false);
                                 setModifiedGroupIndices(new Set());
+                                setSegmentation(null);
+                                setBrandHints([]);
+                                setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
                             >
                               Clear all
                             </button>
-                            {groupingsModified && (
-                              <button
-                                onClick={handleRefreshGroupings}
-                                disabled={isGenerating}
-                                className="text-[10px] text-cyan-400/70 hover:text-cyan-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-cyan-400/20 hover:bg-cyan-500/10 disabled:opacity-40"
-                              >
-                                {isGenerating ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Refresh content"}
-                              </button>
-                            )}
                           </div>
                         </div>
                       ) : (
                         /* Flat view — default upload thumbnails */
                         <div className="flex items-center gap-2 mt-3 mb-2">
                           {uploadedImages.map((img, index) => (
-                            <div key={index} className="relative group">
+                            <div key={index} className="relative">
                               <img
                                 src={img.preview}
                                 alt={`Upload ${index + 1}`}
                                 className="size-16 object-cover rounded-lg border border-white/20"
                               />
                               <button
-                                onClick={() => removeImage(index)}
-                                className="absolute -top-1.5 -right-1.5 size-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                type="button"
+                                aria-label={`Delete photo ${index + 1}`}
+                                onMouseDown={handleDeletePhotoMouseDown}
+                                onClick={handleDeletePhotoClick(index)}
+                                className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
                               >
-                                <X className="size-3 text-white" />
+                                <X className="size-3" />
                               </button>
                             </div>
                           ))}
@@ -1988,24 +2393,35 @@ export default function App() {
                                 setBulkReviewPhase(null);
                                 setCurrentCardIndex(0);
                                 setNewTag("");
+                                setSegmentation(null);
+                                setBrandHints([]);
+                                setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
                             >
                               Clear all
                             </button>
-                            {productDetails && uploadedImages.length > 1 && (
-                              <button
-                                onClick={handleSeparateItems}
-                                disabled={isGenerating}
-                                className="text-[10px] text-cyan-400/70 hover:text-cyan-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-cyan-400/20 hover:bg-cyan-500/10 disabled:opacity-40"
-                              >
-                                {isGenerating ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Separate items"}
-                              </button>
-                            )}
                           </div>
                         </div>
                       )}
                     </>
+                  )}
+
+                  {/* Inline error from /api/segment-photos — user stays on upload screen and can retry. */}
+                  {segmentationError && !isGenerating && (
+                    <div className="mt-3 flex items-start gap-3 p-3 rounded-lg border border-red-400/40 bg-red-500/10 text-red-200">
+                      <AlertTriangle className="size-4 shrink-0 mt-0.5 text-red-300" />
+                      <div className="flex-1 text-xs">
+                        <div className="font-medium text-red-100">Couldn't analyze your photos</div>
+                        <div className="mt-1 text-red-200/90">{segmentationError}</div>
+                      </div>
+                      <button
+                        onClick={() => { setSegmentationError(null); handleSellSubmit(); }}
+                        className="shrink-0 text-[11px] text-red-100 hover:text-white px-2 py-1 rounded border border-red-300/30 hover:bg-red-500/20"
+                      >
+                        Retry
+                      </button>
+                    </div>
                   )}
 
 
@@ -2015,6 +2431,31 @@ export default function App() {
                       <Loader2 className="size-6 text-fuchsia-400 animate-spin mx-auto mb-3" />
                       <p className="text-white/60 text-sm">Analyzing your images...</p>
                     </div>
+                  )}
+
+                  {/*
+                    Generate Listings trigger — sits directly below the unified
+                    photo bar in review phase. The cluster row + brand bubbles
+                    now render INSIDE the photo bar above (no separate "Review
+                    groupings" wrapper / heading); this button is the only
+                    review-phase chrome that lives outside the bar.
+                  */}
+                  {bulkReviewPhase === "review" && !isGenerating && segmentation && (
+                    <Button
+                      onClick={handleGenerateListings}
+                      disabled={
+                        isGenerating ||
+                        segmentation.groupings.length === 0 ||
+                        segmentation.groupings.some((g) => g.length === 0)
+                      }
+                      className="mt-4 w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                    >
+                      {isGenerating ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        `Generate Listings (${segmentation.groupings.length})`
+                      )}
+                    </Button>
                   )}
 
                   {productDetails && !isGenerating && (
@@ -2275,12 +2716,22 @@ export default function App() {
                         {/* Item images + add photo */}
                         <div className="flex items-center gap-2 mb-1">
                           {bulkItems[currentCardIndex].imageIndices.map((imgIdx) => (
-                            <img
-                              key={imgIdx}
-                              src={uploadedImages[imgIdx]?.preview}
-                              alt="Item"
-                              className="size-16 object-cover rounded-lg border border-white/20"
-                            />
+                            <div key={imgIdx} className="relative">
+                              <img
+                                src={uploadedImages[imgIdx]?.preview}
+                                alt="Item"
+                                className="size-16 object-cover rounded-lg border border-white/20"
+                              />
+                              <button
+                                type="button"
+                                aria-label={`Delete photo ${imgIdx + 1}`}
+                                onMouseDown={handleDeletePhotoMouseDown}
+                                onClick={handleDeletePhotoClick(imgIdx)}
+                                className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </div>
                           ))}
                           <button
                             onClick={() => bulkPhotoInputRef.current?.click()}
@@ -2303,6 +2754,22 @@ export default function App() {
                           />
                         </div>
 
+                        {bulkItems[currentCardIndex]._error && (
+                          <div className="flex items-start gap-3 p-3 rounded-lg border border-red-400/40 bg-red-500/10 text-red-200">
+                            <AlertTriangle className="size-4 shrink-0 mt-0.5 text-red-300" />
+                            <div className="flex-1 text-xs">
+                              <div className="font-medium text-red-100">This item failed to generate</div>
+                              <div className="mt-1 text-red-200/90">{bulkItems[currentCardIndex]._error}</div>
+                            </div>
+                            <button
+                              onClick={() => regenerateBulkItem(currentCardIndex)}
+                              disabled={isGenerating}
+                              className="shrink-0 text-[11px] text-red-100 hover:text-white px-2 py-1 rounded border border-red-300/30 hover:bg-red-500/20 disabled:opacity-40"
+                            >
+                              {isGenerating ? <Loader2 className="size-3 animate-spin" /> : "Regenerate this item"}
+                            </button>
+                          </div>
+                        )}
                         {bulkItems[currentCardIndex].retrieval_fallback === true && (
                           <div className="flex gap-3 p-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-200">
                             <AlertTriangle className="size-4 shrink-0 mt-0.5 text-yellow-300" />
