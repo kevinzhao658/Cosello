@@ -36,9 +36,29 @@ python tests/eval/listing_eval.py
 # point at a non-default backend
 python tests/eval/listing_eval.py --base-url http://127.0.0.1:8001
 
-# run a subset
+# run a subset (single mode only)
 python tests/eval/listing_eval.py --only clothing electronics
+
+# run bulk canaries (multi-item uploads — exercises the brand-bleed regression)
+python tests/eval/listing_eval.py --mode bulk
+
+# run both single and bulk
+python tests/eval/listing_eval.py --mode all
 ```
+
+### Bulk canaries
+
+`BULK_CANARIES` exercises the multi-item path of `/api/generate-listing` by uploading
+several fixtures in one request. Each canary recycles individual-canary fixtures and
+adds two extra checks beyond brand / category matching:
+
+- **bleed**: a returned listing's brand must not match a *different* item's expected
+  brand. This is the regression signal for the cross-listing contamination bug
+  (e.g., Samsonite ending up in the Coach Duffel listing).
+- **collapse**: two distinct expected items must not map to the same returned listing.
+
+`--mode bulk` exits with code `2` if any bleed is detected, so it's safe to gate
+local checks on its exit status.
 
 ## Fixtures
 

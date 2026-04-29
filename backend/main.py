@@ -252,8 +252,12 @@ def _build_prompt_text(evidence_block: str, *, bulk: bool, groups_desc: str = ""
         step1 = (
             f"{evidence_block}\n\n"
             "STEP 1 — READ THE RETRIEVAL EVIDENCE\n"
-            "The evidence above was retrieved from a reverse image search. Treat it as ground truth for "
-            "product identification unless the photo clearly contradicts it. Use visible identifiers to confirm:\n"
+            "The evidence above was retrieved from a reverse image search and is keyed by image index. "
+            "Each `[Image N]` block applies ONLY to the image with that exact index. "
+            "When writing a listing, use ONLY the evidence from the images that belong to that listing — "
+            "never carry brands, models, OCR text, or entities from one image's evidence into another image's listing. "
+            "Treat each per-image block as ground truth for that image unless the photo itself clearly contradicts it. "
+            "Use visible identifiers to confirm:\n"
         )
         step3_heading = "STEP 3 — WRITE THE LISTING AROUND THIS EVIDENCE\n"
     else:
@@ -404,7 +408,7 @@ async def generate_listing(images: list[UploadFile] = File(...)):
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-haiku-4-5-20251001",
             max_tokens=2048,
             messages=[{"role": "user", "content": content}],
         )
@@ -484,7 +488,7 @@ async def regenerate_bulk_listing(
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-haiku-4-5-20251001",
             max_tokens=2048,
             messages=[{"role": "user", "content": content}],
         )

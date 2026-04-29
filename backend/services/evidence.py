@@ -1,72 +1,76 @@
 from services.google.vision import VisionResult
 
 
+def _format_single_image_evidence(idx: int, r: VisionResult) -> str | None:
+    """Format one image's vision result as a labeled evidence section.
+
+    Returns None if the result has no usable signal.
+    """
+    has_signal = (
+        r.best_guess_labels
+        or r.web_entities
+        or r.matching_page_titles
+        or r.labels
+        or r.ocr_text
+    )
+    if not has_signal:
+        return None
+
+    parts: list[str] = [f"[Image {idx}]"]
+
+    if r.best_guess_labels:
+        parts.append(f"  Best guess: {r.best_guess_labels[0]}")
+
+    if r.web_entities:
+        ranked = sorted(r.web_entities, key=lambda x: x[1], reverse=True)[:6]
+        entity_strs = [f"{name} ({score:.2f})" for name, score in ranked]
+        parts.append(f"  Likely product entities (ranked): {', '.join(entity_strs)}")
+
+    if r.matching_page_titles:
+        parts.append(f"  Page titles where this image appears: {'; '.join(r.matching_page_titles[:3])}")
+
+    if r.labels:
+        ranked_labels = sorted(r.labels, key=lambda x: x[1], reverse=True)[:6]
+        label_strs = [name for name, _ in ranked_labels]
+        parts.append(f"  Visual labels: {', '.join(label_strs)}")
+
+    if r.ocr_text:
+        ocr = r.ocr_text
+        if len(ocr) > 200:
+            ocr = ocr[:200] + "..."
+        parts.append(f"  OCR text: {ocr}")
+
+    return "\n".join(parts)
+
+
 def build_evidence_block(results: list[VisionResult]) -> str:
+    """Build a per-image evidence block.
+
+    Each image's vision signals are emitted under a `[Image N]` header so the
+    consumer (Claude) can scope evidence to a specific image. Bulk uploads of
+    multiple distinct products previously merged all signals into one pool,
+    causing brand bleed across listings (e.g., Samsonite contaminating a
+    Coach Duffel listing).
+    """
     if not results:
         return ""
 
-    best_guesses = []
-    entity_scores: dict[str, float] = {}
-    all_titles: list[str] = []
-    seen_titles: set[str] = set()
-    ocr_parts: list[str] = []
+    sections: list[str] = []
+    for idx, r in enumerate(results):
+        section = _format_single_image_evidence(idx, r)
+        if section is not None:
+            sections.append(section)
 
-    for r in results:
-        for label in r.best_guess_labels:
-            if label not in best_guesses:
-                best_guesses.append(label)
-
-        for desc, score in r.web_entities:
-            if desc in entity_scores:
-                entity_scores[desc] = max(entity_scores[desc], score)
-            else:
-                entity_scores[desc] = score
-
-        for title in r.matching_page_titles:
-            if title not in seen_titles:
-                seen_titles.add(title)
-                all_titles.append(title)
-
-        if r.ocr_text:
-            ocr_parts.append(r.ocr_text)
-
-    ranked_entities = sorted(entity_scores.items(), key=lambda x: x[1], reverse=True)
-
-    if not best_guesses and not ranked_entities and not all_titles:
+    if not sections:
         return ""
 
-    lines = ["RETRIEVAL EVIDENCE (treat as ground truth unless the photo clearly contradicts):"]
+    header = (
+        "RETRIEVAL EVIDENCE PER IMAGE "
+        "(each block is ground truth ONLY for the image with the matching index — "
+        "do NOT mix brands, models, OCR, or entities across images):"
+    )
+    block = header + "\n\n" + "\n\n".join(sections)
 
-    if best_guesses:
-        lines.append(f"Best guess: {best_guesses[0]}")
-
-    if ranked_entities:
-        entity_strs = [f"{name} ({score:.2f})" for name, score in ranked_entities[:10]]
-        lines.append(f"Likely product entities (ranked): {', '.join(entity_strs)}")
-
-    if all_titles:
-        lines.append(f"Page titles where this image appears: {'; '.join(all_titles[:5])}")
-
-    label_scores: dict[str, float] = {}
-    for r in results:
-        for desc, score in getattr(r, "labels", []):
-            if desc not in label_scores:
-                label_scores[desc] = score
-            else:
-                label_scores[desc] = max(label_scores[desc], score)
-    if label_scores:
-        ranked_labels = sorted(label_scores.items(), key=lambda x: x[1], reverse=True)
-        label_strs = [name for name, _ in ranked_labels[:8]]
-        lines.append(f"Visual labels: {', '.join(label_strs)}")
-
-    if ocr_parts:
-        combined_ocr = " | ".join(ocr_parts)
-        if len(combined_ocr) > 300:
-            combined_ocr = combined_ocr[:300] + "..."
-        lines.append(f"OCR text extracted from photo: {combined_ocr}")
-
-    block = "\n".join(lines)
-    # ~500 token cap (rough: 1 token ≈ 4 chars)
-    if len(block) > 2000:
-        block = block[:2000] + "\n..."
+    if len(block) > 4000:
+        block = block[:4000] + "\n..."
     return block
