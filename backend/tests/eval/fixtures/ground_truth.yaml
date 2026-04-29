@@ -1,0 +1,218 @@
+# DRAFT — author should review before first eval run. Generated from filenames.
+#
+# Each entry is a fixture record keyed by path (relative to this fixtures dir).
+# Fields:
+#   path:           relative path under fixtures/
+#   category:       one of the 8 CATEGORY_SCHEMAS keys, OR "home_goods" for the
+#                   planned-but-not-yet-shipped category (see README).
+#   subtype:        accessories subtype (bag|belt|eyewear|jewelry) OR planned
+#                   home_goods subtype (kitchen|bath|living). null if n/a.
+#   expected_brand: canonical brand string. case-insensitive match at scoring.
+#   expected_model: canonical model / product line. substring match either
+#                   direction at scoring.
+#   notes:          free-form caveats for ambiguous fixtures.
+
+# -------- accessories (6) --------
+- path: accessories/Coach_Duffle.jpeg
+  category: accessories
+  subtype: bag
+  expected_brand: Coach
+  expected_model: Duffle
+  notes: ""
+
+- path: accessories/DavidYurman_CableBracelet.jpg
+  category: accessories
+  subtype: jewelry
+  expected_brand: David Yurman
+  expected_model: Cable Bracelet
+  notes: ""
+
+- path: accessories/Gucci_GGBeeRing.jpg
+  category: accessories
+  subtype: jewelry
+  expected_brand: Gucci
+  expected_model: GG Bee Ring
+  notes: ""
+
+- path: accessories/Hermes_Scarf.jpg
+  category: accessories
+  subtype: null
+  expected_brand: Hermes
+  expected_model: Scarf
+  notes: "Accessories schema has no 'scarf' subtype — leave subtype null. Model left as 'Scarf' since Lens rarely surfaces a specific Hermes scarf pattern name."
+
+- path: accessories/Rayban_JustinSunglasses.webp
+  category: accessories
+  subtype: eyewear
+  expected_brand: Ray-Ban
+  expected_model: Justin
+  notes: "Brand rendered 'Ray-Ban' vs 'Rayban' in filename — scoring is whitespace-normalized, so hyphen differences may still mismatch. Review first pass."
+
+- path: accessories/Tiffany_Earrings.jpg
+  category: accessories
+  subtype: jewelry
+  expected_brand: Tiffany
+  expected_model: Earrings
+  notes: "Generic model token; scoring will pass on partial-match if Lens returns 'Tiffany & Co. ... Earrings'."
+
+# -------- clothing (4) --------
+- path: clothing/polo_flannel.JPG
+  category: clothing
+  subtype: null
+  expected_brand: Polo Ralph Lauren
+  expected_model: Flannel
+  notes: "Filename 'polo' implies Polo Ralph Lauren. Confirm before first run."
+
+- path: clothing/polo_jacket.jpeg
+  category: clothing
+  subtype: null
+  expected_brand: Polo Ralph Lauren
+  expected_model: Jacket
+  notes: "Generic model token; partial-match behavior."
+
+- path: clothing/skims_jasperpajamas.jpg
+  category: clothing
+  subtype: null
+  expected_brand: Skims
+  expected_model: Jasper Pajamas
+  notes: ""
+
+- path: clothing/urbanoutfitters_shortsleevebuttondown.JPG
+  category: clothing
+  subtype: null
+  expected_brand: Urban Outfitters
+  expected_model: Short Sleeve Button Down
+  notes: "UO often sells multi-brand — model string is descriptive, not a product line."
+
+# -------- collectibles (1) --------
+- path: collectibles/Reagan_Coin.jpeg
+  category: collectibles
+  subtype: null
+  expected_brand: Reagan
+  expected_model: Coin
+  notes: "Brand_or_creator is the subject (Reagan), not a company. Scorer treats brand generically."
+
+# -------- electronics (3) --------
+- path: electronics/Apple_MacbookPro.jpeg
+  category: electronics
+  subtype: null
+  expected_brand: Apple
+  expected_model: MacBook Pro
+  notes: ""
+
+- path: electronics/JBL_Flip6.jpeg
+  category: electronics
+  subtype: null
+  expected_brand: JBL
+  expected_model: Flip 6
+  notes: ""
+
+- path: electronics/Toshiba_TV.jpeg
+  category: electronics
+  subtype: null
+  expected_brand: Toshiba
+  expected_model: TV
+  notes: "Generic model token; specific Toshiba TV model unknown from filename."
+
+# -------- furniture (5) --------
+- path: furniture/CB2_Chair.jpeg
+  category: furniture
+  subtype: null
+  expected_brand: CB2
+  expected_model: Chair
+  notes: "Generic model token; specific CB2 chair line unknown from filename."
+
+- path: furniture/FurinnoAndrey_CoffeeTable.jpeg
+  category: furniture
+  subtype: null
+  expected_brand: Furinno
+  expected_model: Andrey Coffee Table
+  notes: ""
+
+- path: furniture/Ikea_Linanas_Couch.jpg
+  category: furniture
+  subtype: null
+  expected_brand: IKEA
+  expected_model: Linanas
+  notes: ""
+
+- path: furniture/Ikea_StockholmCoffeeTable.jpeg
+  category: furniture
+  subtype: null
+  expected_brand: IKEA
+  expected_model: Stockholm
+  notes: ""
+
+- path: furniture/Ikea_ÄLVDALEN_Couch.jpg
+  category: furniture
+  subtype: null
+  expected_brand: IKEA
+  expected_model: ÄLVDALEN
+  notes: "Non-ASCII model name — Lens may return 'Alvdalen'. Scoring normalizes whitespace/case but not diacritics; review first pass."
+
+# -------- home_goods (3) — PLANNED CATEGORY, not yet in CATEGORY_SCHEMAS --------
+- path: home_goods/Beach_Wallart.jpeg
+  category: home_goods
+  subtype: living
+  expected_brand: Unknown
+  expected_model: Beach Wall Art
+  notes: "No brand in filename. Planned home_goods/living subtype. Claude may route to 'other' or 'collectibles' in --full mode — expected mismatch for this eval."
+
+- path: home_goods/MarthaStewart_SoapDispenser.webp
+  category: home_goods
+  subtype: bath
+  expected_brand: Martha Stewart
+  expected_model: Soap Dispenser
+  notes: "Planned home_goods/bath subtype. Claude will likely route to 'other' in --full mode — expected."
+
+- path: home_goods/Zwilling_Motion_Nonstick.jpeg
+  category: home_goods
+  subtype: kitchen
+  expected_brand: Zwilling
+  expected_model: Motion Nonstick
+  notes: "Planned home_goods/kitchen subtype. Claude will likely route to 'other' in --full mode — expected."
+
+# -------- other (1) --------
+- path: other/Samsonite_Armage2.jpeg
+  category: other
+  subtype: null
+  expected_brand: Samsonite
+  expected_model: Armage 2
+  notes: "Deliberately categorized as 'other' per brief — Samsonite luggage doesn't fit accessories/bag (which is for handbags/purses)."
+
+# -------- shoes (4) --------
+- path: shoes/Nike_AirForce1.jpg
+  category: shoes
+  subtype: null
+  expected_brand: Nike
+  expected_model: Air Force 1
+  notes: ""
+
+- path: shoes/Nike_Dunk.webp
+  category: shoes
+  subtype: null
+  expected_brand: Nike
+  expected_model: Dunk
+  notes: ""
+
+- path: shoes/Nike_Mule.jpeg
+  category: shoes
+  subtype: null
+  expected_brand: Nike
+  expected_model: Mule
+  notes: "Generic 'Mule' token — many Nike mule variants (Calm, Victori, etc.)."
+
+- path: shoes/Nike_Vomero18.jpeg
+  category: shoes
+  subtype: null
+  expected_brand: Nike
+  expected_model: Vomero 18
+  notes: ""
+
+# -------- sports (1) --------
+- path: sports/Wellfit_WalkingPad.PNG
+  category: sports
+  subtype: null
+  expected_brand: Wellfit
+  expected_model: Walking Pad
+  notes: "Canary fixture. Brand is 'Wellfit' (not WalkingPad/KingSmith)."

@@ -49,7 +49,7 @@ const MANHATTAN_NEIGHBORHOODS = [
   "Yorkville",
 ];
 
-interface SignUpUser {
+interface AuthUser {
   id: number;
   phone_number: string;
   display_name: string | null;
@@ -61,7 +61,7 @@ interface SignUpUser {
 
 interface SignUpPageProps {
   pendingToken: string;
-  onComplete: (user: SignUpUser) => void;
+  onComplete: (user: AuthUser) => void;
   onCancel: () => void;
 }
 
