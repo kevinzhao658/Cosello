@@ -146,6 +146,7 @@ export default function App() {
   const [segmentation, setSegmentation] = useState<SegmentationResult | null>(null);
   // Per-group brand hints, length-aligned with segmentation.groupings.
   const [brandHints, setBrandHints] = useState<string[]>([]);
+  const [typedInstruction, setTypedInstruction] = useState("");
   // Inline error surfaced on the upload screen if /api/segment-photos fails.
   const [segmentationError, setSegmentationError] = useState<string | null>(null);
   const [isPostingBulk, setIsPostingBulk] = useState(false);
@@ -570,6 +571,22 @@ export default function App() {
       setCurrentCardIndex(0);
     }
   }, [tradeMode]);
+
+  useEffect(() => {
+    if (bulkReviewPhase !== "review") { setTypedInstruction(""); return; }
+    const full = "What is the brand of each of your items?";
+    let i = 0;
+    setTypedInstruction("");
+    let intervalId: ReturnType<typeof setInterval>;
+    const delayId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        i++;
+        setTypedInstruction(full.slice(0, i));
+        if (i >= full.length) clearInterval(intervalId);
+      }, 28);
+    }, 320);
+    return () => { clearTimeout(delayId); clearInterval(intervalId); };
+  }, [bulkReviewPhase]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -1464,7 +1481,7 @@ export default function App() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center gap-8">
-              <button onClick={() => setPage("home")} className="flex items-center gap-2 bg-transparent border-none cursor-pointer">
+              <button onClick={() => setPage("home")} className={`flex items-center gap-2 bg-transparent border-none cursor-pointer transition-opacity duration-500 ${bulkReviewPhase === "review" ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
                 <div className="relative">
                   <DollarSign className="size-8 text-fuchsia-400 absolute top-0 left-0" />
                   <DollarSign className="size-8 text-cyan-400 relative" style={{ transform: 'translate(8px, 0)' }} />
@@ -1890,7 +1907,7 @@ export default function App() {
       {/* Hero Section */}
       <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-7xl mx-auto w-full">
-          <div className="text-center mb-12">
+          <div className={`text-center transition-all duration-300 overflow-hidden ${bulkReviewPhase === "review" ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
             <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
               {displayText.split('').map((letter, index) => (
                 <span
@@ -1902,9 +1919,10 @@ export default function App() {
               ))}
               <span className={`inline-block w-1 h-16 sm:h-20 ml-2 ${isTypingComplete ? 'animate-cursor' : 'opacity-100 bg-cyan-400'}`}></span>
             </h2>
+          </div>
 
-            {/* Search Bar / Sell Upload */}
-            <div className="max-w-4xl mx-auto">
+          {/* Search Bar / Sell Upload */}
+          <div className="max-w-4xl mx-auto">
               {tradeMode === "buy" ? (
                 <>
                   <form
@@ -2005,7 +2023,7 @@ export default function App() {
               ) : (
                 <>
                   {/* Sell Upload Area */}
-                  <div className="relative flex items-center gap-2 mb-2">
+                  <div className={`relative flex items-center gap-2 transition-all duration-300 overflow-hidden ${bulkReviewPhase === "review" ? "max-h-0 mb-0 opacity-0 pointer-events-none" : "max-h-32 mb-2 opacity-100"}`}>
                     <label className="flex-1 flex items-center gap-3 px-4 py-3 bg-white/5 border border-dashed border-fuchsia-400/40 rounded-lg cursor-pointer hover:bg-white/10 hover:border-fuchsia-400/60 transition-all">
                       <Upload className="size-5 text-fuchsia-400 shrink-0" />
                       <p className="text-sm inline-flex items-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
@@ -2033,22 +2051,14 @@ export default function App() {
                       <Button
                         variant="ghost"
                         onClick={() => setTradeMode("buy")}
-                        className={`h-[52px] px-4 rounded-none text-sm ${
-                          tradeMode === "buy"
-                            ? "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
-                            : "text-white/60 hover:text-white hover:bg-white/5"
-                        }`}
+                        className="h-[52px] px-4 rounded-none text-sm text-white/60 hover:text-white hover:bg-white/5"
                       >
                         Buy
                       </Button>
                       <Button
                         variant="ghost"
                         onClick={() => setTradeMode("sell")}
-                        className={`h-[52px] px-4 rounded-none text-sm ${
-                          tradeMode === "sell"
-                            ? "bg-fuchsia-500/20 text-fuchsia-400 hover:bg-fuchsia-500/30"
-                            : "text-white/60 hover:text-white hover:bg-white/5"
-                        }`}
+                        className="h-[52px] px-4 rounded-none text-sm bg-fuchsia-500/20 text-fuchsia-400 hover:bg-fuchsia-500/30"
                       >
                         Sell
                       </Button>
@@ -2098,12 +2108,11 @@ export default function App() {
                           Sits above the cluster row (not inside the bar) as
                           three concise lines of muted italic guidance.
                         */}
-                        <p className="mt-3 text-sm text-white/60 italic leading-relaxed">
-                          Drag photos between groups to reorganize, or to the end to start a new group.<br />
-                          Type the brand for each item below its grouping (optional, but improves accuracy).<br />
-                          Click "Generate Listings" when ready.
+                        <p className="mt-3 text-4xl font-light text-white leading-snug tracking-wide text-center">
+                          {typedInstruction}
+                          {typedInstruction.length < 40 && <span className="animate-pulse">|</span>}
                         </p>
-                        <div className="flex flex-wrap items-stretch gap-x-3 gap-y-5 mt-2 mb-2">
+                        <div className="flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2">
                           {segmentation.groupings.map((group, groupIdx) => {
                             const isDropTarget = dragOverGroup === groupIdx;
                             return (
@@ -3143,7 +3152,6 @@ export default function App() {
                 </>
               )}
             </div>
-          </div>
         </div>
       </section>
 
