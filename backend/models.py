@@ -129,6 +129,10 @@ class PurchaseOrder(Base):
     pickup_address = Column(String(255), nullable=True)
     address_released = Column(Integer, default=0)
     pickup_notified = Column(Integer, default=0)
+    list_cycle = Column(Integer, default=0, nullable=False)
+    listing_price_cents = Column(Integer, nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -140,8 +144,11 @@ class Listing(Base):
     brand = Column(String(200), nullable=True)
     name = Column(String(200), nullable=True)
     description = Column(String(2000), nullable=True)
-    price = Column(String(20), nullable=False)
+    price_cents = Column(Integer, nullable=False)
     condition = Column(String(20), nullable=True)
+    condition_score = Column(Integer, nullable=True)
+    product_year = Column(Integer, nullable=True)
+    identifier_confidence = Column(String(10), nullable=True)
     location = Column(String(100), nullable=True)
     tags = Column(String(1000), nullable=True)  # JSON array
     communities = Column(String(1000), nullable=True)  # JSON array of int|"neighborhood"
@@ -150,9 +157,11 @@ class Listing(Base):
     image_urls = Column(String(2000), nullable=True)  # JSON array
     pickup_location = Column(String(255), nullable=True)
     status = Column(String(20), default="open")
-    category = Column(String(30), default="other")
+    category = Column(String(30), default="other", index=True)
     category_attributes = Column(String(2000), nullable=True)  # JSON string
-    posted_at = Column(Float, nullable=False)
+    posted_at = Column(Float, nullable=False, index=True)
+    original_posted_at = Column(Float, nullable=True)
+    relist_count = Column(Integer, default=0, nullable=False)
 
     @property
     def title_str(self) -> str:
@@ -181,6 +190,7 @@ class Listing(Base):
         brand = (self.brand or "").strip()
         name = (self.name or "").strip()
         title = self.title_str
+        price_cents = int(self.price_cents) if self.price_cents is not None else 0
         return {
             "id": self.id,
             "userId": self.user_id,
@@ -188,8 +198,12 @@ class Listing(Base):
             "name": name,
             "title": title,
             "description": self.description or "",
-            "price": self.price,
+            "priceCents": price_cents,
+            "price": str(price_cents // 100),
             "condition": self.condition or "Good",
+            "conditionScore": self.condition_score,
+            "productYear": self.product_year,
+            "identifierConfidence": self.identifier_confidence,
             "location": self.location or "",
             "tags": json.loads(self.tags) if self.tags else [],
             "communities": json.loads(self.communities) if self.communities else [],
@@ -201,6 +215,8 @@ class Listing(Base):
             "category": self.category or "other",
             "categoryAttributes": json.loads(self.category_attributes) if self.category_attributes else {},
             "postedAt": self.posted_at,
+            "originalPostedAt": self.original_posted_at,
+            "relistCount": int(self.relist_count) if self.relist_count is not None else 0,
         }
 
 

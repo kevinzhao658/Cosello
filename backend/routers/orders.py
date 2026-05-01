@@ -106,18 +106,24 @@ async def create_order(
     if seller_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot buy your own listing")
 
+    current_cycle = listing.relist_count or 0
+
+    # Cycle-scoped guards: only block on orders from the current relist cycle.
+    # Previously-declined buyers from earlier cycles can re-engage after a relist.
     existing = db.query(PurchaseOrder).filter(
         PurchaseOrder.listing_id == req.listing_id,
         PurchaseOrder.buyer_id == current_user.id,
+        PurchaseOrder.list_cycle == current_cycle,
         PurchaseOrder.status.in_(["pending", "confirmed"]),
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="You already have an order for this listing")
 
-    # Block buyers whose order was declined by the seller
+    # Block buyers whose order was declined by the seller in the current cycle
     existing_declined = db.query(PurchaseOrder).filter(
         PurchaseOrder.listing_id == req.listing_id,
         PurchaseOrder.buyer_id == current_user.id,
+        PurchaseOrder.list_cycle == current_cycle,
         PurchaseOrder.status == "declined",
     ).first()
     if existing_declined:
@@ -129,6 +135,8 @@ async def create_order(
         seller_id=seller_id,
         status="pending",
         selected_pickup_slots=json.dumps(req.selected_pickup_slots),
+        list_cycle=current_cycle,
+        listing_price_cents=int(listing.price_cents) if listing.price_cents is not None else None,
     )
     db.add(order)
 
@@ -174,6 +182,7 @@ async def confirm_order(
         raise HTTPException(status_code=400, detail="Order is not pending")
 
     order.status = "confirmed"
+    order.confirmed_at = datetime.datetime.utcnow()
     order.selected_pickup_slots = json.dumps([req.confirmed_slot])
     if req.confirmed_time:
         order.confirmed_time = req.confirmed_time
@@ -497,6 +506,7 @@ async def complete_order(
     # Only mark completed when BOTH parties have reviewed
     if order.buyer_reviewed and order.seller_reviewed:
         order.status = "completed"
+        order.completed_at = datetime.datetime.utcnow()
 
     # Notify the other party
     listing = _find_listing(order.listing_id, db)
@@ -702,7 +712,8 @@ async def get_orders(
             "listing_id": o.listing_id,
             "listing_title": listing.title_str,
             "listing_image": listing.image_url or "",
-            "listing_price": listing.price or "",
+            "listing_price": str((listing.price_cents or 0) // 100),
+            "listing_price_cents": int(listing.price_cents or 0),
             "buyer_id": o.buyer_id,
             "buyer_name": buyer_map.get(o.buyer_id, {}).get("name", "Someone"),
             "buyer_picture": buyer_map.get(o.buyer_id, {}).get("picture"),

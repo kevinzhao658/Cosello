@@ -797,16 +797,92 @@ def test_listing_title_str_property_uses_same_rules(monkeypatch):
 
     l = Listing(
         id="x", user_id=1, brand="Unknown", name="Mid-Century Side Table",
-        price="40", posted_at=0.0,
+        price_cents=4000, posted_at=0.0,
     )
     # "Unknown" coerced to empty -> just the name.
     assert l.title_str == "Mid-Century Side Table"
 
     l2 = Listing(
         id="y", user_id=1, brand="Coach", name="Duffel",
-        price="120", posted_at=0.0,
+        price_cents=12000, posted_at=0.0,
     )
     assert l2.title_str == "Coach Duffel"
+
+
+def test_listing_to_dict_emits_price_cents_and_history_fields():
+    """to_dict() emits priceCents (source of truth) + derived whole-dollar `price`."""
+    from models import Listing
+
+    l = Listing(
+        id="z", user_id=1, brand="Coach", name="Duffel",
+        price_cents=12050,
+        condition_score=72,
+        product_year=2019,
+        identifier_confidence="high",
+        posted_at=100.0,
+        original_posted_at=50.0,
+        relist_count=2,
+    )
+    out = l.to_dict()
+    assert out["priceCents"] == 12050
+    assert out["price"] == "120"  # whole-dollar string from price_cents // 100
+    assert out["conditionScore"] == 72
+    assert out["productYear"] == 2019
+    assert out["identifierConfidence"] == "high"
+    assert out["originalPostedAt"] == 50.0
+    assert out["relistCount"] == 2
+
+
+def test_listing_to_dict_handles_null_history_fields():
+    """relist_count default 0 surfaces correctly; nullable fields stay None."""
+    from models import Listing
+
+    l = Listing(
+        id="w", user_id=1, brand="", name="Plain Item",
+        price_cents=0, posted_at=0.0,
+    )
+    out = l.to_dict()
+    assert out["priceCents"] == 0
+    assert out["price"] == "0"
+    assert out["conditionScore"] is None
+    assert out["productYear"] is None
+    assert out["identifierConfidence"] is None
+    assert out["originalPostedAt"] is None
+    # relist_count default=0 (Python-side) is None on a fresh instance because
+    # SQLAlchemy column defaults only apply at flush time. to_dict() coerces
+    # None -> 0 to keep the API contract stable.
+    assert out["relistCount"] == 0
+
+
+def test_migration_parse_price_to_cents_helper():
+    """The migration's price-string parser handles canonical happy + sad paths."""
+    import importlib.util
+    from pathlib import Path
+
+    mig_path = (
+        Path(__file__).resolve().parent.parent
+        / "migrations"
+        / "2026_05_01_listing_db_history.py"
+    )
+    spec = importlib.util.spec_from_file_location("listing_history_mig", mig_path)
+    mig = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mig)
+
+    f = mig._parse_price_to_cents
+    # Happy paths
+    assert f("45") == 4500
+    assert f("$120.50") == 12050
+    assert f("  $0  ") == 0
+    assert f("9.99") == 999
+    # Malformed -> None
+    assert f("Free") is None
+    assert f("negotiable") is None
+    assert f("") is None
+    assert f(None) is None
+    assert f("$") is None
+    assert f("12.34.56") is None
+    assert f("-5") is None  # leading minus rejected (pattern is \d+)
 
 
 def test_validate_groupings_strict():

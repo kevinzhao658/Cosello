@@ -170,13 +170,14 @@ async def seed_listings(
         imgs = available_images[i * 2 : i * 2 + 2] if i * 2 + 2 <= len(available_images) else [available_images[i % len(available_images)]]
         image_urls = [f"/uploads/{img}" for img in imgs]
 
+        seed_posted_at = time.time() - random.randint(0, 86400 * 3)
         listing = Listing(
             id=uuid.uuid4().hex[:12],
             user_id=current_user.id,
             brand=item.get("brand", ""),
             name=item.get("name", ""),
             description=item["description"],
-            price=item["price"],
+            price_cents=int(round(float(item["price"]) * 100)),
             condition=item["condition"],
             location=current_user.neighborhood or random.choice(neighborhoods),
             tags=json.dumps(item["tags"]),
@@ -188,7 +189,9 @@ async def seed_listings(
             category=item.get("category", "other"),
             category_attributes=json.dumps(item.get("category_attributes", {})),
             status="open",
-            posted_at=time.time() - random.randint(0, 86400 * 3),
+            posted_at=seed_posted_at,
+            original_posted_at=seed_posted_at,
+            relist_count=0,
         )
         db.add(listing)
         created.append({"id": listing.id, "title": listing.title_str})
@@ -1125,14 +1128,58 @@ async def create_listing(
     else:
         raw_attrs = {}
 
+    # Validate priceCents — non-negative integer required.
+    price_cents_in = details.get("priceCents")
+    if not isinstance(price_cents_in, int) or isinstance(price_cents_in, bool) or price_cents_in < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="priceCents must be a non-negative integer (cents)",
+        )
+
+    condition_score_in = details.get("conditionScore")
+    if condition_score_in is not None:
+        if (
+            not isinstance(condition_score_in, int)
+            or isinstance(condition_score_in, bool)
+            or not (0 <= condition_score_in <= 100)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="conditionScore must be an integer between 0 and 100",
+            )
+
+    product_year_in = details.get("productYear")
+    if product_year_in is not None and (
+        not isinstance(product_year_in, int) or isinstance(product_year_in, bool)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="productYear must be an integer or null",
+        )
+
+    identifier_confidence_in = details.get("identifierConfidence")
+    if identifier_confidence_in is not None and identifier_confidence_in not in (
+        "high",
+        "medium",
+        "low",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail='identifierConfidence must be "high", "medium", or "low"',
+        )
+
+    posted_at = time.time()
     listing = Listing(
         id=uuid.uuid4().hex[:12],
         user_id=current_user.id,
         brand=brand_str or None,
         name=name_str or None,
         description=details.get("description", ""),
-        price=details.get("price", "0"),
+        price_cents=price_cents_in,
         condition=details.get("condition", "Good"),
+        condition_score=condition_score_in,
+        product_year=product_year_in,
+        identifier_confidence=identifier_confidence_in,
         location=current_user.neighborhood or details.get("location", ""),
         tags=json.dumps(details.get("tags", [])),
         communities=json.dumps(community_ids),
@@ -1143,7 +1190,9 @@ async def create_listing(
         category=category_slug,
         category_attributes=json.dumps(raw_attrs) if raw_attrs else None,
         status="open",
-        posted_at=time.time(),
+        posted_at=posted_at,
+        original_posted_at=posted_at,
+        relist_count=0,
     )
     db.add(listing)
     db.commit()
@@ -1528,10 +1577,16 @@ async def relist_listing(
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
+    # Bump cycle counter BEFORE timestamps so any concurrent reads see the new
+    # cycle number paired with the new posted_at. original_posted_at is left
+    # untouched — it captures the listing's first appearance.
+    listing.relist_count = (listing.relist_count or 0) + 1
     listing.posted_at = time.time()
     listing.status = "open"
 
-    # Cancel pending orders and notify buyers
+    # Cancel pending orders and notify buyers. Declined/withdrawn orders from
+    # prior cycles stay in place as historical records — new orders post-relist
+    # land at the new list_cycle so previously-declined buyers can re-engage.
     pending_orders = db.query(PurchaseOrder).filter(
         PurchaseOrder.listing_id == listing_id,
         PurchaseOrder.status == "pending",
@@ -1546,11 +1601,6 @@ async def relist_listing(
             listing_id=listing_id,
         ))
 
-    # Delete old declined/withdrawn orders to unlock previously declined buyers
-    db.query(PurchaseOrder).filter(
-        PurchaseOrder.listing_id == listing_id,
-        PurchaseOrder.status.in_(["declined", "withdrawn"]),
-    ).delete(synchronize_session=False)
     db.commit()
 
     return listing.to_dict()
@@ -1574,12 +1624,30 @@ async def update_listing(
     if listing.status == "sold":
         raise HTTPException(status_code=400, detail="Cannot edit a sold listing")
 
-    field_map = {"description": "description", "price": "price",
+    field_map = {"description": "description",
                  "condition": "condition", "location": "location", "category": "category",
                  "brand": "brand", "name": "name"}
     for field, attr in field_map.items():
         if field in details:
             setattr(listing, attr, details[field])
+
+    # Price edits accept priceCents (int, cents, source of truth).
+    # Legacy clients sending `price` as a whole-dollar string are converted.
+    if "priceCents" in details:
+        pc = details["priceCents"]
+        if not isinstance(pc, int) or isinstance(pc, bool) or pc < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="priceCents must be a non-negative integer (cents)",
+            )
+        listing.price_cents = pc
+    elif "price" in details:
+        raw = details["price"]
+        try:
+            cleaned = str(raw).strip().lstrip("$").strip()
+            listing.price_cents = int(round(float(cleaned) * 100))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid price value")
 
     # Transitional bridge: if a client still sends `title` (no brand/name), split it.
     if "title" in details and "name" not in details and "brand" not in details:
