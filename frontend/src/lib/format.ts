@@ -22,5 +22,10 @@ export function formatTitle(
   const b = (brand ?? "").trim();
   const n = (name ?? "").trim();
   const safeBrand = b.toLowerCase() === "unknown" ? "" : b;
-  return [safeBrand, n].filter(Boolean).join(" ").trim();
+  const joined = [safeBrand, n].filter(Boolean).join(" ").trim();
+  // Always capitalize the first character — sellers may type a brand
+  // ("nike") or name ("air force 1") in lowercase, but the displayed
+  // title should always start uppercase. Other letters stay as typed.
+  if (!joined) return "";
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
 }

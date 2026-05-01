@@ -48,6 +48,10 @@ interface BulkItemDetails extends ProductDetails {
   // Per-group failure marker from /api/generate-listings: when set, the item rendered as a
   // placeholder and the user is offered a "Regenerate this item" affordance.
   _error?: string;
+  // Optional per-item pickup override. When empty/missing, the Step 5 batch-level
+  // bulkPickupLocation default is used at post time. Per-card pickup edits at
+  // Step 4 (when wired) write here.
+  pickupLocation?: string;
 }
 
 interface SegmentationResult {
@@ -124,19 +128,28 @@ function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }
 }
 
 function TypedInstruction({ bulkReviewPhase, exiting }: {
-  bulkReviewPhase: "review" | "reason" | "cards" | "summary" | null;
+  bulkReviewPhase: "review" | "reason" | "cards" | "pickup" | null;
   exiting: boolean;
 }) {
   const [typedInstruction, setTypedInstruction] = useState("");
 
   useEffect(() => {
-    if (bulkReviewPhase !== "review" && bulkReviewPhase !== "reason") {
+    if (
+      bulkReviewPhase !== "review" &&
+      bulkReviewPhase !== "reason" &&
+      bulkReviewPhase !== "cards" &&
+      bulkReviewPhase !== "pickup"
+    ) {
       setTypedInstruction("");
       return;
     }
     const full = bulkReviewPhase === "review"
-      ? "What is the brand and name of each of your items?"
-      : "What's your reason for selling these items?";
+      ? "What are you selling?"
+      : bulkReviewPhase === "reason"
+        ? "Why are you selling?"
+        : bulkReviewPhase === "pickup"
+          ? "Where do you want to meet?"
+          : "Confirm the listing details below.";
     let i = 0;
     setTypedInstruction("");
     let intervalId: ReturnType<typeof setInterval>;
@@ -150,7 +163,12 @@ function TypedInstruction({ bulkReviewPhase, exiting }: {
     return () => { clearTimeout(delayId); clearInterval(intervalId); };
   }, [bulkReviewPhase]);
 
-  if (bulkReviewPhase !== "review" && bulkReviewPhase !== "reason") return null;
+  if (
+    bulkReviewPhase !== "review" &&
+    bulkReviewPhase !== "reason" &&
+    bulkReviewPhase !== "cards" &&
+    bulkReviewPhase !== "pickup"
+  ) return null;
 
   return (
     <p
@@ -162,7 +180,7 @@ function TypedInstruction({ bulkReviewPhase, exiting }: {
       }}
     >
       {typedInstruction}
-      {!typedInstruction.endsWith("?") && <span className="animate-pulse">|</span>}
+      {!typedInstruction.endsWith("?") && !typedInstruction.endsWith(".") && <span className="animate-pulse">|</span>}
     </p>
   );
 }
@@ -193,8 +211,15 @@ export default function App() {
   const [bulkItems, setBulkItems] = useState<BulkItemDetails[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   // Wizard step state. Step 1 (upload) is `null`; once segmentation lands the
-  // user steps through review → reason → cards (→ summary) in order.
-  const [bulkReviewPhase, setBulkReviewPhase] = useState<"review" | "reason" | "cards" | "summary" | null>(null);
+  // user steps through review → reason → cards → pickup (→ summary) in order.
+  // Step 5 ("pickup") prompts for a default meet location applied to every
+  // posted item that hasn't set its own per-card pickup override.
+  const [bulkReviewPhase, setBulkReviewPhase] = useState<"review" | "reason" | "cards" | "pickup" | null>(null);
+  // Step 5 default pickup location. Pre-filled from user.pickup_address when the
+  // user enters the "pickup" phase (see effect below). Per-card overrides on
+  // BulkItemDetails.pickupLocation win — this is the fallback applied to every
+  // item where pickupLocation is empty/missing at post time.
+  const [bulkPickupLocation, setBulkPickupLocation] = useState<string>("");
   // Segmentation (pass 1) result — held across the review screen, then forwarded to generate-listings.
   const [segmentation, setSegmentation] = useState<SegmentationResult | null>(null);
   // Per-group brand hints, length-aligned with segmentation.groupings.
@@ -217,6 +242,11 @@ export default function App() {
   const [modifiedGroupIndices, setModifiedGroupIndices] = useState<Set<number>>(new Set());
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Anchor the wizard subheader so we can smooth-scroll into view ONLY when
+  // the user enters Step 5 (pickup). Earlier steps are already centered when
+  // the user gets to them; Step 5 introduces new content below Step 4 and
+  // benefits from being centered explicitly.
+  const wizardAnchorRef = useRef<HTMLDivElement>(null);
   const [newTag, setNewTag] = useState("");
   const [page, setPage] = useState<Page>(() => {
     const hash = window.location.hash.replace("#", "");
@@ -233,8 +263,6 @@ export default function App() {
   const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const filterCommunities = [...publicCommunities, ...privateCommunities];
   // Post To state
-  const [postVisibility, setPostVisibility] = useState<"public" | "private">("public");
-  const [selectedPostPrivateCommunities, setSelectedPostPrivateCommunities] = useState<(string | number)[]>([]);
   const [postPickupLocation, setPostPickupLocation] = useState("");
   const [categorySchemas, setCategorySchemas] = useState<Record<string, CategorySchema>>({});
   const [selectedCategories, setSelectedCategories] = useState<CategorySlug[]>([]);
@@ -634,6 +662,20 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isAuthenticated, token]);
 
+  // Smooth-scroll the wizard subheader into view ONLY when entering Step 5
+  // (pickup). Earlier steps don't trigger this — Step 5 is the one place
+  // where the page benefits from explicit re-centering since it appears
+  // below Step 4's existing content. Defer to next frame so the new
+  // step has rendered before we measure.
+  useEffect(() => {
+    if (bulkReviewPhase === "pickup") {
+      const id = requestAnimationFrame(() => {
+        wizardAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [bulkReviewPhase]);
+
   // Reset bulk state when switching away from sell mode
   useEffect(() => {
     if (tradeMode !== "sell") {
@@ -643,28 +685,58 @@ export default function App() {
     }
   }, [tradeMode]);
 
+  // Step 5 prefill: when entering the "pickup" phase, default the input to the
+  // seller's saved pickup_address — but ONLY if the user hasn't already typed
+  // something. Re-entering the step (back from cards → forward again) preserves
+  // their typed value.
+  useEffect(() => {
+    if (bulkReviewPhase === "pickup" && bulkPickupLocation === "") {
+      setBulkPickupLocation(user?.pickup_address || "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkReviewPhase]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
     const newImages = Array.from(files).map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
-    setUploadedImages((prev) => [...prev, ...newImages]);
-    // If user adds photos AFTER segmentation, the existing groupings reference
-    // stale image indices and the brand-hint slots no longer line up. Drop back
-    // to the flat upload state so the user re-triggers "Separate items".
-    if (bulkReviewPhase === "review") {
-      setBulkReviewPhase(null);
-      setSegmentation(null);
-      setBrandHints([]);
-      setNames([]);
-      setRationale("");
-      setRationaleOther("");
-      setSegmentationError(null);
-    }
     e.target.value = "";
+
+    // Step 2 (review): re-run segmentation in place with the combined photo
+    // set. The user STAYS on Step 2 — newly added photos appear in the
+    // cluster bar after the re-segmentation completes. Per-group brand/name
+    // hints reset (groupings shape changes); per-batch rationale persists.
+    // Errors render inline within Step 2's chrome — no bounce back to Step 1.
+    if (bulkReviewPhase === "review") {
+      const updatedImages = [...uploadedImages, ...newImages];
+      setUploadedImages(updatedImages);
+      setSegmentationError(null);
+      setIsGenerating(true);
+      try {
+        const result = await segmentPhotos(updatedImages.map((img) => img.file));
+        if (!Array.isArray(result.groupings) || result.groupings.length === 0) {
+          throw new Error("Segmentation returned no groupings");
+        }
+        setSegmentation(result);
+        setBrandHints(result.groupings.map(() => ""));
+        setNames(result.groupings.map(() => ""));
+        // Rationale is per-batch, not per-group, so it survives a re-segmentation.
+      } catch (err) {
+        console.error("Re-segment after +Add failed:", err);
+        setSegmentationError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
+    // Step 1 (null) — flat upload state. Just append; segmentation runs when
+    // the user clicks the submit arrow.
+    setUploadedImages((prev) => [...prev, ...newImages]);
   };
 
   const removeImage = (index: number) => {
@@ -724,6 +796,7 @@ export default function App() {
       setNames([]);
       setRationale("");
       setRationaleOther("");
+      setBulkPickupLocation("");
       setSegmentationError(null);
       setGroupingsModified(false);
       setModifiedGroupIndices(new Set());
@@ -1261,14 +1334,10 @@ export default function App() {
       const { identifierConfidence: _, retrieval_fallback: _rf, ...postData } = productDetails;
       formData.append("data", JSON.stringify(postData));
 
-      // Build communities + visibility for the form
-      const communityIds: string[] = [];
-      if (postVisibility === "private") {
-        communityIds.push(...selectedPostPrivateCommunities.map(String));
-      }
-      // Public: send empty — backend auto-attaches user's communities
-      formData.append("communities", communityIds.join(","));
-      formData.append("visibility", postVisibility);
+      // All listings are public per MVP scope. Backend auto-attaches the
+      // poster's communities when `communities` is empty + visibility=public.
+      formData.append("communities", "");
+      formData.append("visibility", "public");
       formData.append("pickup_location", postPickupLocation);
 
       const res = await fetch("/api/listings", {
@@ -1286,6 +1355,7 @@ export default function App() {
       setProductDetails(null);
       setUploadedImages([]);
       setPostPickupLocation("");
+      setBulkPickupLocation("");
       // Reset wizard inputs that may have been left over from a single-item flow.
       setNames([]);
       setRationale("");
@@ -1299,6 +1369,29 @@ export default function App() {
     }
   };
 
+  // Step 5 entrypoint: persist the batch-level Step 5 default into per-item
+  // pickupLocation for any item that doesn't already have one (preserving
+  // per-card overrides), then invoke the existing bulk-post pipeline.
+  // handleBulkPostListing has its own fallback that uses bulkPickupLocation
+  // directly, so this helper is robust to the React state-update timing —
+  // the per-item write is for clarity and forward-compat with future per-card
+  // pickup edits at Step 4.
+  const handleBulkPostFromPickupStep = async () => {
+    const trimmedDefault = bulkPickupLocation.trim();
+    if (trimmedDefault !== "") {
+      setBulkItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          pickupLocation:
+            item.pickupLocation && item.pickupLocation.trim() !== ""
+              ? item.pickupLocation
+              : trimmedDefault,
+        })),
+      );
+    }
+    await handleBulkPostListing();
+  };
+
   const handleBulkPostListing = async () => {
     if (bulkItems.length === 0 || uploadedImages.length === 0) return;
 
@@ -1310,11 +1403,14 @@ export default function App() {
     setIsPostingBulk(true);
 
     try {
-      const communityIds: string[] = [];
-      if (postVisibility === "private") {
-        communityIds.push(...selectedPostPrivateCommunities.map(String));
-      }
-      // Public: send empty — backend auto-attaches user's communities
+      // All listings are public per MVP scope. Backend auto-attaches the
+      // poster's communities when `communities` is empty + visibility=public.
+
+      // Step 5 default — applied per-item only when the item has no per-card
+      // pickupLocation override. Falls back to the legacy postPickupLocation
+      // for any code path that posted via the old summary surface.
+      const trimmedBulkDefault = bulkPickupLocation.trim();
+      const fallbackPickup = trimmedBulkDefault !== "" ? trimmedBulkDefault : postPickupLocation;
 
       for (const item of bulkItems) {
         const formData = new FormData();
@@ -1323,11 +1419,15 @@ export default function App() {
             formData.append("images", uploadedImages[imgIdx].file);
           }
         }
-        const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, ...productData } = item;
+        const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...productData } = item;
         formData.append("data", JSON.stringify(productData));
-        formData.append("communities", communityIds.join(","));
-        formData.append("visibility", postVisibility);
-        formData.append("pickup_location", postPickupLocation);
+        formData.append("communities", "");
+        formData.append("visibility", "public");
+        const itemPickup =
+          item.pickupLocation && item.pickupLocation.trim() !== ""
+            ? item.pickupLocation
+            : fallbackPickup;
+        formData.append("pickup_location", itemPickup);
 
         const res = await fetch("/api/listings", {
           method: "POST",
@@ -1344,6 +1444,7 @@ export default function App() {
       setProductDetails(null);
       setUploadedImages([]);
       setPostPickupLocation("");
+      setBulkPickupLocation("");
       // Wizard reset on successful bulk publish.
       setSegmentation(null);
       setBrandHints([]);
@@ -1382,8 +1483,6 @@ export default function App() {
     setPublicCommunities([]);
     setPrivateCommunities([]);
     setSelectedMarketCommunities([]);
-    setPostVisibility("public");
-    setSelectedPostPrivateCommunities([]);
     setHomeSearch("");
     setMarketSearch("");
     setTradeMode("buy");
@@ -1398,6 +1497,7 @@ export default function App() {
     setNames([]);
     setRationale("");
     setRationaleOther("");
+    setBulkPickupLocation("");
     setPage("home");
   };
 
@@ -2029,7 +2129,7 @@ export default function App() {
       {/* Hero Section */}
       <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-7xl mx-auto w-full">
-          <div className={`text-center transition-all duration-300 overflow-hidden ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason") ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
+          <div className={`text-center transition-all duration-300 overflow-hidden ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason" || bulkReviewPhase === "cards" || bulkReviewPhase === "pickup") ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
             <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
               {displayText.split('').map((letter, index) => (
                 <span
@@ -2145,7 +2245,7 @@ export default function App() {
               ) : (
                 <>
                   {/* Sell Upload Area */}
-                  <div className={`relative flex items-center gap-2 transition-all duration-300 overflow-hidden ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason") ? "max-h-0 mb-0 opacity-0 pointer-events-none" : "max-h-32 mb-2 opacity-100"}`}>
+                  <div className={`relative flex items-center gap-2 transition-all duration-300 overflow-hidden ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason" || bulkReviewPhase === "cards" || bulkReviewPhase === "pickup") ? "max-h-0 mb-0 opacity-0 pointer-events-none" : "max-h-32 mb-2 opacity-100"}`}>
                     <label className="flex-1 flex items-center gap-3 px-4 py-3 bg-white/5 border border-dashed border-fuchsia-400/40 rounded-lg cursor-pointer hover:bg-white/10 hover:border-fuchsia-400/60 transition-all">
                       <Upload className="size-5 text-fuchsia-400 shrink-0" />
                       <p className="text-sm inline-flex items-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
@@ -2205,14 +2305,14 @@ export default function App() {
                                                                  brand bubbles (replaces
                                                                  the old standalone
                                                                  "Review groupings" section)
-                      • bulkReviewPhase === "cards"|"summary" → legacy grouped scroll row
+                      • bulkReviewPhase === "cards"           → legacy grouped scroll row
                                                                  used by the cards flow
                     All states share the same vertical slot so the upload-bar visually
                     rhymes across phases — no separate review section is rendered below.
                   */}
                   {uploadedImages.length > 0 && (
                     <>
-                      {(bulkReviewPhase === "review" || bulkReviewPhase === "reason") && segmentation ? (
+                      {(bulkReviewPhase === "review" || bulkReviewPhase === "reason" || bulkReviewPhase === "cards" || bulkReviewPhase === "pickup") && segmentation ? (
                         /*
                           Review phase: inline cluster layout. Each group is an
                           inline-flex column (thumbs on top, brand bubble below).
@@ -2232,15 +2332,34 @@ export default function App() {
                           3 ("reason") so the user always knows where they
                           are in the flow.
                         */}
-                        <div className="mt-3 flex items-center justify-center gap-2 text-xs text-white/40 uppercase tracking-wider">
+                        <div ref={wizardAnchorRef} className="mt-3 flex items-center justify-center gap-2 text-xs text-white/40 uppercase tracking-wider">
                           <button
                             type="button"
                             onClick={() => {
                               // Back arrow:
+                              //  • Step 5 → Step 4 (typed pickup persists in state)
+                              //  • Step 4 → Step 3 (rationale + listings persist; user
+                              //    re-enters the rationale screen with state intact)
                               //  • Step 3 → Step 2 (rationale persists in state)
                               //  • Step 2 → Step 1 (drop segmentation; brand/name are about to
                               //    be invalidated by re-segmentation anyway)
-                              if (bulkReviewPhase === "reason") {
+                              if (bulkReviewPhase === "pickup") {
+                                setInstructionExiting(true);
+                                setTimeout(() => {
+                                  startTransition(() => {
+                                    setInstructionExiting(false);
+                                    setBulkReviewPhase("cards");
+                                  });
+                                }, 300);
+                              } else if (bulkReviewPhase === "cards") {
+                                setInstructionExiting(true);
+                                setTimeout(() => {
+                                  startTransition(() => {
+                                    setInstructionExiting(false);
+                                    setBulkReviewPhase("reason");
+                                  });
+                                }, 300);
+                              } else if (bulkReviewPhase === "reason") {
                                 setInstructionExiting(true);
                                 setTimeout(() => {
                                   startTransition(() => {
@@ -2263,11 +2382,17 @@ export default function App() {
                             <ChevronRight className="size-3.5 rotate-180" />
                           </button>
                           <span>
-                            {bulkReviewPhase === "review" ? "Step 2 of 4 — Review groups" : "Step 3 of 4 — Why are you selling?"}
+                            {bulkReviewPhase === "review"
+                              ? "Step 2 of 5 — Optional"
+                              : bulkReviewPhase === "reason"
+                                ? "Step 3 of 5 — Optional"
+                                : bulkReviewPhase === "cards"
+                                  ? "Step 4 of 5 — Review"
+                                  : "Step 5 of 5 — Pickup Location"}
                           </span>
                         </div>
                         <TypedInstruction bulkReviewPhase={bulkReviewPhase} exiting={instructionExiting} />
-                        <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "reason" ? "opacity-30" : "opacity-100"}`}>
+                        <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "reason" || bulkReviewPhase === "pickup" ? "opacity-30" : "opacity-100"}`}>
                           {segmentation.groupings.map((group, groupIdx) => {
                             const isDropTarget = dragOverGroup === groupIdx;
                             return (
@@ -2280,11 +2405,20 @@ export default function App() {
                                 )}
                                 <div
                                   className={`inline-flex flex-col items-center gap-1 rounded-lg p-1 transition-colors ${
-                                    isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
+                                    bulkReviewPhase === "review" && isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
+                                  } ${
+                                    bulkReviewPhase === "cards"
+                                      ? `cursor-pointer hover:bg-white/5 ${currentCardIndex === groupIdx ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""}`
+                                      : ""
                                   }`}
-                                  onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
-                                  onDragLeave={() => setDragOverGroup(null)}
-                                  onDrop={() => handleDrop(groupIdx)}
+                                  onClick={
+                                    bulkReviewPhase === "cards"
+                                      ? () => setCurrentCardIndex(groupIdx)
+                                      : undefined
+                                  }
+                                  onDragOver={bulkReviewPhase === "review" ? (e) => handleGroupDragOver(e, groupIdx) : undefined}
+                                  onDragLeave={bulkReviewPhase === "review" ? () => setDragOverGroup(null) : undefined}
+                                  onDrop={bulkReviewPhase === "review" ? () => handleDrop(groupIdx) : undefined}
                                 >
                                   {/* Minimal group number — small muted text, no card chrome */}
                                   <span className="text-xs text-white/40 leading-none pl-0.5">
@@ -2300,10 +2434,12 @@ export default function App() {
                                       return (
                                         <div
                                           key={imgIdx}
-                                          draggable
-                                          onDragStart={() => handleDragStart(imgIdx, groupIdx)}
-                                          onDragEnd={handleDragEnd}
-                                          className={`relative size-16 rounded-lg border border-white/20 cursor-grab active:cursor-grabbing transition-opacity shrink-0 ${
+                                          draggable={bulkReviewPhase === "review"}
+                                          onDragStart={bulkReviewPhase === "review" ? () => handleDragStart(imgIdx, groupIdx) : undefined}
+                                          onDragEnd={bulkReviewPhase === "review" ? handleDragEnd : undefined}
+                                          className={`relative size-16 rounded-lg border border-white/20 transition-opacity shrink-0 ${
+                                            bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
+                                          } ${
                                             isDragging ? "opacity-40" : "opacity-100"
                                           }`}
                                         >
@@ -2313,7 +2449,7 @@ export default function App() {
                                             className="size-full object-cover rounded-lg"
                                             draggable={false}
                                           />
-                                          {bulkReviewPhase !== "reason" && (
+                                          {bulkReviewPhase === "review" && (
                                             <button
                                               type="button"
                                               aria-label={`Delete photo ${imgIdx + 1}`}
@@ -2342,6 +2478,19 @@ export default function App() {
                                   {bulkReviewPhase === "reason" ? (
                                     <p className="text-xs text-white text-center mt-1">
                                       {[brandHints[groupIdx], names[groupIdx]].filter(Boolean).join(" ") || "—"}
+                                    </p>
+                                  ) : bulkReviewPhase === "cards" || bulkReviewPhase === "pickup" ? (
+                                    /*
+                                      Step 4 / Step 5: show the bulk item's actual
+                                      Title (auto-generated by AI or edited by
+                                      the user in the form). Falls back to the
+                                      seller-typed hints if the bulk item
+                                      hasn't loaded yet (e.g., regenerate flow).
+                                    */
+                                    <p className="text-xs text-white text-center mt-1">
+                                      {formatTitle(bulkItems[groupIdx]?.brand, bulkItems[groupIdx]?.name)
+                                        || [brandHints[groupIdx], names[groupIdx]].filter(Boolean).join(" ")
+                                        || "—"}
                                     </p>
                                   ) : (
                                     <div className="flex items-start gap-3 w-full justify-center">
@@ -2412,37 +2561,47 @@ export default function App() {
                             (handled in handleImageUpload) so newly added photos
                             don't desync from existing groupings.
                           */}
-                          <div className="ml-auto self-center shrink-0 flex flex-col gap-1">
-                            <button
-                              onClick={() => fileInputRef.current?.click()}
-                              className="size-8 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
-                              aria-label="Add more photos"
-                            >
-                              <Plus className="size-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
-                                setUploadedImages([]);
-                                setProductDetails(null);
-                                setBulkItems([]);
-                                setBulkReviewPhase(null);
-                                setCurrentCardIndex(0);
-                                setNewTag("");
-                                setGroupingsModified(false);
-                                setModifiedGroupIndices(new Set());
-                                setSegmentation(null);
-                                setBrandHints([]);
-                                setNames([]);
-                                setRationale("");
-                                setRationaleOther("");
-                                setSegmentationError(null);
-                              }}
-                              className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
-                            >
-                              Clear all
-                            </button>
-                          </div>
+                          {/*
+                            +Add / Clear all live only at Step 2 ("review").
+                            From Step 3 onward, the question content is anchored
+                            to the locked groupings — adding or removing photos
+                            would invalidate the seller's typed answers and
+                            (at Step 4) the AI-generated listings.
+                          */}
+                          {bulkReviewPhase === "review" && (
+                            <div className="ml-auto self-center shrink-0 flex flex-col gap-1">
+                              <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="size-8 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
+                                aria-label="Add more photos"
+                              >
+                                <Plus className="size-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
+                                  setUploadedImages([]);
+                                  setProductDetails(null);
+                                  setBulkItems([]);
+                                  setBulkReviewPhase(null);
+                                  setCurrentCardIndex(0);
+                                  setNewTag("");
+                                  setGroupingsModified(false);
+                                  setModifiedGroupIndices(new Set());
+                                  setSegmentation(null);
+                                  setBrandHints([]);
+                                  setNames([]);
+                                  setRationale("");
+                                  setRationaleOther("");
+                                  setBulkPickupLocation("");
+                                  setSegmentationError(null);
+                                }}
+                                className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                              >
+                                Clear all
+                              </button>
+                            </div>
+                          )}
                         </div>
                         </>
                       ) : bulkReviewPhase && bulkItems.length > 0 ? (
@@ -2556,6 +2715,7 @@ export default function App() {
                                 setNames([]);
                                 setRationale("");
                                 setRationaleOther("");
+                                setBulkPickupLocation("");
                                 setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
@@ -2606,6 +2766,7 @@ export default function App() {
                                 setNames([]);
                                 setRationale("");
                                 setRationaleOther("");
+                                setBulkPickupLocation("");
                                 setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
@@ -2661,7 +2822,7 @@ export default function App() {
                     keyframe class drives the entry animation. CSS only,
                     no animation library.
                   */}
-                  {(bulkReviewPhase === "review" || bulkReviewPhase === "reason") && !isGenerating && segmentation && (
+                  {(bulkReviewPhase === "review" || bulkReviewPhase === "reason" || bulkReviewPhase === "pickup") && !isGenerating && segmentation && (
                     <div
                       key={bulkReviewPhase}
                       className="mt-4 wizard-step-enter"
@@ -2688,7 +2849,7 @@ export default function App() {
                         >
                           {`Continue (${segmentation.groupings.length} ${segmentation.groupings.length === 1 ? "item" : "items"})`}
                         </Button>
-                      ) : (
+                      ) : bulkReviewPhase === "reason" ? (
                         // Step 3 — rationale radio group + Generate trigger.
                         <div className="p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
                           <div className="space-y-2">
@@ -2752,6 +2913,43 @@ export default function App() {
                               <Loader2 className="size-4 animate-spin" />
                             ) : (
                               `Generate Listings (${segmentation.groupings.length})`
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                        // Step 5 — pickup confirmation. Single text input prefilled
+                        // from user.pickup_address. "Post all" applies the value as
+                        // a default to every bulk item that hasn't set its own
+                        // per-card pickup override, then fires the existing bulk
+                        // post pipeline.
+                        <div className="space-y-4 max-w-md mx-auto">
+                          <div>
+                            <label className="text-xs text-white/40 uppercase tracking-wider">Pickup location</label>
+                            <Input
+                              value={bulkPickupLocation}
+                              onChange={(e) => setBulkPickupLocation(e.target.value)}
+                              placeholder="e.g. Lower East Side, NYC"
+                              maxLength={200}
+                              className="mt-1 bg-white/5 border-white/20 text-white"
+                            />
+                            <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                              Your address will not be shared until pickup is confirmed.
+                            </p>
+                          </div>
+                          <Button
+                            onClick={() => {
+                              if (!isAuthenticated) { setPage("signin"); return; }
+                              handleBulkPostFromPickupStep();
+                            }}
+                            disabled={isPostingBulk}
+                            className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {isPostingBulk ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : isAuthenticated ? (
+                              `Post all (${bulkItems.length})`
+                            ) : (
+                              "Sign in to Post"
                             )}
                           </Button>
                         </div>
@@ -2886,79 +3084,6 @@ export default function App() {
                           </form>
                         </div>
                       </div>
-                      {/* Post To */}
-                      <div>
-                        <label className="text-xs text-white/40 uppercase tracking-wider">Post to</label>
-                        {/* Visibility toggle */}
-                        <div className="mt-2 flex gap-2">
-                          <button
-                            onClick={() => { setPostVisibility("public"); setSelectedPostPrivateCommunities([]); }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
-                              postVisibility === "public"
-                                ? "bg-cyan-500/15 border-cyan-400/40 text-cyan-300"
-                                : "bg-white/5 border-white/20 text-white/40"
-                            }`}
-                          >
-                            <Globe className="size-3.5 inline mr-1.5" />Public
-                          </button>
-                          <button
-                            onClick={() => { setPostVisibility("private"); }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
-                              postVisibility === "private"
-                                ? "bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-300"
-                                : "bg-white/5 border-white/20 text-white/40"
-                            }`}
-                          >
-                            <Lock className="size-3.5 inline mr-1.5" />Private
-                          </button>
-                        </div>
-                        {/* Community selection */}
-                        <div className="mt-2 space-y-2">
-                          {postVisibility === "public" ? (
-                            <div className="p-4 rounded-lg bg-cyan-500/5 border border-cyan-400/20 text-center">
-                              <Globe className="size-5 text-cyan-400 mx-auto mb-2" />
-                              <p className="text-sm text-cyan-300 font-medium">Available to all users</p>
-                              <p className="text-xs text-white/40 mt-1 leading-relaxed">
-                                Your listing will appear in the public market. Buyers who share communities with you will be prioritized.
-                              </p>
-                            </div>
-                          ) : (
-                            <>
-                              {privateCommunities.length > 0 ? privateCommunities.map((community) => {
-                                const isSelected = selectedPostPrivateCommunities.includes(community.id);
-                                return (
-                                  <button
-                                    key={String(community.id)}
-                                    onClick={() =>
-                                      setSelectedPostPrivateCommunities((prev) =>
-                                        isSelected ? prev.filter((c) => c !== community.id) : [...prev, community.id]
-                                      )
-                                    }
-                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                                      isSelected
-                                        ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
-                                        : "bg-white/5 border-white/20 text-white/40"
-                                    }`}
-                                  >
-                                    <Lock className="size-4 shrink-0" />
-                                    <span className="flex-1">{community.name}</span>
-                                    {community.neighborhood && (
-                                      <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
-                                        <MapPin className="size-3" />
-                                        {community.neighborhood}
-                                      </span>
-                                    )}
-                                  </button>
-                                );
-                              }) : (
-                                <p className="text-xs text-white/30 text-center py-3">You haven't joined any private communities yet.</p>
-                              )}
-                              <p className="text-[10px] text-white/30 mt-1">Members who share these communities will be prioritized.</p>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
                       {/* Pickup Location */}
                       <div className="mt-3">
                         <label className="text-xs text-white/40 uppercase tracking-wider">Pickup Location</label>
@@ -2982,8 +3107,7 @@ export default function App() {
                           if (!isAuthenticated) { setPage("signin"); return; }
                           setShowPostConfirm(true);
                         }}
-                        disabled={postVisibility === "private" && selectedPostPrivateCommunities.length === 0}
-                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${(postVisibility === "private" && selectedPostPrivateCommunities.length === 0) ? "opacity-40 cursor-not-allowed" : ""}`}
+                        className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2"
                       >
                         {isAuthenticated ? "Post Listing" : "Sign in to Post"}
                       </Button>
@@ -2999,12 +3123,6 @@ export default function App() {
                           <span className="text-white/40">
                             Item {currentCardIndex + 1} of {bulkItems.length}
                           </span>
-                          <button
-                            onClick={() => setBulkReviewPhase(null)}
-                            className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
-                          >
-                            + Add Photos
-                          </button>
                         </div>
                         <div className="flex gap-1">
                           {bulkItems.map((_, i) => (
@@ -3024,7 +3142,14 @@ export default function App() {
 
                       {/* Card content */}
                       <div className="p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
-                        {/* Item images + add photo */}
+                        {/*
+                          Step 4 image strip — read-only thumbnails. Adding or
+                          removing photos here would change the locked groupings
+                          and invalidate the AI-generated listing content, so
+                          the +Add button and per-photo delete X are intentionally
+                          omitted at this stage. To change groupings, the user
+                          goes back to Step 2.
+                        */}
                         <div className="flex items-center gap-2 mb-1">
                           {bulkItems[currentCardIndex].imageIndices.map((imgIdx) => (
                             <div key={imgIdx} className="relative">
@@ -3033,23 +3158,8 @@ export default function App() {
                                 alt="Item"
                                 className="size-16 object-cover rounded-lg border border-white/20"
                               />
-                              <button
-                                type="button"
-                                aria-label={`Delete photo ${imgIdx + 1}`}
-                                onMouseDown={handleDeletePhotoMouseDown}
-                                onClick={handleDeletePhotoClick(imgIdx)}
-                                className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
-                              >
-                                <X className="size-3" />
-                              </button>
                             </div>
                           ))}
-                          <button
-                            onClick={() => bulkPhotoInputRef.current?.click()}
-                            className="size-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
-                          >
-                            <Plus className="size-5" />
-                          </button>
                           <input
                             ref={bulkPhotoInputRef}
                             type="file"
@@ -3090,23 +3200,40 @@ export default function App() {
                             </div>
                           </div>
                         )}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="text-xs text-white/40 uppercase tracking-wider">Brand</label>
-                            <Input
-                              value={bulkItems[currentCardIndex].brand}
-                              onChange={(e) => updateBulkItem(currentCardIndex, "brand", e.target.value)}
-                              className="mt-1 bg-white/5 border-white/20 text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-white/40 uppercase tracking-wider">Name</label>
-                            <Input
-                              value={bulkItems[currentCardIndex].name}
-                              onChange={(e) => updateBulkItem(currentCardIndex, "name", e.target.value)}
-                              className="mt-1 bg-white/5 border-white/20 text-white"
-                            />
-                          </div>
+                        {/*
+                          Step 4 review surface: collapse Brand + Name into a
+                          single Title input. On edit, split back into brand +
+                          name using brand-prefix logic — if the typed title
+                          still starts with the existing brand (case-insensitive),
+                          strip the prefix to update name and keep brand. Otherwise
+                          the full title becomes name and brand is cleared.
+                          formatTitle stays the canonical display helper.
+                        */}
+                        <div>
+                          <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
+                          <Input
+                            value={formatTitle(bulkItems[currentCardIndex].brand, bulkItems[currentCardIndex].name)}
+                            onChange={(e) => {
+                              const newTitle = e.target.value;
+                              const currentBrand = (bulkItems[currentCardIndex].brand || "").trim();
+                              setBulkItems((prev) => {
+                                const updated = [...prev];
+                                const item = { ...updated[currentCardIndex] };
+                                if (
+                                  currentBrand &&
+                                  newTitle.toLowerCase().startsWith(currentBrand.toLowerCase() + " ")
+                                ) {
+                                  item.name = newTitle.slice(currentBrand.length + 1).trim();
+                                } else {
+                                  item.name = newTitle;
+                                  item.brand = "";
+                                }
+                                updated[currentCardIndex] = item;
+                                return updated;
+                              });
+                            }}
+                            className="mt-1 bg-white/5 border-white/20 text-white"
+                          />
                         </div>
                         <div>
                           <label className="text-xs text-white/40 uppercase tracking-wider">Description</label>
@@ -3233,224 +3360,23 @@ export default function App() {
                             if (currentCardIndex < bulkItems.length - 1) {
                               setCurrentCardIndex((prev) => prev + 1);
                             } else {
-                              setBulkReviewPhase("summary");
+                              // Step 4 → Step 5 transition. Match the same
+                              // fade+slide pattern used by other wizard
+                              // transitions (review → reason, reason → cards).
+                              setInstructionExiting(true);
+                              setTimeout(() => {
+                                startTransition(() => {
+                                  setInstructionExiting(false);
+                                  setBulkReviewPhase("pickup");
+                                });
+                              }, 300);
                             }
                           }}
                           className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
                         >
-                          {currentCardIndex < bulkItems.length - 1 ? "Next Item" : "Review All"}
+                          {currentCardIndex < bulkItems.length - 1 ? "Next Item" : "Continue"}
                         </Button>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Bulk Summary View */}
-                  {bulkReviewPhase === "summary" && !isGenerating && bulkItems.length > 0 && (
-                    <div className="mt-6 space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-white/80">
-                          {bulkItems.length} items ready to post
-                        </h3>
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => setBulkReviewPhase(null)}
-                            className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
-                          >
-                            + Add Photos
-                          </button>
-                          <button
-                            onClick={() => { setBulkReviewPhase("cards"); setCurrentCardIndex(0); }}
-                            className="text-xs text-fuchsia-400 hover:text-fuchsia-300 transition-colors"
-                          >
-                            Edit Items
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 max-h-80 overflow-y-auto">
-                        {bulkItems.map((item, idx) => {
-                          const itemImages = item.imageIndices
-                            .map((imgIdx) => uploadedImages[imgIdx]?.preview)
-                            .filter(Boolean);
-                          return (
-                            <div
-                              key={idx}
-                              className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors group cursor-pointer"
-                              onClick={() => { setCurrentCardIndex(idx); setBulkReviewPhase("cards"); }}
-                            >
-                              <div className="shrink-0">
-                                <ListingImageCarousel
-                                  images={itemImages.length > 0 ? itemImages : [""]}
-                                  alt={formatTitle(item.brand, item.name)}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="text-lg font-medium truncate pr-10 text-left">{formatTitle(item.brand, item.name)}</h3>
-                                <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
-                                  <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{item.condition}</span>
-                                </div>
-                                {/* Seller */}
-                                {user?.display_name && (
-                                  <div className="flex items-center gap-2 mt-2">
-                                    <div className="size-5 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
-                                      {user?.profile_picture ? (
-                                        <img src={user.profile_picture} alt="" className="size-full object-cover" />
-                                      ) : (
-                                        <User className="size-2.5 text-white/50" />
-                                      )}
-                                    </div>
-                                    <span className="text-xs text-white/50">{user.display_name}</span>
-                                  </div>
-                                )}
-                                {/* Community tags preview */}
-                                {(() => {
-                                  const previewCommunities = postVisibility === "public"
-                                    ? publicCommunities
-                                    : privateCommunities.filter(c => selectedPostPrivateCommunities.includes(c.id));
-                                  const neighborhoodName = user?.neighborhood;
-                                  const hasNeighborhood = postVisibility === "public" && !!neighborhoodName;
-                                  if (!hasNeighborhood && previewCommunities.length === 0) return null;
-                                  return (
-                                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                      {hasNeighborhood && (
-                                        <span className="px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border bg-white/5 border-white/10 text-white/30">
-                                          <MapPin className="size-2.5" />{neighborhoodName}
-                                        </span>
-                                      )}
-                                      {hasNeighborhood && previewCommunities.length > 0 && (
-                                        <span className="text-white/15 text-xs">|</span>
-                                      )}
-                                      {previewCommunities.map((c, i) => (
-                                        <span key={i} className="px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border bg-white/5 border-white/10 text-white/30">
-                                          {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                              <div className="flex flex-col items-center justify-center gap-1.5 shrink-0">
-                                <span className="text-lg font-semibold text-fuchsia-400">${item.price}</span>
-                              </div>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); deleteBulkItem(idx); }}
-                                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all p-1"
-                                title="Remove item"
-                              >
-                                <X className="size-4" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Community selector */}
-                      <div>
-                        <label className="text-xs text-white/40 uppercase tracking-wider">Post all to</label>
-                        {/* Visibility toggle */}
-                        <div className="mt-2 flex gap-2">
-                          <button
-                            onClick={() => { setPostVisibility("public"); setSelectedPostPrivateCommunities([]); }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
-                              postVisibility === "public"
-                                ? "bg-cyan-500/15 border-cyan-400/40 text-cyan-300"
-                                : "bg-white/5 border-white/20 text-white/40"
-                            }`}
-                          >
-                            <Globe className="size-3.5 inline mr-1.5" />Public
-                          </button>
-                          <button
-                            onClick={() => { setPostVisibility("private"); }}
-                            className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-all ${
-                              postVisibility === "private"
-                                ? "bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-300"
-                                : "bg-white/5 border-white/20 text-white/40"
-                            }`}
-                          >
-                            <Lock className="size-3.5 inline mr-1.5" />Private
-                          </button>
-                        </div>
-                        {/* Community selection */}
-                        <div className="mt-2 space-y-2">
-                          {postVisibility === "public" ? (
-                            <div className="p-4 rounded-lg bg-cyan-500/5 border border-cyan-400/20 text-center">
-                              <Globe className="size-5 text-cyan-400 mx-auto mb-2" />
-                              <p className="text-sm text-cyan-300 font-medium">Available to all users</p>
-                              <p className="text-xs text-white/40 mt-1 leading-relaxed">
-                                Your listings will appear in the public market. Buyers who share communities with you will be prioritized.
-                              </p>
-                            </div>
-                          ) : (
-                            <>
-                              {privateCommunities.length > 0 ? privateCommunities.map((community) => {
-                                const isSelected = selectedPostPrivateCommunities.includes(community.id);
-                                return (
-                                  <button
-                                    key={String(community.id)}
-                                    onClick={() =>
-                                      setSelectedPostPrivateCommunities((prev) =>
-                                        isSelected ? prev.filter((c) => c !== community.id) : [...prev, community.id]
-                                      )
-                                    }
-                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-sm text-left transition-all ${
-                                      isSelected
-                                        ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-300"
-                                        : "bg-white/5 border-white/20 text-white/40"
-                                    }`}
-                                  >
-                                    <Lock className="size-4 shrink-0" />
-                                    <span className="flex-1">{community.name}</span>
-                                    {community.neighborhood && (
-                                      <span className={`text-xs flex items-center gap-1 ${isSelected ? "text-fuchsia-400/50" : "text-white/30"}`}>
-                                        <MapPin className="size-3" />
-                                        {community.neighborhood}
-                                      </span>
-                                    )}
-                                  </button>
-                                );
-                              }) : (
-                                <p className="text-xs text-white/30 text-center py-3">You haven't joined any private communities yet.</p>
-                              )}
-                              <p className="text-[10px] text-white/30 mt-1">Members who share these communities will be prioritized.</p>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Pickup Location */}
-                      <div className="mt-3">
-                        <label className="text-xs text-white/40 uppercase tracking-wider">Pickup Location</label>
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
-                          <input
-                            type="text"
-                            value={postPickupLocation}
-                            onChange={(e) => setPostPickupLocation(e.target.value)}
-                            placeholder="Enter pickup location"
-                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20"
-                          />
-                        </div>
-                        <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
-                          Your address will not be shared until pickup is confirmed.
-                        </p>
-                      </div>
-
-                      <Button
-                        onClick={() => {
-                          if (!isAuthenticated) { setPage("signin"); return; }
-                          setShowPostConfirm(true);
-                        }}
-                        disabled={(postVisibility === "private" && selectedPostPrivateCommunities.length === 0) || isPostingBulk}
-                        className={`w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2 ${(postVisibility === "private" && selectedPostPrivateCommunities.length === 0) ? "opacity-40 cursor-not-allowed" : ""}`}
-                      >
-                        {isPostingBulk ? (
-                          <Loader2 className="size-5 animate-spin" />
-                        ) : isAuthenticated ? (
-                          `Post All ${bulkItems.length} Listings`
-                        ) : (
-                          "Sign in to Post"
-                        )}
-                      </Button>
                     </div>
                   )}
 
@@ -4342,14 +4268,12 @@ export default function App() {
               <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
                 <AlertTriangle className="size-5 text-fuchsia-400" />
               </div>
-              <h3 className="text-lg font-medium">Confirm {bulkReviewPhase === "summary" ? "Bulk " : ""}Listing</h3>
+              <h3 className="text-lg font-medium">Confirm Listing</h3>
             </div>
 
             <div className="space-y-4 mb-6">
               <p className="text-sm text-white/90 font-semibold">
-                By confirming, you agree to make {bulkReviewPhase === "summary"
-                  ? `these ${bulkItems.length} items`
-                  : "this item"} available for pickup within 7 days.
+                By confirming, you agree to make this item available for pickup within 7 days.
               </p>
 
               <label className="flex items-start gap-3 cursor-pointer group">
@@ -4387,15 +4311,11 @@ export default function App() {
                 onClick={() => {
                   setShowPostConfirm(false);
                   setAcceptedTerms(false);
-                  if (bulkReviewPhase === "summary") {
-                    handleBulkPostListing();
-                  } else {
-                    handlePostListing();
-                  }
+                  handlePostListing();
                 }}
                 className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {bulkReviewPhase === "summary" ? `Confirm & Post All (${bulkItems.length})` : "Confirm & Post"}
+                Confirm & Post
               </Button>
             </div>
           </div>
