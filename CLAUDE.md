@@ -159,6 +159,23 @@ Sequential dispatch (ANY condition triggers):
 
 ---
 
+## Tech Debt Advisory
+
+Always surface technical debt opportunities to the user, even when not directly asked. When you encounter any of the following while doing other work, name it explicitly and recommend an action (separate PR, scheduled cleanup agent, memory cleanup, etc.):
+
+- Stale tests, evals, or canaries pointing at endpoints/contracts that no longer exist
+- Memory entries (`~/.claude/projects/.../memory/*.md`) referencing deprecated code paths, removed features, or outdated baselines
+- Dead code: unused imports, unreferenced functions, commented-out blocks, abandoned migration scripts
+- Schema drift: columns/tables/indexes the code no longer reads or writes
+- Duplicate logic across files that has diverged (e.g., parallel implementations of the same modal, validator, or formatter)
+- Legacy API shims or transitional bridges left in after a migration completed
+- Comments referencing tickets, issues, or work items that have shipped or been abandoned
+- Hardcoded values that should be config, or config that's only set in one environment
+
+Do not silently fix these — name them, recommend the cleanup path, and let the user decide whether to bundle into the current PR or schedule separately. Prefer a separate PR or `/schedule` agent over scope creep.
+
+---
+
 ## What NOT To Do
 
 - Do not use `any` in TypeScript
