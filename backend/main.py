@@ -313,7 +313,10 @@ def _build_segmentation_prompt(n: int) -> str:
         "Some photos may show the same item from different angles; others may show distinct items.\n\n"
         "Group the images by which depict the same physical item. Return ONLY a JSON array. "
         f"Each element is an array of image indices that belong together. Every index 0..{n - 1} must appear in exactly one group.\n\n"
-        "Examples: 3 angles of one chair → [[0, 1, 2]]; chair + lamp → [[0], [1]].\n\n"
+        "IMPORTANT: Err strongly on the side of SEPARATING items. Only group images together if you are highly confident "
+        "they show the exact same physical object (e.g., multiple angles of the same chair). "
+        "If two photos show different types of objects (e.g., a laptop and a coffee table), they MUST be in separate groups.\n\n"
+        "Examples: 3 angles of one chair → [[0, 1, 2]]; chair + lamp → [[0], [1]]; laptop + table + treadmill → [[0], [1], [2]].\n\n"
         "Return ONLY the JSON array. No commentary, no fences."
     )
 
@@ -380,7 +383,7 @@ def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[Vis
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=256,
             messages=[{"role": "user", "content": content}],
         )

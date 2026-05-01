@@ -2,7 +2,7 @@ import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCir
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
-import React, { useState, useEffect, useRef, Fragment, startTransition } from "react";
+import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
@@ -185,6 +185,243 @@ function TypedInstruction({ bulkReviewPhase, exiting }: {
   );
 }
 
+function wrapAt(text: string, maxLen = 20): string {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (!current) {
+      current = word;
+    } else if ((current + " " + word).length <= maxLen) {
+      current += " " + word;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join("\n");
+}
+
+// ─── GroupCard ────────────────────────────────────────────────────────────────
+// Memoized so typing in one group's brand/name input only re-renders that card,
+// not the entire grid.
+const GroupCard = memo(function GroupCard({
+  group, groupIdx, isDropTarget, isActiveCard, dragImageState,
+  uploadedImages, imageUrls, bulkReviewPhase, brandHint, nameHint, bulkItemTitle,
+  onDragOver, onDragLeave, onDrop, onDragStart, onDragEnd,
+  onDeleteMouseDown, onDeleteClick, onBrandChange, onNameChange, onCardSelect,
+}: {
+  group: number[];
+  groupIdx: number;
+  isDropTarget: boolean;
+  isActiveCard: boolean;
+  dragImageState: { imageIndex: number; sourceGroup: number } | null;
+  uploadedImages: { file?: File; preview: string }[];
+  imageUrls: string[];
+  bulkReviewPhase: "review" | "reason" | "cards" | "summary" | "pickup" | null;
+  brandHint: string;
+  nameHint: string;
+  bulkItemTitle: string;
+  onDragOver: (e: React.DragEvent, groupIndex: number) => void;
+  onDragLeave: () => void;
+  onDrop: (groupIndex: number) => void;
+  onDragStart: (imageIndex: number, sourceGroup: number) => void;
+  onDragEnd: () => void;
+  onDeleteMouseDown: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onDeleteClick: (index: number) => void;
+  onBrandChange: (groupIdx: number, value: string) => void;
+  onNameChange: (groupIdx: number, value: string) => void;
+  onCardSelect: (groupIdx: number) => void;
+}) {
+  return (
+    <div
+      className={`inline-flex flex-col items-center gap-1 rounded-lg p-1 transition-colors ${
+        bulkReviewPhase === "review" && isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
+      } ${
+        bulkReviewPhase === "cards" || bulkReviewPhase === "pickup"
+          ? `cursor-pointer hover:bg-white/5 ${isActiveCard ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""}`
+          : ""
+      }`}
+      onClick={bulkReviewPhase === "cards" || bulkReviewPhase === "pickup" ? () => onCardSelect(groupIdx) : undefined}
+      onDragOver={bulkReviewPhase === "review" ? (e) => onDragOver(e, groupIdx) : undefined}
+      onDragLeave={bulkReviewPhase === "review" ? onDragLeave : undefined}
+      onDrop={bulkReviewPhase === "review" ? () => onDrop(groupIdx) : undefined}
+    >
+      <span className="text-xs text-white/40 leading-none pl-0.5">{groupIdx + 1}</span>
+      <div className="flex flex-nowrap items-center gap-1">
+        {group.map((imgIdx) => {
+          const img = uploadedImages[imgIdx];
+          const previewSrc = img?.preview || imageUrls[imgIdx];
+          if (!previewSrc) return null;
+          const isDragging = dragImageState?.imageIndex === imgIdx;
+          return (
+            <div
+              key={imgIdx}
+              draggable={bulkReviewPhase === "review"}
+              onDragStart={bulkReviewPhase === "review" ? () => onDragStart(imgIdx, groupIdx) : undefined}
+              onDragEnd={bulkReviewPhase === "review" ? onDragEnd : undefined}
+              className={`relative size-16 rounded-lg border border-white/20 transition-opacity shrink-0 ${
+                bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
+              } ${isDragging ? "opacity-40" : "opacity-100"}`}
+            >
+              <img src={previewSrc} alt={`Photo ${imgIdx + 1}`} className="size-full object-cover rounded-lg" draggable={false} />
+              {bulkReviewPhase === "review" && (
+                <button
+                  type="button"
+                  aria-label={`Delete photo ${imgIdx + 1}`}
+                  onMouseDown={onDeleteMouseDown}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteClick(imgIdx); }}
+                  className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {bulkReviewPhase === "reason" ? (
+        <p className="text-xs text-white text-center mt-1">
+          {[brandHint, nameHint].filter(Boolean).join(" ") || "—"}
+        </p>
+      ) : bulkReviewPhase === "cards" || bulkReviewPhase === "pickup" ? (
+        <p className="text-xs text-white text-center mt-1 whitespace-pre-line">{bulkItemTitle ? wrapAt(bulkItemTitle) : "—"}</p>
+      ) : (
+        <div className="flex items-start gap-3 w-full justify-center">
+          <div className="flex flex-col items-center gap-0.5">
+            <input
+              id={`brand-hint-${groupIdx}`}
+              type="text"
+              value={brandHint ?? ""}
+              onChange={(e) => onBrandChange(groupIdx, e.target.value)}
+              placeholder="—"
+              maxLength={80}
+              aria-label={`Brand for item ${groupIdx + 1}`}
+              style={{ fieldSizing: "content" } as React.CSSProperties}
+              className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
+            />
+            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Brand</label>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <input
+              id={`name-hint-${groupIdx}`}
+              type="text"
+              value={nameHint ?? ""}
+              onChange={(e) => onNameChange(groupIdx, e.target.value)}
+              placeholder="—"
+              maxLength={120}
+              aria-label={`Name for item ${groupIdx + 1}`}
+              style={{ fieldSizing: "content" } as React.CSSProperties}
+              className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
+            />
+            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Name</label>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ─── NotificationItem ─────────────────────────────────────────────────────────
+// Memoized so unrelated state changes in App don't re-render the notification
+// list. countdownTick is only passed as non-zero for address_released items so
+// the 60s timer only re-renders those rows.
+const NotificationItem = memo(function NotificationItem({
+  n, countdownTick, onOpenUserDashboard, onAction, onClick, onConfirmPickup,
+}: {
+  n: { id: number; type: string; message: string; is_read: boolean; related_user_id: number | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null };
+  countdownTick: number;
+  onOpenUserDashboard: (userId: number) => void;
+  onAction: (id: number, action: "accept" | "reject") => void;
+  onClick: () => void;
+  onConfirmPickup: () => void;
+}) {
+  const countdownContent = useMemo(() => {
+    if (n.type !== "address_released" || !n.message.includes("||")) return null;
+    void countdownTick;
+    const parts = n.message.split("||");
+    const baseText = parts[0];
+    const pickupTimeDisplay = parts[1] || "";
+    const targetIso = parts[2] || "";
+    const target = new Date(targetIso);
+    const diff = target.getTime() - Date.now();
+    if (diff > 0) {
+      const days = Math.floor(diff / 86400000);
+      const hours = Math.floor((diff % 86400000) / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const label = days > 0 ? `${days}d ${hours}h ${mins}m` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      return <>{baseText} <span className="text-cyan-400 font-semibold">{label}</span> until pickup at {pickupTimeDisplay}.</>;
+    }
+    return <>{baseText}</>;
+  }, [n, countdownTick]);
+
+  const isPickupReady = useMemo(() => {
+    if (n.type !== "address_released" || !n.message.includes("||")) return false;
+    void countdownTick;
+    const targetIso = n.message.split("||")[2] || "";
+    const target = new Date(targetIso);
+    return !isNaN(target.getTime()) && Date.now() >= target.getTime();
+  }, [n, countdownTick]);
+
+  const isClickable = n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated" || n.type === "order_completed" || n.type === "order_expired";
+
+  return (
+    <div
+      className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${n.is_read ? "opacity-40" : ""} ${isClickable && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
+      onClick={onClick}
+    >
+      {n.type === "join_request" && n.related_user_picture ? (
+        <img src={n.related_user_picture} alt="" className="size-7 rounded-full object-cover shrink-0 mt-0.5" />
+      ) : (
+        <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+          n.type === "join_request" ? "bg-amber-500/15" :
+          n.type === "purchase" || n.type === "order_updated" ? "bg-cyan-500/15" :
+          n.type === "order_declined" || n.type === "order_cancelled" ? "bg-red-500/15" :
+          n.type === "order_withdrawn" || n.type === "order_expired" ? "bg-amber-500/15" :
+          n.type === "order_completed" || n.type === "review_submitted" ? "bg-fuchsia-500/15" :
+          "bg-green-500/15"
+        }`}>
+          {n.type === "join_request" ? <UserPlus className="size-3.5 text-amber-400" /> :
+           n.type === "purchase" || n.type === "order_updated" ? <ShoppingBag className="size-3.5 text-cyan-400" /> :
+           n.type === "order_declined" || n.type === "order_cancelled" ? <XCircle className="size-3.5 text-red-400" /> :
+           n.type === "order_withdrawn" || n.type === "order_expired" ? <XCircle className="size-3.5 text-amber-400" /> :
+           n.type === "order_completed" ? <CheckCircle className="size-3.5 text-fuchsia-400" /> :
+           n.type === "review_submitted" ? <Star className="size-3.5 text-fuchsia-400" /> :
+           n.type === "address_released" ? <MapPin className="size-3.5 text-green-400" /> :
+           <CheckCircle className="size-3.5 text-green-400" />}
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className={`text-xs leading-relaxed ${n.is_read ? "text-white/60" : "text-white font-medium"}`}>
+          {n.type === "join_request" && n.related_user_name ? (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); n.related_user_id && onOpenUserDashboard(n.related_user_id); }} className="font-medium text-white hover:underline">
+                {n.related_user_name}
+              </button>
+              {" "}{n.message.replace(n.related_user_name, "").trimStart()}
+            </>
+          ) : countdownContent ?? n.message}
+        </p>
+        {n.type === "join_request" && n.join_request_status === "pending" && (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <button onClick={() => onAction(n.id, "accept")} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors"><Check className="size-3" />Accept</button>
+            <button onClick={() => onAction(n.id, "reject")} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"><X className="size-3" />Deny</button>
+          </div>
+        )}
+        {n.type === "join_request" && n.join_request_status === "accepted" && <p className="text-[10px] text-green-400 mt-1">Accepted</p>}
+        {n.type === "join_request" && n.join_request_status === "rejected" && <p className="text-[10px] text-red-400 mt-1">Denied</p>}
+        {isPickupReady && (
+          <button onClick={(e) => { e.stopPropagation(); onConfirmPickup(); }} className="flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
+            <CheckCircle className="size-3" />Confirm Pickup
+          </button>
+        )}
+        {n.created_at && <p className="text-[10px] text-white/25 mt-0.5">{new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>}
+      </div>
+    </div>
+  );
+});
+
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
@@ -210,6 +447,7 @@ export default function App() {
 
   const [bulkItems, setBulkItems] = useState<BulkItemDetails[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [editingTitle, setEditingTitle] = useState<string | null>(null);
   // Wizard step state. Step 1 (upload) is `null`; once segmentation lands the
   // user steps through review → reason → cards → pickup (→ summary) in order.
   // Step 5 ("pickup") prompts for a default meet location applied to every
@@ -261,7 +499,7 @@ export default function App() {
   const [marketSort, setMarketSort] = useState("newest");
   const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
-  const filterCommunities = [...publicCommunities, ...privateCommunities];
+  const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
   const [categorySchemas, setCategorySchemas] = useState<Record<string, CategorySchema>>({});
@@ -685,6 +923,8 @@ export default function App() {
     }
   }, [tradeMode]);
 
+  useEffect(() => { setEditingTitle(null); }, [currentCardIndex]);
+
   // Step 5 prefill: when entering the "pickup" phase, default the input to the
   // seller's saved pickup_address — but ONLY if the user hasn't already typed
   // something. Re-entering the step (back from cards → forward again) preserves
@@ -771,7 +1011,7 @@ export default function App() {
    * Idempotent under rapid clicks: each call works on the current state
    * snapshot and React batches updates normally.
    */
-  const deletePhoto = (originalIndex: number) => {
+  const deletePhoto = useCallback((originalIndex: number) => {
     // Snapshot the preview URL up front so we can revoke it after state
     // updates settle. Guard against out-of-range indices (race with a
     // previous click that already shifted the array).
@@ -871,7 +1111,7 @@ export default function App() {
     // Finally update uploadedImages and revoke the freed blob URL.
     URL.revokeObjectURL(removed.preview);
     setUploadedImages(nextImages);
-  };
+  }, [uploadedImages, bulkItems, segmentation, currentCardIndex]);
 
   /**
    * Stable click handler factory for thumbnail delete buttons. Stops
@@ -886,18 +1126,18 @@ export default function App() {
       deletePhoto(originalIndex);
     };
 
-  const handleDeletePhotoMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleDeletePhotoMouseDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
-  };
+  }, []);
 
-  const updateBulkItem = (index: number, field: string, value: unknown) => {
+  const updateBulkItem = useCallback((index: number, field: string, value: unknown) => {
     setBulkItems((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
       return updated;
     });
-  };
+  }, []);
 
   const deleteBulkItem = (index: number) => {
     setBulkItems((prev) => {
@@ -930,14 +1170,34 @@ export default function App() {
     });
   };
 
-  const handleDragStart = (imageIndex: number, sourceGroup: number) => {
-    setDragImageState({ imageIndex, sourceGroup });
-  };
+  const handleGroupDragLeave = useCallback(() => setDragOverGroup(null), []);
+  const handleCardSelect = useCallback((idx: number) => setCurrentCardIndex(idx), []);
+  const handleNotifClick = useCallback((type: string, listingId: string | null) => {
+    const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","review_submitted","address_released","order_completed"].includes(type);
+    const noListing = ["order_declined","order_cancelled","order_expired"].includes(type);
+    if (withListing && listingId) {
+      setNotificationsOpen(false);
+      setPendingListingId(listingId);
+      setPage("account");
+    } else if (noListing) {
+      setNotificationsOpen(false);
+      setPage("account");
+    }
+  }, []);
+  const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
+    setNotificationsOpen(false);
+    if (listingId) setPendingListingId(listingId);
+    setPage("account");
+  }, []);
 
-  const handleGroupDragOver = (e: React.DragEvent, groupIndex: number) => {
+  const handleDragStart = useCallback((imageIndex: number, sourceGroup: number) => {
+    setDragImageState({ imageIndex, sourceGroup });
+  }, []);
+
+  const handleGroupDragOver = useCallback((e: React.DragEvent, groupIndex: number) => {
     e.preventDefault();
     setDragOverGroup(groupIndex);
-  };
+  }, []);
 
   const handleDrop = (targetGroup: number) => {
     setDragOverGroup(null);
@@ -1050,11 +1310,11 @@ export default function App() {
     });
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setDragImageState(null);
     setDragOverGroup(null);
     setDragOverGap(null);
-  };
+  }, []);
 
   // ---- Two-pass review-and-edit listing flow ----
   //
@@ -1304,21 +1564,21 @@ export default function App() {
     setNames(nextNames);
   };
 
-  const updateBrandHint = (groupIdx: number, value: string) => {
+  const updateBrandHint = useCallback((groupIdx: number, value: string) => {
     setBrandHints((prev) => {
       const next = [...prev];
       next[groupIdx] = value;
       return next;
     });
-  };
+  }, []);
 
-  const updateName = (groupIdx: number, value: string) => {
+  const updateName = useCallback((groupIdx: number, value: string) => {
     setNames((prev) => {
       const next = [...prev];
       next[groupIdx] = value;
       return next;
     });
-  };
+  }, []);
 
   const handlePostListing = async () => {
     if (!productDetails || uploadedImages.length === 0) return;
@@ -1852,158 +2112,15 @@ export default function App() {
                             if (!aPin && bPin) return 1;
                             return 0; // preserve original order for ties
                           }).map((n) => (
-                            <div
+                            <NotificationItem
                               key={n.id}
-                              className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${
-                                n.is_read ? "opacity-40" : ""
-                              } ${(n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated" || n.type === "order_completed" || n.type === "order_expired") && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
-                              onClick={() => {
-                                if ((n.type === "purchase" || n.type === "order_withdrawn" || n.type === "order_updated") && n.listing_id) {
-                                  setNotificationsOpen(false);
-                                  if (unreadCount > 0) handleMarkAllRead();
-                                  setPendingListingId(n.listing_id);
-                                  setPage("account");
-                                }
-                                if (n.type === "order_declined" || n.type === "order_cancelled" || n.type === "order_expired") {
-                                  setNotificationsOpen(false);
-                                  if (unreadCount > 0) handleMarkAllRead();
-                                  setPage("account");
-                                }
-                                if ((n.type === "order_confirmed" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_completed") && n.listing_id) {
-                                  setNotificationsOpen(false);
-                                  if (unreadCount > 0) handleMarkAllRead();
-                                  setPendingListingId(n.listing_id);
-                                  setPage("account");
-                                }
-                              }}
-                            >
-                              {n.type === "join_request" && n.related_user_picture ? (
-                                <img src={n.related_user_picture} alt="" className="size-7 rounded-full object-cover shrink-0 mt-0.5" />
-                              ) : (
-                                <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                  n.type === "join_request"
-                                    ? "bg-amber-500/15"
-                                    : n.type === "purchase"
-                                      ? "bg-cyan-500/15"
-                                      : n.type === "order_declined" || n.type === "order_cancelled"
-                                        ? "bg-red-500/15"
-                                        : n.type === "order_withdrawn" || n.type === "order_expired"
-                                          ? "bg-amber-500/15"
-                                          : n.type === "order_updated"
-                                            ? "bg-cyan-500/15"
-                                          : n.type === "order_completed"
-                                            ? "bg-fuchsia-500/15"
-                                          : n.type === "review_submitted"
-                                            ? "bg-fuchsia-500/15"
-                                            : n.type === "address_released"
-                                              ? "bg-green-500/15"
-                                              : "bg-green-500/15"
-                                }`}>
-                                  {n.type === "join_request" ? (
-                                    <UserPlus className="size-3.5 text-amber-400" />
-                                  ) : n.type === "purchase" ? (
-                                    <ShoppingBag className="size-3.5 text-cyan-400" />
-                                  ) : n.type === "order_declined" || n.type === "order_cancelled" ? (
-                                    <XCircle className="size-3.5 text-red-400" />
-                                  ) : n.type === "order_withdrawn" || n.type === "order_expired" ? (
-                                    <XCircle className="size-3.5 text-amber-400" />
-                                  ) : n.type === "order_updated" ? (
-                                    <ShoppingBag className="size-3.5 text-cyan-400" />
-                                  ) : n.type === "order_completed" ? (
-                                    <CheckCircle className="size-3.5 text-fuchsia-400" />
-                                  ) : n.type === "review_submitted" ? (
-                                    <Star className="size-3.5 text-fuchsia-400" />
-                                  ) : n.type === "address_released" ? (
-                                    <MapPin className="size-3.5 text-green-400" />
-                                  ) : (
-                                    <CheckCircle className="size-3.5 text-green-400" />
-                                  )}
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs leading-relaxed ${n.is_read ? "text-white/60" : "text-white font-medium"}`}>
-                                  {n.type === "join_request" && n.related_user_name ? (
-                                    <>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); n.related_user_id && openUserDashboard(n.related_user_id); }}
-                                        className="font-medium text-white hover:underline"
-                                      >
-                                        {n.related_user_name}
-                                      </button>
-                                      {" "}{n.message.replace(n.related_user_name, "").trimStart()}
-                                    </>
-                                  ) : n.type === "address_released" && n.message.includes("||") ? (
-                                    (() => {
-                                      void notifCountdownTick; // force re-render on tick
-                                      const parts = n.message.split("||");
-                                      const baseText = parts[0];
-                                      const pickupTimeDisplay = parts[1] || "";
-                                      const targetIso = parts[2] || "";
-                                      const target = new Date(targetIso);
-                                      const diff = target.getTime() - Date.now();
-                                      if (diff > 0) {
-                                        const days = Math.floor(diff / 86400000);
-                                        const hours = Math.floor((diff % 86400000) / 3600000);
-                                        const mins = Math.floor((diff % 3600000) / 60000);
-                                        const countdownLabel = days > 0 ? `${days}d ${hours}h ${mins}m` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-                                        return <>{baseText} <span className="text-cyan-400 font-semibold">{countdownLabel}</span> until pickup at {pickupTimeDisplay}.</>;
-                                      }
-                                      return <>{baseText}</>;
-                                    })()
-                                  ) : (
-                                    n.message
-                                  )}
-                                </p>
-                                {n.type === "join_request" && n.join_request_status === "pending" && (
-                                  <div className="flex items-center gap-1.5 mt-1.5">
-                                    <button
-                                      onClick={() => handleNotificationAction(n.id, "accept")}
-                                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors"
-                                    >
-                                      <Check className="size-3" />
-                                      Accept
-                                    </button>
-                                    <button
-                                      onClick={() => handleNotificationAction(n.id, "reject")}
-                                      className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"
-                                    >
-                                      <X className="size-3" />
-                                      Deny
-                                    </button>
-                                  </div>
-                                )}
-                                {n.type === "join_request" && n.join_request_status === "accepted" && (
-                                  <p className="text-[10px] text-green-400 mt-1">Accepted</p>
-                                )}
-                                {n.type === "join_request" && n.join_request_status === "rejected" && (
-                                  <p className="text-[10px] text-red-400 mt-1">Denied</p>
-                                )}
-                                {n.type === "address_released" && n.message.includes("||") && (() => {
-                                  const targetIso = n.message.split("||")[2] || "";
-                                  const target = new Date(targetIso);
-                                  return !isNaN(target.getTime()) && Date.now() >= target.getTime();
-                                })() && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setNotificationsOpen(false);
-                                      if (unreadCount > 0) handleMarkAllRead();
-                                      if (n.listing_id) setPendingListingId(n.listing_id);
-                                      setPage("account");
-                                    }}
-                                    className="flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors"
-                                  >
-                                    <CheckCircle className="size-3" />
-                                    Confirm Pickup
-                                  </button>
-                                )}
-                                {n.created_at && (
-                                  <p className="text-[10px] text-white/25 mt-0.5">
-                                    {new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+                              n={n}
+                              countdownTick={n.type === "address_released" ? notifCountdownTick : 0}
+                              onOpenUserDashboard={openUserDashboard}
+                              onAction={handleNotificationAction}
+                              onClick={() => handleNotifClick(n.type, n.listing_id)}
+                              onConfirmPickup={() => handleNotifConfirmPickup(n.listing_id)}
+                            />
                           ))
                         )}
                       </div>
@@ -2393,141 +2510,39 @@ export default function App() {
                         </div>
                         <TypedInstruction bulkReviewPhase={bulkReviewPhase} exiting={instructionExiting} />
                         <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "reason" || bulkReviewPhase === "pickup" ? "opacity-30" : "opacity-100"}`}>
-                          {segmentation.groupings.map((group, groupIdx) => {
-                            const isDropTarget = dragOverGroup === groupIdx;
-                            return (
-                              <Fragment key={groupIdx}>
-                                {groupIdx > 0 && (
-                                  <div
-                                    aria-hidden="true"
-                                    className="self-stretch border-l border-white/10"
-                                  />
-                                )}
-                                <div
-                                  className={`inline-flex flex-col items-center gap-1 rounded-lg p-1 transition-colors ${
-                                    bulkReviewPhase === "review" && isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
-                                  } ${
-                                    bulkReviewPhase === "cards"
-                                      ? `cursor-pointer hover:bg-white/5 ${currentCardIndex === groupIdx ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""}`
-                                      : ""
-                                  }`}
-                                  onClick={
-                                    bulkReviewPhase === "cards"
-                                      ? () => setCurrentCardIndex(groupIdx)
-                                      : undefined
-                                  }
-                                  onDragOver={bulkReviewPhase === "review" ? (e) => handleGroupDragOver(e, groupIdx) : undefined}
-                                  onDragLeave={bulkReviewPhase === "review" ? () => setDragOverGroup(null) : undefined}
-                                  onDrop={bulkReviewPhase === "review" ? () => handleDrop(groupIdx) : undefined}
-                                >
-                                  {/* Minimal group number — small muted text, no card chrome */}
-                                  <span className="text-xs text-white/40 leading-none pl-0.5">
-                                    {groupIdx + 1}
-                                  </span>
-                                  <div className="flex flex-nowrap items-center gap-1">
-                                    {group.map((imgIdx) => {
-                                      const img = uploadedImages[imgIdx];
-                                      const url = segmentation.image_urls[imgIdx];
-                                      const previewSrc = img?.preview || url;
-                                      if (!previewSrc) return null;
-                                      const isDragging = dragImageState?.imageIndex === imgIdx;
-                                      return (
-                                        <div
-                                          key={imgIdx}
-                                          draggable={bulkReviewPhase === "review"}
-                                          onDragStart={bulkReviewPhase === "review" ? () => handleDragStart(imgIdx, groupIdx) : undefined}
-                                          onDragEnd={bulkReviewPhase === "review" ? handleDragEnd : undefined}
-                                          className={`relative size-16 rounded-lg border border-white/20 transition-opacity shrink-0 ${
-                                            bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
-                                          } ${
-                                            isDragging ? "opacity-40" : "opacity-100"
-                                          }`}
-                                        >
-                                          <img
-                                            src={previewSrc}
-                                            alt={`Photo ${imgIdx + 1}`}
-                                            className="size-full object-cover rounded-lg"
-                                            draggable={false}
-                                          />
-                                          {bulkReviewPhase === "review" && (
-                                            <button
-                                              type="button"
-                                              aria-label={`Delete photo ${imgIdx + 1}`}
-                                              onMouseDown={handleDeletePhotoMouseDown}
-                                              onClick={handleDeletePhotoClick(imgIdx)}
-                                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
-                                            >
-                                              <X className="size-3" />
-                                            </button>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  {/*
-                                    Per-cluster identity inputs: brand + name
-                                    sit side-by-side on desktop, stack on
-                                    mobile. Both are optional — the wizard's
-                                    Step 2 "Continue" enables regardless. The
-                                    field-sizing trick keeps each input the
-                                    width of its content with sensible
-                                    min/max bounds. Distinct placeholders so
-                                    users don't accidentally duplicate brand
-                                    into name.
-                                  */}
-                                  {bulkReviewPhase === "reason" ? (
-                                    <p className="text-xs text-white text-center mt-1">
-                                      {[brandHints[groupIdx], names[groupIdx]].filter(Boolean).join(" ") || "—"}
-                                    </p>
-                                  ) : bulkReviewPhase === "cards" || bulkReviewPhase === "pickup" ? (
-                                    /*
-                                      Step 4 / Step 5: show the bulk item's actual
-                                      Title (auto-generated by AI or edited by
-                                      the user in the form). Falls back to the
-                                      seller-typed hints if the bulk item
-                                      hasn't loaded yet (e.g., regenerate flow).
-                                    */
-                                    <p className="text-xs text-white text-center mt-1">
-                                      {formatTitle(bulkItems[groupIdx]?.brand, bulkItems[groupIdx]?.name)
-                                        || [brandHints[groupIdx], names[groupIdx]].filter(Boolean).join(" ")
-                                        || "—"}
-                                    </p>
-                                  ) : (
-                                    <div className="flex items-start gap-3 w-full justify-center">
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <input
-                                          id={`brand-hint-${groupIdx}`}
-                                          type="text"
-                                          value={brandHints[groupIdx] ?? ""}
-                                          onChange={(e) => updateBrandHint(groupIdx, e.target.value)}
-                                          placeholder="—"
-                                          maxLength={80}
-                                          aria-label={`Brand for item ${groupIdx + 1}`}
-                                          style={{ fieldSizing: "content" }}
-                                          className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
-                                        />
-                                        <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Brand</label>
-                                      </div>
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        <input
-                                          id={`name-hint-${groupIdx}`}
-                                          type="text"
-                                          value={names[groupIdx] ?? ""}
-                                          onChange={(e) => updateName(groupIdx, e.target.value)}
-                                          placeholder="—"
-                                          maxLength={120}
-                                          aria-label={`Name for item ${groupIdx + 1}`}
-                                          style={{ fieldSizing: "content" }}
-                                          className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
-                                        />
-                                        <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Name</label>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </Fragment>
-                            );
-                          })}
+                          {segmentation.groupings.map((group, groupIdx) => (
+                            <Fragment key={groupIdx}>
+                              {groupIdx > 0 && (
+                                <div aria-hidden="true" className="self-stretch border-l border-white/10" />
+                              )}
+                              <GroupCard
+                                group={group}
+                                groupIdx={groupIdx}
+                                isDropTarget={dragOverGroup === groupIdx}
+                                isActiveCard={currentCardIndex === groupIdx}
+                                dragImageState={dragImageState}
+                                uploadedImages={uploadedImages}
+                                imageUrls={segmentation.image_urls}
+                                bulkReviewPhase={bulkReviewPhase}
+                                brandHint={brandHints[groupIdx] ?? ""}
+                                nameHint={names[groupIdx] ?? ""}
+                                bulkItemTitle={
+                                  formatTitle(bulkItems[groupIdx]?.brand, bulkItems[groupIdx]?.name)
+                                  || [brandHints[groupIdx], names[groupIdx]].filter(Boolean).join(" ")
+                                }
+                                onDragOver={handleGroupDragOver}
+                                onDragLeave={handleGroupDragLeave}
+                                onDrop={handleDrop}
+                                onDragStart={handleDragStart}
+                                onDragEnd={handleDragEnd}
+                                onDeleteMouseDown={handleDeletePhotoMouseDown}
+                                onDeleteClick={deletePhoto}
+                                onBrandChange={updateBrandHint}
+                                onNameChange={updateName}
+                                onCardSelect={handleCardSelect}
+                              />
+                            </Fragment>
+                          ))}
 
                           {/*
                             End-of-row drop target — creates a new group when a
@@ -3212,17 +3227,17 @@ export default function App() {
                         <div>
                           <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
                           <Input
-                            value={formatTitle(bulkItems[currentCardIndex].brand, bulkItems[currentCardIndex].name)}
-                            onChange={(e) => {
-                              const newTitle = e.target.value;
+                            value={editingTitle ?? formatTitle(bulkItems[currentCardIndex].brand, bulkItems[currentCardIndex].name)}
+                            onFocus={() => setEditingTitle(formatTitle(bulkItems[currentCardIndex].brand, bulkItems[currentCardIndex].name))}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onBlur={() => {
+                              if (editingTitle === null) return;
+                              const newTitle = editingTitle.trim();
                               const currentBrand = (bulkItems[currentCardIndex].brand || "").trim();
                               setBulkItems((prev) => {
                                 const updated = [...prev];
                                 const item = { ...updated[currentCardIndex] };
-                                if (
-                                  currentBrand &&
-                                  newTitle.toLowerCase().startsWith(currentBrand.toLowerCase() + " ")
-                                ) {
+                                if (currentBrand && newTitle.toLowerCase().startsWith(currentBrand.toLowerCase() + " ")) {
                                   item.name = newTitle.slice(currentBrand.length + 1).trim();
                                 } else {
                                   item.name = newTitle;
@@ -3231,6 +3246,7 @@ export default function App() {
                                 updated[currentCardIndex] = item;
                                 return updated;
                               });
+                              setEditingTitle(null);
                             }}
                             className="mt-1 bg-white/5 border-white/20 text-white"
                           />
