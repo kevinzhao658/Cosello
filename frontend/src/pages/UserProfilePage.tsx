@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { formatTitle } from "../lib/format";
 
 interface ProfileData {
   id: number;
@@ -21,7 +22,10 @@ interface ProfileData {
   is_friend: boolean;
   communities: { id: number; name: string; image: string | null; is_mutual: boolean; is_public?: boolean }[];
   mutual_friends: { id: number; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
-  active_listings: { id: string; title: string; price: string; imageUrl: string; imageUrls?: string[]; condition: string; status: string }[];
+  // brand + name replace the old computed `title`. Display title is composed
+  // via formatTitle on render. `title` may still arrive from older API
+  // responses during the rollout — keep it optional for back-compat.
+  active_listings: { id: string; brand: string; name: string; title?: string; price: string; imageUrl: string; imageUrls?: string[]; condition: string; status: string }[];
   reviews: { rating: number; comment: string | null; reviewer_name: string | null; reviewer_picture: string | null; reviewer_role: string; created_at: string | null }[];
   stats: { total_listings: number; review_count: number; avg_rating: number | null };
   member_since: string | null;
@@ -230,7 +234,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                     >
                       <div className="aspect-square bg-white/5">
                         {listing.imageUrl ? (
-                          <img src={listing.imageUrl} alt={listing.title} className="size-full object-cover" />
+                          <img src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} className="size-full object-cover" />
                         ) : (
                           <div className="size-full flex items-center justify-center text-white/20">
                             <User className="size-8" />
@@ -238,7 +242,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                         )}
                       </div>
                       <div className="p-2.5">
-                        <p className="text-xs font-medium truncate">{listing.title}</p>
+                        <p className="text-xs font-medium truncate">{formatTitle(listing.brand, listing.name)}</p>
                         <div className="flex items-center justify-between mt-1">
                           <span className="text-xs font-semibold text-fuchsia-400">${listing.price}</span>
                           <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded bg-white/5">{listing.condition}</span>

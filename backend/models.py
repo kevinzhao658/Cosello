@@ -137,7 +137,8 @@ class Listing(Base):
 
     id = Column(String(20), primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    title = Column(String(200), nullable=False)
+    brand = Column(String(200), nullable=True)
+    name = Column(String(200), nullable=True)
     description = Column(String(2000), nullable=True)
     price = Column(String(20), nullable=False)
     condition = Column(String(20), nullable=True)
@@ -153,12 +154,39 @@ class Listing(Base):
     category_attributes = Column(String(2000), nullable=True)  # JSON string
     posted_at = Column(Float, nullable=False)
 
+    @property
+    def title_str(self) -> str:
+        """Convenience accessor that joins brand + name in render order.
+
+        `"Unknown"` (case-insensitive) on `brand` is treated as empty so we
+        never produce ugly `"Unknown Foo"` titles. Mirrors `format_title` in
+        main.py so router code (notifications, friends, orders) can produce a
+        human-readable label without depending on the listing-gen helper.
+        """
+        b = (self.brand or "").strip()
+        if b.lower() == "unknown":
+            b = ""
+        n = (self.name or "").strip()
+        return f"{b} {n}".strip()
+
     def to_dict(self) -> dict:
-        """Serialize to the dict format the API currently returns."""
+        """Serialize to the dict format the API currently returns.
+
+        Listings now persist `brand` and `name` as top-level columns. We still
+        emit a transitional `title` field (= `title_str`) so `/api/listings*`
+        clients that have not yet migrated keep working until the cross-app
+        sweep completes. The `/api/generate-listings` response intentionally
+        drops `title` — see main.py.
+        """
+        brand = (self.brand or "").strip()
+        name = (self.name or "").strip()
+        title = self.title_str
         return {
             "id": self.id,
             "userId": self.user_id,
-            "title": self.title,
+            "brand": brand,
+            "name": name,
+            "title": title,
             "description": self.description or "",
             "price": self.price,
             "condition": self.condition or "Good",

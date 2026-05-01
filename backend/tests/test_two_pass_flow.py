@@ -232,10 +232,56 @@ def test_generate_listings_brand_hints_length_mismatch(client):
         "image_urls": urls,
         "vision_signals": _empty_signals(2),
         "brand_hints": ["Coach", "Levi's"],  # 2 hints, only 1 group
+        "names": [""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 400
     assert "brand_hints" in resp.json()["detail"]
+
+
+def test_generate_listings_names_length_mismatch(client):
+    urls = _seed_uploaded_images(2)
+    payload = {
+        "groupings": [[0, 1]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(2),
+        "brand_hints": [""],
+        "names": ["", ""],  # 2 names, only 1 group
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 400
+    assert "names" in resp.json()["detail"]
+
+
+def test_generate_listings_invalid_rationale(client):
+    urls = _seed_uploaded_images(1)
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": [""],
+        "names": [""],
+        "rationale": "Bored",  # not in the enum
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 400
+    assert "rationale" in resp.json()["detail"].lower()
+
+
+def test_generate_listings_other_requires_rationale_other(client):
+    urls = _seed_uploaded_images(1)
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": [""],
+        "names": [""],
+        "rationale": "Other",
+        "rationale_other": "   ",  # whitespace-only
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 400
+    assert "rationale_other" in resp.json()["detail"]
 
 
 def test_generate_listings_image_urls_length_mismatch(client):
@@ -245,6 +291,7 @@ def test_generate_listings_image_urls_length_mismatch(client):
         "image_urls": urls,
         "vision_signals": _empty_signals(3),  # mismatch
         "brand_hints": [""],
+        "names": [""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 400
@@ -257,6 +304,7 @@ def test_generate_listings_unresolvable_image_url(client):
         "image_urls": ["/uploads/does-not-exist.jpg"],
         "vision_signals": _empty_signals(1),
         "brand_hints": [""],
+        "names": [""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 400
@@ -269,6 +317,7 @@ def test_generate_listings_path_traversal_blocked(client):
         "image_urls": ["/uploads/../main.py"],
         "vision_signals": _empty_signals(1),
         "brand_hints": [""],
+        "names": [""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 400
@@ -276,26 +325,29 @@ def test_generate_listings_path_traversal_blocked(client):
 
 def test_generate_listings_happy_path_two_groups(client, monkeypatch):
     urls = _seed_uploaded_images(3)
+    # Claude now returns `name` + `brand` as top-level fields.
     listing_a = {
-        "title": "Coach Duffel",
+        "name": "Duffel",
+        "brand": "Coach",
         "description": "Brown leather duffel.",
         "price": "$120",
         "condition": "Good",
         "location": "SoHo",
         "tags": ["bag", "coach", "leather"],
         "category": "other",
-        "categoryAttributes": {"brand": "Coach"},
+        "categoryAttributes": {},
         "identifierConfidence": "high",
     }
     listing_b = {
-        "title": "Floor Lamp",
+        "name": "Floor Lamp",
+        "brand": "Unknown",  # post-processing must coerce to ""
         "description": "Standing lamp, brass.",
         "price": "45",
         "condition": "Fair",
         "location": "Chelsea",
         "tags": ["lamp", "lighting"],
         "category": "furniture",
-        "categoryAttributes": {"brand": "Unknown", "carry_difficulty": "One person"},
+        "categoryAttributes": {"carry_difficulty": "One person"},
         "identifierConfidence": "low",
     }
     _patch_claude(
@@ -308,6 +360,7 @@ def test_generate_listings_happy_path_two_groups(client, monkeypatch):
         "image_urls": urls,
         "vision_signals": _empty_signals(3),
         "brand_hints": ["Coach", ""],
+        "names": ["", ""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 200, resp.text
@@ -316,21 +369,96 @@ def test_generate_listings_happy_path_two_groups(client, monkeypatch):
     assert isinstance(body, list)
     assert len(body) == 2
 
-    # Order matches groupings order.
-    titles = {item["title"] for item in body}
-    assert titles == {"Coach Duffel", "Floor Lamp"}
+    # Top-level name/brand on every result; no transitional `title` and no `model`.
+    for item in body:
+        assert "name" in item
+        assert "brand" in item
+        assert "title" not in item
+        assert "model" not in item
+        assert "model" not in item.get("categoryAttributes", {})
+        assert "brand" not in item.get("categoryAttributes", {})
+
+    by_name = {item["name"]: item for item in body}
+    assert "Duffel" in by_name
+    assert "Floor Lamp" in by_name
+    assert by_name["Duffel"]["brand"] == "Coach"
+    # "Unknown" coerced to empty string on the second listing.
+    assert by_name["Floor Lamp"]["brand"] == ""
 
     # imageIndices is set from the server side (don't trust Claude's echo).
-    by_title = {item["title"]: item for item in body}
-    assert by_title["Coach Duffel"]["imageIndices"] == [0, 1]
-    assert by_title["Floor Lamp"]["imageIndices"] == [2]
+    assert by_name["Duffel"]["imageIndices"] == [0, 1]
+    assert by_name["Floor Lamp"]["imageIndices"] == [2]
 
     # Price normalization strips $.
-    assert by_title["Coach Duffel"]["price"] == "120"
-    assert by_title["Floor Lamp"]["price"] == "45"
+    assert by_name["Duffel"]["price"] == "120"
+    assert by_name["Floor Lamp"]["price"] == "45"
 
     # retrieval_fallback flag present on each.
     assert all("retrieval_fallback" in item for item in body)
+
+
+def test_generate_listings_strips_brand_prefix_from_name(client, monkeypatch):
+    """If Claude prefixes the brand into `name`, the server strips it."""
+    urls = _seed_uploaded_images(1)
+    listing = {
+        "name": "Nike Air Force 1",  # brand snuck in — server must strip
+        "brand": "Nike",
+        "description": "Classic sneakers.",
+        "price": "80",
+        "condition": "Good",
+        "location": "SoHo",
+        "tags": ["sneakers"],
+        "category": "sports",
+        "categoryAttributes": {"size": "10"},
+        "identifierConfidence": "high",
+    }
+    _patch_claude(monkeypatch, responses=[json.dumps(listing)])
+
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": ["Nike"],
+        "names": [""],
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body[0]["brand"] == "Nike"
+    assert body[0]["name"] == "Air Force 1"
+
+
+def test_generate_listings_falls_back_to_brand_hint_when_claude_omits_brand(
+    client, monkeypatch
+):
+    """When Claude returns brand="" but the seller confirmed a brand, use the hint."""
+    urls = _seed_uploaded_images(1)
+    listing = {
+        "name": "Better Sweater",
+        "brand": "",  # empty — must fall back to brand_hint
+        "description": "Cozy fleece.",
+        "price": "55",
+        "condition": "Good",
+        "location": "SoHo",
+        "tags": ["fleece"],
+        "category": "clothing",
+        "categoryAttributes": {"size": "M", "gender": "Unisex"},
+        "identifierConfidence": "high",
+    }
+    _patch_claude(monkeypatch, responses=[json.dumps(listing)])
+
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": ["Patagonia"],
+        "names": [""],
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body[0]["brand"] == "Patagonia"
+    assert body[0]["name"] == "Better Sweater"
 
 
 def test_generate_listings_per_group_failure_isolated(client, monkeypatch):
@@ -349,14 +477,15 @@ def test_generate_listings_per_group_failure_isolated(client, monkeypatch):
                 return _claude_text_response(
                     json.dumps(
                         {
-                            "title": "Levi's Jacket",
+                            "name": "Vintage Denim Jacket",
+                            "brand": "Levi's",
                             "description": "Vintage 90s.",
                             "price": "60",
                             "condition": "Good",
                             "location": "East Village",
                             "tags": ["denim"],
                             "category": "clothing",
-                            "categoryAttributes": {"brand": "Levi's"},
+                            "categoryAttributes": {"size": "M", "gender": "Unisex"},
                             "identifierConfidence": "high",
                         }
                     )
@@ -372,6 +501,7 @@ def test_generate_listings_per_group_failure_isolated(client, monkeypatch):
         "image_urls": urls,
         "vision_signals": _empty_signals(2),
         "brand_hints": ["Levi's", ""],
+        "names": ["", ""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 200
@@ -379,10 +509,12 @@ def test_generate_listings_per_group_failure_isolated(client, monkeypatch):
     body = resp.json()
     assert len(body) == 2
     # First listing succeeds.
-    assert body[0]["title"] == "Levi's Jacket"
+    assert body[0]["name"] == "Vintage Denim Jacket"
+    assert body[0]["brand"] == "Levi's"
     assert body[0]["imageIndices"] == [0]
     # Second listing returns the placeholder shape with _error set.
-    assert body[1]["title"] == "Listing generation failed"
+    assert body[1]["name"] == "Listing generation failed"
+    assert body[1]["brand"] == ""
     assert body[1]["imageIndices"] == [1]
     assert "_error" in body[1]
 
@@ -394,6 +526,7 @@ def test_generate_listings_invalid_index_in_groupings(client):
         "image_urls": urls,
         "vision_signals": _empty_signals(2),
         "brand_hints": [""],
+        "names": [""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 400
@@ -412,7 +545,8 @@ def test_generate_listings_brand_hint_normalization_used_in_prompt(client, monke
             return _claude_text_response(
                 json.dumps(
                     {
-                        "title": "x",
+                        "name": "x",
+                        "brand": "",
                         "description": "x",
                         "price": "1",
                         "condition": "Good",
@@ -437,6 +571,7 @@ def test_generate_listings_brand_hint_normalization_used_in_prompt(client, monke
             "<script>x</script>Levi's",  # contains <> -> dropped entirely
             "A" * 100,  # 100 chars -> dropped (>=80)
         ],
+        "names": ["", "", "", ""],
     }
     resp = client.post("/api/generate-listings", json=payload)
     assert resp.status_code == 200
@@ -448,6 +583,163 @@ def test_generate_listings_brand_hint_normalization_used_in_prompt(client, monke
     assert "SELLER-CONFIRMED BRAND" not in captured_prompts[2]
     assert "<script>" not in captured_prompts[2]
     assert "SELLER-CONFIRMED BRAND" not in captured_prompts[3]
+
+
+def test_generate_listings_seller_name_and_rationale_in_prompt(client, monkeypatch):
+    """Seller-provided name + per-batch rationale are injected into the prompt."""
+    urls = _seed_uploaded_images(2)
+    captured_prompts: list[str] = []
+
+    class CapturingMessages:
+        def create(self, *, model, max_tokens, messages):
+            text_blocks = [b["text"] for b in messages[0]["content"] if b.get("type") == "text"]
+            captured_prompts.append(text_blocks[-1])
+            return _claude_text_response(
+                json.dumps(
+                    {
+                        "name": "x",
+                        "brand": "",
+                        "description": "x",
+                        "price": "1",
+                        "condition": "Good",
+                        "location": "x",
+                        "tags": [],
+                        "category": "other",
+                        "categoryAttributes": {},
+                        "identifierConfidence": "low",
+                    }
+                )
+            )
+
+    monkeypatch.setattr(main, "client", SimpleNamespace(messages=CapturingMessages()))
+
+    payload = {
+        "groupings": [[0], [1]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(2),
+        "brand_hints": ["", ""],
+        "names": ["Air Force 1", ""],  # one seller-named, one not
+        "rationale": "Moving",
+        "rationale_other": "",
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 200, resp.text
+
+    # First prompt: seller-named -> SELLER-CONFIRMED NAME block with the verbatim name.
+    assert "SELLER-CONFIRMED NAME" in captured_prompts[0]
+    assert "Air Force 1" in captured_prompts[0]
+    # Second prompt: no seller name -> NAME GUIDANCE block instead.
+    assert "NAME GUIDANCE" in captured_prompts[1]
+    assert "SELLER-CONFIRMED NAME" not in captured_prompts[1]
+    # Both prompts get the rationale value line for "Moving" plus the global
+    # description-voice instructions (which contain the RATIONALE OPENERS catalog).
+    for p in captured_prompts:
+        assert "SELLER RATIONALE" in p
+        assert "Moving" in p
+        # Description-voice block is present.
+        assert "DESCRIPTION VOICE & STRUCTURE" in p
+        assert "FIRST PERSON" in p
+        assert "WORDS / PHRASES TO AVOID" in p
+        # Rationale opener stems for every supported rationale.
+        assert "Moving across town" in p
+        assert "Upgraded my couch" in p
+        assert "It doesn't fit me anymore" in p
+        assert "Got this as a gift" in p
+        assert "Decluttering my place" in p
+        # Banned-word and formatting guidance is explicitly listed.
+        assert "premium" in p
+        assert "stands as" in p
+        assert "em dashes" in p
+    # New schema is documented; legacy `title`/`model` keywords are gone from
+    # the schema example block.
+    for p in captured_prompts:
+        assert '"name"' in p
+        assert '"brand"' in p
+        # The schema example must NOT list a top-level "title" or "model" key.
+        assert '"title":' not in p
+        assert '"model":' not in p
+
+
+def test_generate_listings_rationale_other_passes_custom_text_to_prompt(
+    client, monkeypatch
+):
+    urls = _seed_uploaded_images(1)
+    captured_prompts: list[str] = []
+
+    class CapturingMessages:
+        def create(self, *, model, max_tokens, messages):
+            text_blocks = [b["text"] for b in messages[0]["content"] if b.get("type") == "text"]
+            captured_prompts.append(text_blocks[-1])
+            return _claude_text_response(
+                json.dumps(
+                    {
+                        "name": "x",
+                        "brand": "",
+                        "description": "x",
+                        "price": "1",
+                        "condition": "Good",
+                        "location": "x",
+                        "tags": [],
+                        "category": "other",
+                        "categoryAttributes": {},
+                        "identifierConfidence": "low",
+                    }
+                )
+            )
+
+    monkeypatch.setattr(main, "client", SimpleNamespace(messages=CapturingMessages()))
+
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": [""],
+        "names": [""],
+        "rationale": "Other",
+        "rationale_other": "switching to minimalism",
+    }
+    resp = client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 200, resp.text
+    assert "switching to minimalism" in captured_prompts[0]
+    assert "SELLER RATIONALE" in captured_prompts[0]
+    # The custom text is presented as the seller's actual reason via the
+    # "Custom rationale:" label — NOT as a free-form tone modifier ("Adjust tone
+    # naturally to match" was the old framing and must be gone).
+    assert "Custom rationale:" in captured_prompts[0]
+    assert "Adjust tone naturally to match" not in captured_prompts[0]
+
+
+def test_rationale_value_line_other_with_custom_text():
+    """The 'Other' rationale must surface the seller's free-text as the actual reason."""
+    line = main._rationale_value_line("Other", "Kid grew out of it")
+    assert "Custom rationale:" in line
+    assert "Kid grew out of it" in line
+
+
+def test_rationale_value_line_empty_skips_opener():
+    """An empty rationale tells Claude to skip the opener and lead with item details."""
+    line = main._rationale_value_line("", "")
+    assert "skip the rationale opener" in line
+
+
+def test_rationale_value_line_known_enum():
+    """Known enum values surface verbatim so Claude picks the right opener stem."""
+    assert "'Moving'" in main._rationale_value_line("Moving", "")
+    assert "'Decluttering'" in main._rationale_value_line("Decluttering", "")
+
+
+def test_description_voice_instructions_constant_present():
+    """The DESCRIPTION_VOICE_INSTRUCTIONS constant is the load-bearing block."""
+    block = main.DESCRIPTION_VOICE_INSTRUCTIONS
+    assert "FIRST PERSON" in block
+    assert "WORDS / PHRASES TO AVOID" in block
+    assert "RATIONALE OPENERS" in block
+    # All five enum-rationale opener stems exist in the catalog.
+    assert "Moving across town" in block
+    assert "Upgraded my couch" in block
+    assert "It doesn't fit me anymore" in block
+    assert "Got this as a gift" in block
+    assert "Decluttering my place" in block
 
 
 # --------------------------------------------------------------------------- #
@@ -466,6 +758,55 @@ def test_normalize_brand_hint_cases():
     assert f("A" * 80) == ""
     assert f("A" * 79) == "A" * 79
     assert f(None) == ""  # type: ignore[arg-type]
+
+
+def test_format_title_basic():
+    f = main.format_title
+    assert f("Nike", "Air Force 1") == "Nike Air Force 1"
+    assert f(" Nike ", " Air Force 1 ") == "Nike Air Force 1"
+
+
+def test_format_title_handles_none_and_whitespace():
+    f = main.format_title
+    assert f(None, None) == ""
+    assert f(None, "Foo") == "Foo"
+    assert f("Nike", None) == "Nike"
+    assert f("", "Foo") == "Foo"
+    assert f("   ", "Foo") == "Foo"
+    assert f("Nike", "   ") == "Nike"
+
+
+def test_format_title_unknown_coerced_to_empty():
+    f = main.format_title
+    # Exact spelling of the sentinel the listing-gen pipeline historically wrote.
+    assert f("Unknown", "Foo") == "Foo"
+    # Case-insensitive match — covers UNKNOWN and unknown too.
+    assert f("UNKNOWN", "Foo") == "Foo"
+    assert f("unknown", "Foo") == "Foo"
+
+
+def test_format_title_non_string_inputs_are_safe():
+    f = main.format_title
+    # type: ignore[arg-type] — explicit non-string input must not raise.
+    assert f(123, "Foo") == "Foo"  # type: ignore[arg-type]
+    assert f("Nike", 456) == "Nike"  # type: ignore[arg-type]
+
+
+def test_listing_title_str_property_uses_same_rules(monkeypatch):
+    from models import Listing
+
+    l = Listing(
+        id="x", user_id=1, brand="Unknown", name="Mid-Century Side Table",
+        price="40", posted_at=0.0,
+    )
+    # "Unknown" coerced to empty -> just the name.
+    assert l.title_str == "Mid-Century Side Table"
+
+    l2 = Listing(
+        id="y", user_id=1, brand="Coach", name="Duffel",
+        price="120", posted_at=0.0,
+    )
+    assert l2.title_str == "Coach Duffel"
 
 
 def test_validate_groupings_strict():

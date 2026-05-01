@@ -149,18 +149,18 @@ async def seed_listings(
     random.shuffle(available_images)
 
     sample_items = [
-        {"title": "Vintage Denim Jacket", "description": "Classic 90s cut, minimal wear. Fits like a medium.", "price": "45", "condition": "Good", "tags": ["vintage", "denim", "jacket"], "category": "clothing", "category_attributes": {"brand": "Levi's", "size": "M", "gender": "Unisex"}},
-        {"title": "IKEA Standing Desk", "description": "BEKANT sit/stand desk, white top, electric height adjustment. Minor scuff on one corner.", "price": "120", "condition": "Good", "tags": ["furniture", "desk", "ikea"], "category": "furniture", "category_attributes": {"brand": "IKEA", "model": "BEKANT", "carry_difficulty": "Two people"}},
-        {"title": "AirPods Pro (2nd Gen)", "description": "Lightly used, includes original case and cable. Battery health still strong.", "price": "85", "condition": "Like New", "tags": ["electronics", "airpods", "apple"], "category": "electronics", "category_attributes": {"brand": "Apple", "model": "AirPods Pro 2nd Gen"}},
-        {"title": "Le Creuset Dutch Oven", "description": "5.5 qt, flame orange. A few marks on the outside but cooks like new.", "price": "95", "condition": "Good", "tags": ["kitchen", "cookware", "le-creuset"], "category": "other", "category_attributes": {"brand": "Le Creuset"}},
-        {"title": "North Face Puffer Vest", "description": "Black, size L. Super warm, no rips or stains.", "price": "55", "condition": "Like New", "tags": ["clothing", "vest", "north-face"], "category": "clothing", "category_attributes": {"brand": "The North Face", "size": "L", "gender": "Unisex"}},
-        {"title": "Yoga Mat — Manduka Pro", "description": "6mm thick, charcoal. Used for about 3 months.", "price": "35", "condition": "Good", "tags": ["fitness", "yoga", "mat"], "category": "sports", "category_attributes": {"brand": "Manduka", "model": "Pro"}},
-        {"title": "Sonos One Speaker", "description": "White, works perfectly. Includes power cable. Moving and need to downsize.", "price": "75", "condition": "Good", "tags": ["electronics", "speaker", "sonos"], "category": "electronics", "category_attributes": {"brand": "Sonos", "model": "One"}},
-        {"title": "Patagonia Fleece Pullover", "description": "Better Sweater, size M, oatmeal color. Barely worn.", "price": "60", "condition": "Like New", "tags": ["clothing", "fleece", "patagonia"], "category": "clothing", "category_attributes": {"brand": "Patagonia", "size": "M", "gender": "Unisex"}},
-        {"title": "Cast Iron Skillet 12\"", "description": "Lodge pre-seasoned. Solid everyday pan, just upgraded to a bigger one.", "price": "20", "condition": "Fair", "tags": ["kitchen", "cookware", "cast-iron"], "category": "other", "category_attributes": {"brand": "Lodge"}},
-        {"title": "Kindle Paperwhite", "description": "2022 model, 8GB, no ads. Screen is perfect. Comes with a leather case.", "price": "70", "condition": "Like New", "tags": ["electronics", "kindle", "amazon"], "category": "electronics", "category_attributes": {"brand": "Amazon", "model": "Kindle Paperwhite 2022"}},
-        {"title": "Mid-Century Side Table", "description": "Walnut finish, tapered legs. Small ring mark on top but barely noticeable.", "price": "40", "condition": "Fair", "tags": ["furniture", "table", "mid-century"], "category": "furniture", "category_attributes": {"brand": "Unknown", "model": "Mid-Century Side Table", "carry_difficulty": "One person"}},
-        {"title": "Running Shoes — Nike Pegasus 40", "description": "Size 10, about 50 miles on them. Still plenty of life.", "price": "45", "condition": "Good", "tags": ["shoes", "running", "nike"], "category": "sports", "category_attributes": {"brand": "Nike", "model": "Pegasus 40", "size": "10"}},
+        {"brand": "Levi's", "name": "Vintage Denim Jacket", "description": "Classic 90s cut, minimal wear. Fits like a medium.", "price": "45", "condition": "Good", "tags": ["vintage", "denim", "jacket"], "category": "clothing", "category_attributes": {"size": "M", "gender": "Unisex"}},
+        {"brand": "IKEA", "name": "BEKANT Standing Desk", "description": "BEKANT sit/stand desk, white top, electric height adjustment. Minor scuff on one corner.", "price": "120", "condition": "Good", "tags": ["furniture", "desk", "ikea"], "category": "furniture", "category_attributes": {"carry_difficulty": "Two people"}},
+        {"brand": "Apple", "name": "AirPods Pro (2nd Gen)", "description": "Lightly used, includes original case and cable. Battery health still strong.", "price": "85", "condition": "Like New", "tags": ["electronics", "airpods", "apple"], "category": "electronics", "category_attributes": {}},
+        {"brand": "Le Creuset", "name": "Dutch Oven", "description": "5.5 qt, flame orange. A few marks on the outside but cooks like new.", "price": "95", "condition": "Good", "tags": ["kitchen", "cookware", "le-creuset"], "category": "other", "category_attributes": {}},
+        {"brand": "The North Face", "name": "Puffer Vest", "description": "Black, size L. Super warm, no rips or stains.", "price": "55", "condition": "Like New", "tags": ["clothing", "vest", "north-face"], "category": "clothing", "category_attributes": {"size": "L", "gender": "Unisex"}},
+        {"brand": "Manduka", "name": "Pro Yoga Mat", "description": "6mm thick, charcoal. Used for about 3 months.", "price": "35", "condition": "Good", "tags": ["fitness", "yoga", "mat"], "category": "sports", "category_attributes": {}},
+        {"brand": "Sonos", "name": "One Speaker", "description": "White, works perfectly. Includes power cable. Moving and need to downsize.", "price": "75", "condition": "Good", "tags": ["electronics", "speaker", "sonos"], "category": "electronics", "category_attributes": {}},
+        {"brand": "Patagonia", "name": "Better Sweater Fleece Pullover", "description": "Better Sweater, size M, oatmeal color. Barely worn.", "price": "60", "condition": "Like New", "tags": ["clothing", "fleece", "patagonia"], "category": "clothing", "category_attributes": {"size": "M", "gender": "Unisex"}},
+        {"brand": "Lodge", "name": "Cast Iron Skillet 12\"", "description": "Lodge pre-seasoned. Solid everyday pan, just upgraded to a bigger one.", "price": "20", "condition": "Fair", "tags": ["kitchen", "cookware", "cast-iron"], "category": "other", "category_attributes": {}},
+        {"brand": "Amazon", "name": "Kindle Paperwhite 2022", "description": "2022 model, 8GB, no ads. Screen is perfect. Comes with a leather case.", "price": "70", "condition": "Like New", "tags": ["electronics", "kindle", "amazon"], "category": "electronics", "category_attributes": {}},
+        {"brand": "", "name": "Mid-Century Side Table", "description": "Walnut finish, tapered legs. Small ring mark on top but barely noticeable.", "price": "40", "condition": "Fair", "tags": ["furniture", "table", "mid-century"], "category": "furniture", "category_attributes": {"carry_difficulty": "One person"}},
+        {"brand": "Nike", "name": "Pegasus 40 Running Shoes", "description": "Size 10, about 50 miles on them. Still plenty of life.", "price": "45", "condition": "Good", "tags": ["shoes", "running", "nike"], "category": "sports", "category_attributes": {"size": "10"}},
     ]
 
     neighborhoods = ["Chelsea", "Murray Hill", "East Village", "West Village", "SoHo", "Tribeca", "UES", "UWS"]
@@ -173,7 +173,8 @@ async def seed_listings(
         listing = Listing(
             id=uuid.uuid4().hex[:12],
             user_id=current_user.id,
-            title=item["title"],
+            brand=item.get("brand", ""),
+            name=item.get("name", ""),
             description=item["description"],
             price=item["price"],
             condition=item["condition"],
@@ -190,7 +191,7 @@ async def seed_listings(
             posted_at=time.time() - random.randint(0, 86400 * 3),
         )
         db.add(listing)
-        created.append({"id": listing.id, "title": listing.title})
+        created.append({"id": listing.id, "title": listing.title_str})
 
     db.commit()
     return {"seeded": len(created), "listings": created}
@@ -227,146 +228,10 @@ def _run_vision_with_cache(resized_bytes_list: list[bytes]) -> tuple[list, bool]
     return vision_results, retrieval_fallback
 
 
-def _build_prompt_text(evidence_block: str, *, bulk: bool, groups_desc: str = "") -> str:
-    """Build the Claude prompt, injecting evidence when available."""
-    preamble = (
-        "You are a product identification assistant for a secondhand marketplace. "
-    )
-    if bulk and groups_desc:
-        preamble += (
-            "The seller has uploaded photos and has already grouped them into items. "
-            "Use the groupings below exactly as provided — do NOT change the groupings. "
-            "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
-            f"Groupings:\n{groups_desc}\n\n"
-        )
-    elif bulk:
-        preamble += (
-            "The seller has uploaded multiple photos that may contain MULTIPLE DIFFERENT items for sale. "
-            "Some photos may show the same item from different angles. "
-            "The seller has NOT provided any product details — you must derive everything from the images alone.\n\n"
-        )
-    else:
-        preamble += (
-            "The seller has uploaded photos and has NOT provided any product details — "
-            "you must derive everything from the image(s) alone.\n\n"
-        )
-
-    if evidence_block:
-        step1 = (
-            f"{evidence_block}\n\n"
-            "STEP 1 — READ THE RETRIEVAL EVIDENCE\n"
-            "The evidence above was retrieved from a reverse image search and is keyed by image index. "
-            "Each `[Image N]` block applies ONLY to the image with that exact index. "
-            "When writing a listing, use ONLY the evidence from the images that belong to that listing — "
-            "never carry brands, models, OCR text, or entities from one image's evidence into another image's listing. "
-            "Treat each per-image block as ground truth for that image unless the photo itself clearly contradicts it. "
-            "Use visible identifiers to confirm:\n"
-        )
-        step3_heading = "STEP 3 — WRITE THE LISTING AROUND THIS EVIDENCE\n"
-    else:
-        step1 = (
-            "STEP 1 — METHODICAL IMAGE INSPECTION\n"
-            "Examine the image(s) carefully for visible identifiers in this priority order:\n"
-        )
-        step3_heading = "STEP 3 — REVERSE-TRACE THE EXACT PRODUCT\n"
-
-    step1 += (
-        "1. Printed brand logos or wordmarks\n"
-        "2. Model names or numbers printed on the product\n"
-        "3. For clothing: interior care labels, hang tags, or visible style codes / barcodes — "
-        "if you can see ANY of these, treat them as the PRIMARY identifier. Read them precisely.\n"
-        "4. Distinctive silhouettes, colorways, materials, or construction details that match known products\n\n"
-    )
-
-    if bulk and not groups_desc:
-        step1 += "Then identify each distinct item across all photos and group photos showing the same item together.\n\n"
-
-    step2 = (
-        "STEP 2 — CATEGORIZE\n"
-        "Assign " + ("each item " if bulk else "") + "one of: clothing, furniture, electronics, sports, collectibles, other\n\n"
-    )
-
-    if evidence_block:
-        step3 = (
-            step3_heading
-            + "Using the retrieval evidence and visible identifiers, write the listing. "
-            "Use the identified product's known profile to inform:\n"
-        )
-    else:
-        step3 = (
-            step3_heading
-            + ("For each item, u" if bulk else "U") + "sing the identifiers you extracted, reason as if performing a reverse image search: "
-            "what specific product from which brand does this most closely match? Use that product's known profile to inform:\n"
-        )
-    step3 += (
-        "- Accurate current secondhand market price (NOT retail)\n"
-        "- Description (key features + visible condition)\n"
-        "- Category-specific fields (dimensions for furniture, specs for electronics, size/gender for clothing, etc.)\n\n"
-    )
-
-    if bulk:
-        step4 = (
-            "STEP 4 — RETURN JSON ONLY\n"
-            "Return a JSON array of objects" + (" in the same order as the groups" if groups_desc else "") + ". Each object must have:\n"
-            "{\n"
-            '  "title": "concise product title — include brand and model if identified",\n'
-            '  "description": "2-3 sentences, key features plus condition observations",\n'
-            '  "price": "fair secondhand market price as string",\n'
-            '  "condition": "New | Like New | Good | Fair | Poor",\n'
-            '  "location": "Manhattan neighborhood",\n'
-            '  "tags": ["3-5 tags"],\n'
-            '  "category": "<category_slug>",\n'
-            '  "categoryAttributes": { ...fields per category below... },\n'
-            '  "identifierConfidence": "high | medium | low",\n'
-            '  "imageIndices": [0, 1]  // ' + ("the exact image indices from the grouping above" if groups_desc else "which image indices belong to this item") + '\n'
-            "}\n\n"
-        )
-    else:
-        step4 = (
-            "STEP 4 — RETURN JSON ONLY\n"
-            "{\n"
-            '  "title": "concise product title — include brand and model if identified",\n'
-            '  "description": "2-3 sentences, key features plus condition observations",\n'
-            '  "price": "fair secondhand market price as string",\n'
-            '  "condition": "New | Like New | Good | Fair | Poor",\n'
-            '  "location": "Manhattan neighborhood",\n'
-            '  "tags": ["3-5 tags"],\n'
-            '  "category": "<category_slug>",\n'
-            '  "categoryAttributes": { ...fields per category below... },\n'
-            '  "identifierConfidence": "high | medium | low"\n'
-            "}\n\n"
-        )
-
-    category_attrs = (
-        "Category-specific attributes:\n"
-        "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
-        "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
-        "dimensions (format: L x W x H if identifiable)\n"
-        "- electronics: brand, model\n"
-        "- sports: brand, model, size (if determinable)\n"
-        "- collectibles: brand_or_creator, year\n"
-        "- other: {} (empty object)\n\n"
-        "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
-        "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\". "
-        "Use the item's apparent size, material density, and structural complexity to choose.\n\n"
-    )
-
-    confidence = (
-        "CONFIDENCE RULES:\n"
-        "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
-        "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference rather than direct visible evidence\n"
-        "- \"low\": brand cannot be confidently determined from the image alone\n\n"
-    )
-
-    footer = ""
-    if bulk and not groups_desc:
-        footer = "Important: Every image index must appear in exactly one item's imageIndices array.\n"
-    footer += "Return ONLY the JSON " + ("array" if bulk else "object") + ". No markdown, no code fences, no commentary."
-
-    return preamble + step1 + step2 + step3 + step4 + category_attrs + confidence + footer
-
-
 # --- Two-pass listing generation: segment-photos -> generate-listings ---
+# (The legacy single-pass `_build_prompt_text` was removed alongside the
+# brand/name unification — listing-gen is now exclusively two-pass via
+# `_build_listing_prompt_for_group` per group.)
 
 MAX_IMAGE_BYTES = 3_500_000
 MAX_IMAGE_DIMENSION = 2048
@@ -532,6 +397,35 @@ def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[Vis
     return validated
 
 
+def format_title(brand: str | None, name: str | None) -> str:
+    """Render a display title from a (brand, name) pair.
+
+    Both arguments are coerced to "" if None or whitespace-only. The literal
+    string "Unknown" (case-insensitive) on `brand` is also coerced to "" —
+    the listing-gen pipeline historically wrote "Unknown" for unbranded
+    items, which would otherwise produce ugly `"Unknown Foo"` titles.
+
+    Returns `(brand + " " + name).strip()`.
+    """
+    b = brand.strip() if isinstance(brand, str) else ""
+    n = name.strip() if isinstance(name, str) else ""
+    if b.lower() == "unknown":
+        b = ""
+    return f"{b} {n}".strip()
+
+
+# Allowed values for the per-batch rationale field on /api/generate-listings.
+RATIONALE_OPTIONS: tuple[str, ...] = (
+    "",
+    "Moving",
+    "Upgrading",
+    "No longer fits",
+    "Gift never used",
+    "Decluttering",
+    "Other",
+)
+
+
 def _normalize_brand_hint(s: str) -> str:
     """Normalize a seller-confirmed brand hint before it lands in a Claude prompt.
 
@@ -554,13 +448,147 @@ def _normalize_brand_hint(s: str) -> str:
     return cleaned
 
 
-def _build_listing_prompt_for_group(group_indices: list[int], evidence_block: str, brand_hint: str) -> str:
-    """Build the per-group LISTING-GEN prompt. Single-listing schema (one item per call)."""
+DESCRIPTION_VOICE_INSTRUCTIONS = """
+DESCRIPTION VOICE & STRUCTURE
+
+Write the description in FIRST PERSON, as if you (the seller) are personally
+describing the item to a buyer. Sound like a real person, not marketing copy.
+
+Structure: 2-4 sentences total.
+- Sentence 1: brief rationale for selling (see RATIONALE OPENERS below)
+- Sentences 2-3: describe the item — what it is, key details, model when relevant
+- Sentence 4 (optional): honest condition note (e.g., "worn maybe twice",
+  "had this for about 2 years", "small scuff on the back")
+
+REQUIRED CHARACTERISTICS:
+- First-person voice ("I'm selling", "I bought this", "It doesn't fit me anymore")
+- Specific details over abstract claims ("worn maybe twice" not "lightly used")
+- Conversational rhythm — mix shorter and longer sentences
+- Honest about flaws when they exist
+
+WORDS / PHRASES TO AVOID (these scream marketing or AI):
+- premium, exclusive, seamless, must-have, unlock, elevate, vibrant, elegant,
+  stunning, breathtaking, renowned, iconic, luxurious
+- stands as, testament to, pivotal, underscores, reflects broader
+- "perfect for [demographic]" framing
+- "experts agree" or "widely considered" filler
+- Rule-of-three marketing padding ("durable, stylish, and versatile")
+- Negative parallelism ("not just X but also Y")
+- Sycophancy ("a true gem", "a real find")
+
+PUNCTUATION / FORMATTING:
+- NO em dashes — use commas or periods
+- NO emojis
+- NO bold, italic, or markdown — plain text only
+- Straight quotes only (no curly quotes)
+- No headings or bullet points within the description
+
+RATIONALE OPENERS — use as sentence stem, NOT verbatim. Adapt naturally.
+
+- "Moving" -> Lead with relocation context.
+  Examples: "Moving across town next month and need to clear out my closet."
+            "Relocating soon and this is too bulky to take with me."
+
+- "Upgrading" -> Lead with the upgrade.
+  Examples: "Upgraded my couch recently so this one needs a new home."
+            "Got a newer version, so this is up for grabs."
+
+- "No longer fits" -> Lead with sizing honesty (clothing/shoes mainly).
+  Examples: "It doesn't fit me anymore. Bought in size M but I've slimmed down."
+            "Wrong size for me, time for someone else to enjoy it."
+
+- "Gift never used" -> Lead with the gift context.
+  Examples: "Got this as a gift but never had a chance to use it."
+            "Was a gift, sat in my closet. Hoping it goes to someone who'll use it."
+
+- "Decluttering" -> Lead with the decluttering reason.
+  Examples: "Decluttering my place and this needs a new home."
+            "Cleaning out my closet, too many of these, time to part with one."
+
+- "Other" with custom text -> Use the seller's free-text rationale naturally as the opening.
+  Example (rationale_other = "Kid grew out of it"):
+    "My kid grew out of these. They were great while they lasted."
+
+- "" (no rationale provided) -> Skip the rationale opener entirely. Lead with item
+  details in first person.
+  Examples: "Selling my [item]. [Details]. [Condition note]."
+            "Putting up my [item] for sale. [Details]."
+
+EXAMPLES OF GOOD DESCRIPTIONS:
+
+[Hermes scarf, rationale=Decluttering]
+"Decluttering my closet and this Hermes scarf needs a new home. Carre 90
+in blue and gold, silk, no tears. I've worn it maybe twice."
+
+[IKEA Linanas couch, rationale=Moving]
+"Moving to a smaller place at the end of the month and the couch won't fit.
+It's the Linanas in dark grey, used for about a year and a half. Pickup
+only, it's heavy."
+
+[Nike Air Force 1, rationale=No longer fits]
+"Bought these in size 10 but my feet have grown a half size. Air Force 1
+Low in white, worn maybe three times. Still pretty pristine."
+
+EXAMPLES OF BAD DESCRIPTIONS (do NOT write like these):
+
+[Marketing voice]
+"Premium Hermes silk scarf featuring vibrant blue and gold tones. Iconic
+Carre 90 design, perfect for any wardrobe."
+
+[Inflated importance + rule of three]
+"This stunning IKEA couch stands as a testament to Scandinavian design.
+Durable, stylish, and versatile."
+
+[Third person + filler]
+"Genuine Nike Air Force 1 sneakers. Excellent condition - barely worn -
+features clean white leather upper."
+"""
+
+
+def _rationale_value_line(rationale: str, rationale_other: str) -> str:
+    """Render the per-listing rationale value line that pairs with DESCRIPTION_VOICE_INSTRUCTIONS.
+
+    Tells Claude which RATIONALE OPENERS bullet applies to this listing.
+    Returns the trailing newline-terminated line, suffixed with a blank line.
+    """
+    if rationale == "Other":
+        custom = (rationale_other or "").strip()
+        if not custom:
+            return (
+                "No rationale provided — skip the rationale opener and lead with "
+                "item details.\n\n"
+            )
+        return f"Custom rationale: '{custom}'\n\n"
+    if not rationale:
+        return (
+            "No rationale provided — skip the rationale opener and lead with "
+            "item details.\n\n"
+        )
+    return f"The seller's rationale is: '{rationale}'.\n\n"
+
+
+def _build_listing_prompt_for_group(
+    group_indices: list[int],
+    evidence_block: str,
+    brand_hint: str,
+    name: str,
+    rationale: str,
+    rationale_other: str,
+) -> str:
+    """Build the per-group LISTING-GEN prompt. Single-listing schema (one item per call).
+
+    Args:
+        group_indices: original image indices that belong to this listing.
+        evidence_block: pre-rendered retrieval-evidence text (may be empty).
+        brand_hint: seller-confirmed brand string (may be empty).
+        name: seller-provided product name (may be empty).
+        rationale: one of RATIONALE_OPTIONS.
+        rationale_other: free-text reason; only used when rationale == "Other".
+    """
     preamble = (
         "You are a product identification assistant for a secondhand marketplace. "
         "The seller has uploaded photos of a single item (possibly from multiple angles). "
-        "The seller has NOT provided any product details — you must derive everything from the images "
-        f"and the retrieval evidence below. The photos for this item are at indices {group_indices}.\n\n"
+        f"The photos for this item are at indices {group_indices}.\n\n"
     )
 
     brand_block = ""
@@ -568,8 +596,32 @@ def _build_listing_prompt_for_group(group_indices: list[int], evidence_block: st
         brand_block = (
             f"SELLER-CONFIRMED BRAND\n"
             f"The seller has confirmed the brand for this item is '{brand_hint}' — "
-            "treat as ground truth unless the photo clearly contradicts.\n\n"
+            "treat as ground truth unless the photo clearly contradicts. "
+            "Emit it in the `brand` field of the JSON. Do NOT include the brand inside `name`.\n\n"
         )
+
+    name_block = ""
+    clean_name = (name or "").strip()
+    if clean_name:
+        name_block = (
+            "SELLER-CONFIRMED NAME\n"
+            f"The seller has named this item '{clean_name}' — use this exactly as the "
+            "`name` field. Do NOT include brand in the name.\n\n"
+        )
+    else:
+        name_block = (
+            "NAME GUIDANCE\n"
+            "The seller did not provide a name. Generate a marketable product name "
+            "(3-7 words) that excludes the brand — brand is a separate field.\n\n"
+        )
+
+    # Per-listing rationale value (pairs with the global DESCRIPTION_VOICE_INSTRUCTIONS
+    # block, which contains the RATIONALE OPENERS catalog).
+    rationale_value_block = (
+        "SELLER RATIONALE\n"
+        + _rationale_value_line(rationale, rationale_other)
+    )
+    description_voice_block = DESCRIPTION_VOICE_INSTRUCTIONS + "\n"
 
     if evidence_block:
         step1 = (
@@ -623,7 +675,8 @@ def _build_listing_prompt_for_group(group_indices: list[int], evidence_block: st
     step4 = (
         "STEP 4 — RETURN JSON ONLY\n"
         "{\n"
-        '  "title": "concise product title — include brand and model if identified",\n'
+        '  "name": "product name only — DO NOT include the brand here",\n'
+        '  "brand": "brand string only (e.g. \'Nike\', \'IKEA\'), or \"\" if no brand or seller did not provide one",\n'
         '  "description": "2-3 sentences, key features plus condition observations",\n'
         '  "price": "fair secondhand market price as string",\n'
         '  "condition": "New | Like New | Good | Fair | Poor",\n'
@@ -633,16 +686,23 @@ def _build_listing_prompt_for_group(group_indices: list[int], evidence_block: st
         '  "categoryAttributes": { ...fields per category below... },\n'
         '  "identifierConfidence": "high | medium | low"\n'
         "}\n\n"
+        "FIELD RULES:\n"
+        "- `name` is the product name only — DO NOT include the brand in `name`. "
+        "Brand is a separate field. (e.g. for a Nike Air Force 1, name = 'Air Force 1', brand = 'Nike'.)\n"
+        "- `brand` is just the brand string ('Nike', 'IKEA', etc.). Empty string if no brand or "
+        "if the seller did not provide one. Do NOT write 'Unknown'.\n"
+        "- `categoryAttributes` MUST NOT contain `brand` or `model` keys. Brand is top-level; "
+        "any model designation belongs inside `name`.\n\n"
     )
 
     category_attrs = (
-        "Category-specific attributes:\n"
-        "- clothing: brand, size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
-        "- furniture: brand, model, carry_difficulty (One person | Two people | Requires truck or movers), "
+        "Category-specific attributes (these go inside `categoryAttributes`):\n"
+        "- clothing: size, gender (Men's/Women's/Unisex/Kids), style_code (ONLY if visible on tag/label in image)\n"
+        "- furniture: carry_difficulty (One person | Two people | Requires truck or movers), "
         "dimensions (format: L x W x H if identifiable)\n"
-        "- electronics: brand, model\n"
-        "- sports: brand, model, size (if determinable)\n"
-        "- collectibles: brand_or_creator, year\n"
+        "- electronics: {} (empty object — brand is top-level, model goes in `name`)\n"
+        "- sports: size (if determinable)\n"
+        "- collectibles: year\n"
         "- other: {} (empty object)\n\n"
         "For furniture carry_difficulty, assess from visual cues: a small side table is \"One person\", "
         "a sofa or large bookshelf is \"Two people\", a sectional or armoire is \"Requires truck or movers\".\n\n"
@@ -650,16 +710,37 @@ def _build_listing_prompt_for_group(group_indices: list[int], evidence_block: st
 
     confidence = (
         "CONFIDENCE RULES:\n"
-        "- \"high\": brand AND model (or equivalent) are clearly visible or unambiguously identified from the image\n"
-        "- \"medium\": brand is identified but model is uncertain, OR identification relies on inference\n"
+        "- \"high\": brand AND specific product (or equivalent) are clearly visible or unambiguously identified from the image\n"
+        "- \"medium\": brand is identified but the specific product is uncertain, OR identification relies on inference\n"
         "- \"low\": brand cannot be confidently determined from the image alone\n\n"
     )
 
     footer = "Return ONLY the JSON object. No markdown, no code fences, no commentary."
-    return preamble + brand_block + step1 + step2 + step3 + step4 + category_attrs + confidence + footer
+    return (
+        preamble
+        + brand_block
+        + name_block
+        + step1
+        + step2
+        + step3
+        + rationale_value_block
+        + description_voice_block
+        + step4
+        + category_attrs
+        + confidence
+        + footer
+    )
 
 
-def _call_claude_listing_sync(group_indices: list[int], group_bytes: list[bytes], evidence_block: str, brand_hint: str) -> dict:
+def _call_claude_listing_sync(
+    group_indices: list[int],
+    group_bytes: list[bytes],
+    evidence_block: str,
+    brand_hint: str,
+    name: str,
+    rationale: str,
+    rationale_other: str,
+) -> dict:
     """Sync Claude call for a single listing. Raises on API/parse error."""
     content: list[dict] = []
     for original_idx, data in zip(group_indices, group_bytes):
@@ -673,7 +754,9 @@ def _call_claude_listing_sync(group_indices: list[int], group_bytes: list[bytes]
             },
         })
 
-    prompt_text = _build_listing_prompt_for_group(group_indices, evidence_block, brand_hint)
+    prompt_text = _build_listing_prompt_for_group(
+        group_indices, evidence_block, brand_hint, name, rationale, rationale_other
+    )
     content.append({"type": "text", "text": prompt_text})
 
     response = client.messages.create(
@@ -697,10 +780,20 @@ async def _generate_one_listing_async(
     image_bytes_list: list[bytes],
     vision_signals: list[VisionResult],
     brand_hint: str,
+    name: str,
+    rationale: str,
+    rationale_other: str,
     retrieval_fallback: bool,
     semaphore: asyncio.Semaphore,
 ) -> dict:
-    """Async per-group listing-gen. Wraps errors as a placeholder dict; never raises."""
+    """Async per-group listing-gen. Wraps errors as a placeholder dict; never raises.
+
+    Args:
+        brand_hint: seller-confirmed brand for this group (already normalized).
+        name: seller-provided product name for this group (may be empty).
+        rationale: per-batch rationale string (validated by the endpoint).
+        rationale_other: free-text reason; only used when rationale == "Other".
+    """
     group_bytes = [image_bytes_list[i] for i in group_indices]
     group_signals = [vision_signals[i] for i in group_indices] if vision_signals else []
     # Re-build evidence block ONLY for the indices in this group, preserving original indices in [Image N]
@@ -735,11 +828,15 @@ async def _generate_one_listing_async(
                 group_bytes,
                 evidence_block,
                 brand_hint,
+                name,
+                rationale,
+                rationale_other,
             )
         except Exception as e:
             logger.warning("Per-group listing generation failed for indices %s: %s", group_indices, e)
             return {
-                "title": "Listing generation failed",
+                "name": "Listing generation failed",
+                "brand": "",
                 "description": "Please try regenerating this item.",
                 "price": "0",
                 "condition": "Good",
@@ -753,7 +850,7 @@ async def _generate_one_listing_async(
                 "_error": str(e),
             }
 
-    # Normalize fields
+    # --- Normalize fields ---
     if "price" in parsed and isinstance(parsed["price"], str):
         parsed["price"] = parsed["price"].lstrip("$").strip()
     if "productYear" in parsed and isinstance(parsed["productYear"], str):
@@ -761,6 +858,49 @@ async def _generate_one_listing_async(
             parsed["productYear"] = int(parsed["productYear"])
         except ValueError:
             pass
+
+    # --- Brand / name post-processing ---
+    # 1. Resolve brand: prefer Claude's emitted `brand`, fall back to brand_hint.
+    #    Strip common "Unknown" sentinel values.
+    raw_brand = parsed.get("brand")
+    if not isinstance(raw_brand, str):
+        raw_brand = ""
+    raw_brand = raw_brand.strip()
+    if raw_brand.lower() == "unknown":
+        raw_brand = ""
+    if not raw_brand and brand_hint:
+        raw_brand = brand_hint.strip()
+    parsed["brand"] = raw_brand
+
+    # 2. Strip legacy keys from categoryAttributes so we never leak `brand`/`model` there.
+    cat_attrs = parsed.get("categoryAttributes")
+    if isinstance(cat_attrs, dict):
+        cat_attrs.pop("brand", None)
+        cat_attrs.pop("model", None)
+        parsed["categoryAttributes"] = cat_attrs
+    else:
+        parsed["categoryAttributes"] = {}
+
+    # 3. Defensive name normalization. If Claude prefixed the brand into `name`,
+    #    strip it. The seller-provided `name` is already authoritative when present,
+    #    but Claude can still echo "Nike Air Force 1" — clean that up.
+    raw_name = parsed.get("name")
+    # Drop legacy `title` field if it slipped through.
+    parsed.pop("title", None)
+    parsed.pop("model", None)
+    if not isinstance(raw_name, str):
+        raw_name = ""
+    raw_name = raw_name.strip()
+    if raw_brand and raw_name.lower().startswith(raw_brand.lower() + " "):
+        stripped = raw_name[len(raw_brand) + 1 :].strip()
+        if stripped:
+            logger.debug(
+                "Stripped brand prefix %r from generated name %r -> %r",
+                raw_brand, raw_name, stripped,
+            )
+            raw_name = stripped
+    parsed["name"] = raw_name
+
     parsed["imageIndices"] = list(group_indices)
     parsed["retrieval_fallback"] = retrieval_fallback
     return parsed
@@ -799,6 +939,9 @@ class GenerateListingsRequest(BaseModel):
     image_urls: list[str]
     vision_signals: list[dict]
     brand_hints: list[str]
+    names: list[str] = []
+    rationale: str = ""
+    rationale_other: str = ""
 
 
 @app.post("/api/generate-listings")
@@ -812,6 +955,24 @@ async def generate_listings(req: GenerateListingsRequest):
         raise HTTPException(
             status_code=400,
             detail="brand_hints length must equal groupings length",
+        )
+    if len(req.names) != len(req.groupings):
+        raise HTTPException(
+            status_code=400,
+            detail="names length must equal groupings length",
+        )
+    if req.rationale not in RATIONALE_OPTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "rationale must be one of: "
+                + ", ".join(repr(o) for o in RATIONALE_OPTIONS)
+            ),
+        )
+    if req.rationale == "Other" and not req.rationale_other.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="rationale_other is required when rationale is 'Other'",
         )
 
     n = len(req.image_urls)
@@ -840,6 +1001,9 @@ async def generate_listings(req: GenerateListingsRequest):
     )
 
     normalized_hints = [_normalize_brand_hint(h) for h in req.brand_hints]
+    # Names: trim only; trust the client beyond that. The prompt itself instructs
+    # Claude to use the seller-provided name verbatim when non-empty.
+    normalized_names = [(s.strip() if isinstance(s, str) else "") for s in req.names]
 
     semaphore = asyncio.Semaphore(5)
     tasks = [
@@ -848,10 +1012,13 @@ async def generate_listings(req: GenerateListingsRequest):
             image_bytes_list=image_bytes_list,
             vision_signals=vision_results,
             brand_hint=hint,
+            name=name,
+            rationale=req.rationale,
+            rationale_other=req.rationale_other,
             retrieval_fallback=retrieval_fallback,
             semaphore=semaphore,
         )
-        for group, hint in zip(req.groupings, normalized_hints)
+        for group, hint, name in zip(req.groupings, normalized_hints, normalized_names)
     ]
     results = await asyncio.gather(*tasks)
     return results
@@ -932,10 +1099,34 @@ async def create_listing(
         filepath.write_bytes(contents)
         image_urls.append(f"/uploads/{filename}")
 
+    # Resolve brand + name. Prefer the new top-level fields. If a transitional
+    # client still sends only `title`, derive (brand, name) by stripping a
+    # leading brand prefix from the title — matches the migration's split rule.
+    brand_in = details.get("brand")
+    name_in = details.get("name")
+    title_in = details.get("title")
+    brand_str = brand_in.strip() if isinstance(brand_in, str) else ""
+    name_str = name_in.strip() if isinstance(name_in, str) else ""
+    if not name_str and isinstance(title_in, str) and title_in.strip():
+        # Transitional bridge: split title on brand prefix.
+        t = title_in.strip()
+        if brand_str and t.lower().startswith(brand_str.lower() + " "):
+            name_str = t[len(brand_str) + 1 :].strip()
+        else:
+            name_str = t
+    # Strip stray legacy keys from categoryAttributes (defense in depth).
+    raw_attrs = details.get("categoryAttributes") or {}
+    if isinstance(raw_attrs, dict):
+        raw_attrs.pop("brand", None)
+        raw_attrs.pop("model", None)
+    else:
+        raw_attrs = {}
+
     listing = Listing(
         id=uuid.uuid4().hex[:12],
         user_id=current_user.id,
-        title=details.get("title", ""),
+        brand=brand_str or None,
+        name=name_str or None,
         description=details.get("description", ""),
         price=details.get("price", "0"),
         condition=details.get("condition", "Good"),
@@ -947,7 +1138,7 @@ async def create_listing(
         image_urls=json.dumps(image_urls),
         pickup_location=pickup_location or current_user.pickup_address or "",
         category=category_slug,
-        category_attributes=json.dumps(details.get("categoryAttributes", {})) if details.get("categoryAttributes") else None,
+        category_attributes=json.dumps(raw_attrs) if raw_attrs else None,
         status="open",
         posted_at=time.time(),
     )
@@ -1348,7 +1539,7 @@ async def relist_listing(
             user_id=o.buyer_id,
             type="order_cancelled",
             title="Order Cancelled",
-            message=f'The listing "{listing.title}" was relisted. Your order has been cancelled.',
+            message=f'The listing "{listing.title_str}" was relisted. Your order has been cancelled.',
             listing_id=listing_id,
         ))
 
@@ -1380,15 +1571,32 @@ async def update_listing(
     if listing.status == "sold":
         raise HTTPException(status_code=400, detail="Cannot edit a sold listing")
 
-    field_map = {"title": "title", "description": "description", "price": "price",
-                 "condition": "condition", "location": "location", "category": "category"}
+    field_map = {"description": "description", "price": "price",
+                 "condition": "condition", "location": "location", "category": "category",
+                 "brand": "brand", "name": "name"}
     for field, attr in field_map.items():
         if field in details:
             setattr(listing, attr, details[field])
+
+    # Transitional bridge: if a client still sends `title` (no brand/name), split it.
+    if "title" in details and "name" not in details and "brand" not in details:
+        t = (details.get("title") or "").strip()
+        b = (listing.brand or "").strip()
+        if b and t.lower().startswith(b.lower() + " "):
+            listing.name = t[len(b) + 1 :].strip()
+        else:
+            listing.name = t
+
     if "tags" in details:
         listing.tags = json.dumps(details["tags"])
     if "categoryAttributes" in details:
-        listing.category_attributes = json.dumps(details["categoryAttributes"])
+        attrs = details["categoryAttributes"] or {}
+        if isinstance(attrs, dict):
+            attrs.pop("brand", None)
+            attrs.pop("model", None)
+        else:
+            attrs = {}
+        listing.category_attributes = json.dumps(attrs)
     db.commit()
     return listing.to_dict()
 

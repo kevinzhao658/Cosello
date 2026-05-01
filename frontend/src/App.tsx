@@ -2,13 +2,14 @@ import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCir
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { useSettings } from "./contexts/SettingsContext";
-import React, { useState, useEffect, useRef, Fragment } from "react";
+import React, { useState, useEffect, useRef, Fragment, startTransition } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
 import UserProfileOverlay from "./pages/UserProfilePage";
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
+import { formatTitle } from "./lib/format";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
@@ -27,7 +28,10 @@ interface CategorySchema {
 }
 
 interface ProductDetails {
-  title: string;
+  // brand + name replace the old computed `title` field. Display title is
+  // composed at render time via `formatTitle(brand, name)`.
+  brand: string;
+  name: string;
   description: string;
   price: string;
   condition: string;
@@ -68,6 +72,9 @@ interface Listing extends ProductDetails {
   seller_picture?: string | null;
   category?: CategorySlug;
   categoryAttributes?: Record<string, string>;
+  // Server still returns a stored `title` column for legacy clients during
+  // the transition; modern UI ignores it and recomputes via formatTitle.
+  title?: string;
 }
 
 type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
@@ -116,6 +123,50 @@ function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }
   );
 }
 
+function TypedInstruction({ bulkReviewPhase, exiting }: {
+  bulkReviewPhase: "review" | "reason" | "cards" | "summary" | null;
+  exiting: boolean;
+}) {
+  const [typedInstruction, setTypedInstruction] = useState("");
+
+  useEffect(() => {
+    if (bulkReviewPhase !== "review" && bulkReviewPhase !== "reason") {
+      setTypedInstruction("");
+      return;
+    }
+    const full = bulkReviewPhase === "review"
+      ? "What is the brand and name of each of your items?"
+      : "What's your reason for selling these items?";
+    let i = 0;
+    setTypedInstruction("");
+    let intervalId: ReturnType<typeof setInterval>;
+    const delayId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        i++;
+        setTypedInstruction(full.slice(0, i));
+        if (i >= full.length) clearInterval(intervalId);
+      }, 28);
+    }, 320);
+    return () => { clearTimeout(delayId); clearInterval(intervalId); };
+  }, [bulkReviewPhase]);
+
+  if (bulkReviewPhase !== "review" && bulkReviewPhase !== "reason") return null;
+
+  return (
+    <p
+      className="mt-3 text-4xl font-light text-white leading-snug tracking-wide text-center"
+      style={{
+        animation: exiting
+          ? "wizardStepOut 300ms ease-in forwards"
+          : "wizardStepIn 300ms ease-out both",
+      }}
+    >
+      {typedInstruction}
+      {!typedInstruction.endsWith("?") && <span className="animate-pulse">|</span>}
+    </p>
+  );
+}
+
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
@@ -141,12 +192,21 @@ export default function App() {
 
   const [bulkItems, setBulkItems] = useState<BulkItemDetails[]>([]);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [bulkReviewPhase, setBulkReviewPhase] = useState<"review" | "cards" | "summary" | null>(null);
+  // Wizard step state. Step 1 (upload) is `null`; once segmentation lands the
+  // user steps through review → reason → cards (→ summary) in order.
+  const [bulkReviewPhase, setBulkReviewPhase] = useState<"review" | "reason" | "cards" | "summary" | null>(null);
   // Segmentation (pass 1) result — held across the review screen, then forwarded to generate-listings.
   const [segmentation, setSegmentation] = useState<SegmentationResult | null>(null);
   // Per-group brand hints, length-aligned with segmentation.groupings.
   const [brandHints, setBrandHints] = useState<string[]>([]);
-  const [typedInstruction, setTypedInstruction] = useState("");
+  // Per-group name hints, also length-aligned with segmentation.groupings.
+  // Optional like brandHints — empty entries are sent as "" to the backend.
+  const [names, setNames] = useState<string[]>([]);
+  // Batch-level rationale for the generation call. Empty string == not picked.
+  // "Other" surfaces a free-text input stored in rationaleOther.
+  const [rationale, setRationale] = useState<string>("");
+  const [rationaleOther, setRationaleOther] = useState<string>("");
+  const [instructionExiting, setInstructionExiting] = useState(false);
   // Inline error surfaced on the upload screen if /api/segment-photos fails.
   const [segmentationError, setSegmentationError] = useState<string | null>(null);
   const [isPostingBulk, setIsPostingBulk] = useState(false);
@@ -247,9 +307,12 @@ export default function App() {
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const formatHour = (h: number) => h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`;
 
-  // Edit listing modal state (from marketplace detail)
+  // Edit listing modal state (from marketplace detail).
+  // Brand + name replace the old single Title input — title is computed via
+  // formatTitle on render, never stored as an editable field.
   const [showEditListingModal, setShowEditListingModal] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
+  const [editBrand, setEditBrand] = useState("");
+  const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [editCondition, setEditCondition] = useState("");
@@ -262,7 +325,8 @@ export default function App() {
 
   const openEditFromDetail = () => {
     if (!listingDetailData) return;
-    setEditTitle(listingDetailData.title);
+    setEditBrand(listingDetailData.brand || "");
+    setEditName(listingDetailData.name || "");
     setEditDescription(listingDetailData.description || "");
     setEditPrice(listingDetailData.price);
     setEditCondition(listingDetailData.condition);
@@ -270,7 +334,13 @@ export default function App() {
     setEditTags(listingDetailData.tags || []);
     setEditNewTag("");
     setEditCategory(listingDetailData.category || "other");
-    setEditCategoryAttributes(listingDetailData.categoryAttributes || {});
+    // Strip legacy brand/model keys when loading: they're now top-level
+    // fields, and we don't want them resurrected in the saved attributes
+    // payload after the edit is submitted.
+    const sanitizedAttrs = { ...(listingDetailData.categoryAttributes || {}) };
+    delete sanitizedAttrs.brand;
+    delete sanitizedAttrs.model;
+    setEditCategoryAttributes(sanitizedAttrs);
     setShowEditListingModal(true);
   };
 
@@ -280,7 +350,8 @@ export default function App() {
     try {
       const formData = new FormData();
       formData.append("data", JSON.stringify({
-        title: editTitle,
+        brand: editBrand,
+        name: editName,
         description: editDescription,
         price: editPrice,
         condition: editCondition,
@@ -318,7 +389,7 @@ export default function App() {
     setListingDetailSellerProfile(null);
     setBuyerOrderStatus(null);
     setListingDetailImageIndex(0);
-    addToHistory({ id: listing.id, title: listing.title, imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "viewed" });
+    addToHistory({ id: listing.id, title: formatTitle(listing.brand, listing.name), imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "viewed" });
     if (token && listing.userId) {
       setIsLoadingListingDetail(true);
       try {
@@ -383,7 +454,7 @@ export default function App() {
         const err = await res.json().catch(() => ({ detail: "Failed to create order" }));
         throw new Error(err.detail || "Failed to create order");
       }
-      addToHistory({ id: listingDetailData.id, title: listingDetailData.title, imageUrl: listingDetailData.imageUrls?.[0] || listingDetailData.imageUrl, price: listingDetailData.price, type: "purchased" });
+      addToHistory({ id: listingDetailData.id, title: formatTitle(listingDetailData.brand, listingDetailData.name), imageUrl: listingDetailData.imageUrls?.[0] || listingDetailData.imageUrl, price: listingDetailData.price, type: "purchased" });
       const orderData = await res.json();
       setBuyerOrderStatus({ status: "pending", order_id: orderData.id });
       setMyOrderStatuses((prev) => ({ ...prev, [listingDetailData.id]: { status: "pending", orderId: orderData.id } }));
@@ -572,21 +643,6 @@ export default function App() {
     }
   }, [tradeMode]);
 
-  useEffect(() => {
-    if (bulkReviewPhase !== "review") { setTypedInstruction(""); return; }
-    const full = "What is the brand of each of your items?";
-    let i = 0;
-    setTypedInstruction("");
-    let intervalId: ReturnType<typeof setInterval>;
-    const delayId = setTimeout(() => {
-      intervalId = setInterval(() => {
-        i++;
-        setTypedInstruction(full.slice(0, i));
-        if (i >= full.length) clearInterval(intervalId);
-      }, 28);
-    }, 320);
-    return () => { clearTimeout(delayId); clearInterval(intervalId); };
-  }, [bulkReviewPhase]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -603,6 +659,9 @@ export default function App() {
       setBulkReviewPhase(null);
       setSegmentation(null);
       setBrandHints([]);
+      setNames([]);
+      setRationale("");
+      setRationaleOther("");
       setSegmentationError(null);
     }
     e.target.value = "";
@@ -662,6 +721,9 @@ export default function App() {
       setCurrentCardIndex(0);
       setSegmentation(null);
       setBrandHints([]);
+      setNames([]);
+      setRationale("");
+      setRationaleOther("");
       setSegmentationError(null);
       setGroupingsModified(false);
       setModifiedGroupIndices(new Set());
@@ -691,10 +753,11 @@ export default function App() {
       });
     }
 
-    // brandHints is group-aligned; drop entries for groups that emptied.
+    // brandHints + names are group-aligned; drop entries for groups that emptied.
     if (emptiedGroupPositions.length > 0) {
       const emptiedSet = new Set(emptiedGroupPositions);
       setBrandHints((prev) => prev.filter((_, idx) => !emptiedSet.has(idx)));
+      setNames((prev) => prev.filter((_, idx) => !emptiedSet.has(idx)));
     }
 
     // bulkItems: filter+remap each item's imageIndices; drop items with none left.
@@ -883,7 +946,8 @@ export default function App() {
         return item;
       });
       const newItem: BulkItemDetails = {
-        title: "",
+        brand: "",
+        name: "",
         description: "",
         price: "",
         condition: "Good",
@@ -946,6 +1010,9 @@ export default function App() {
     image_urls: string[];
     vision_signals: unknown[];
     brand_hints: string[];
+    names: string[];
+    rationale: string;
+    rationale_other: string;
   }): Promise<BulkItemDetails[]> => {
     const res = await fetch("/api/generate-listings", {
       method: "POST",
@@ -975,6 +1042,11 @@ export default function App() {
       }
       setSegmentation(result);
       setBrandHints(result.groupings.map(() => ""));
+      setNames(result.groupings.map(() => ""));
+      // Step 3 state lives across the wizard but resets on each fresh
+      // segmentation pass — user picks rationale per upload batch.
+      setRationale("");
+      setRationaleOther("");
       setBulkItems([]);
       setCurrentCardIndex(0);
       setBulkReviewPhase("review");
@@ -989,12 +1061,15 @@ export default function App() {
     }
   };
 
-  // Triggered by the "Generate Listings" button on the review screen. Forwards user-edited
-  // groupings + brand hints + the opaque vision_signals from segmentation.
+  // Triggered by the "Generate Listings" button on the rationale (Step 3) screen.
+  // Forwards user-edited groupings + brand/name hints + batch rationale + the
+  // opaque vision_signals from segmentation.
   const handleGenerateListings = async () => {
     if (!segmentation) return;
     // Validation: every group must be non-empty (every image is already covered by drag/split logic).
     if (segmentation.groupings.some((g) => g.length === 0)) return;
+    // Rationale === "Other" requires the free-text input to be non-empty.
+    if (rationale === "Other" && rationaleOther.trim() === "") return;
     setIsGenerating(true);
     try {
       const items = await generateListings({
@@ -1002,6 +1077,9 @@ export default function App() {
         image_urls: segmentation.image_urls,
         vision_signals: segmentation.vision_signals,
         brand_hints: brandHints,
+        names: names,
+        rationale: rationale,
+        rationale_other: rationaleOther,
       });
       // Backfill imageIndices from the user-confirmed groupings (server may not echo them).
       const sellerNeighborhood = user?.neighborhood;
@@ -1014,12 +1092,17 @@ export default function App() {
         if (!item.categoryAttributes) item.categoryAttributes = {};
         if (!item.identifierConfidence) item.identifierConfidence = "low";
         if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
+        // Defensive: response shape is {name, brand, ...} — coerce missing
+        // fields to "" rather than letting `undefined` bubble into formatTitle.
+        if (item.brand === undefined || item.brand === null) item.brand = "";
+        if (item.name === undefined || item.name === null) item.name = "";
       });
 
       if (items.length === 1) {
         // Single item — drop into the existing single-item edit form for UX continuity.
         setProductDetails({
-          title: items[0].title,
+          brand: items[0].brand || "",
+          name: items[0].name || "",
           description: items[0].description,
           price: items[0].price,
           condition: items[0].condition,
@@ -1049,6 +1132,8 @@ export default function App() {
 
   // Per-item regenerate from the review-cards phase: re-runs /api/generate-listings for a
   // single group when its first attempt returned a placeholder dict with `_error`.
+  // Sends the slice of brand/name hints for the single group plus the same
+  // batch-level rationale used in the original generate call.
   const regenerateBulkItem = async (groupIdx: number) => {
     if (!segmentation || !segmentation.groupings[groupIdx]) return;
     setIsGenerating(true);
@@ -1058,6 +1143,9 @@ export default function App() {
         image_urls: segmentation.image_urls,
         vision_signals: segmentation.vision_signals,
         brand_hints: [brandHints[groupIdx] || ""],
+        names: [names[groupIdx] || ""],
+        rationale: rationale,
+        rationale_other: rationaleOther,
       });
       if (items.length === 0) throw new Error("No listing returned");
       const fresh = items[0];
@@ -1069,6 +1157,8 @@ export default function App() {
       if (!fresh.categoryAttributes) fresh.categoryAttributes = {};
       if (!fresh.identifierConfidence) fresh.identifierConfidence = "low";
       if (fresh.retrieval_fallback === undefined) fresh.retrieval_fallback = false;
+      if (fresh.brand === undefined || fresh.brand === null) fresh.brand = "";
+      if (fresh.name === undefined || fresh.name === null) fresh.name = "";
       setBulkItems((prev) => {
         const updated = [...prev];
         if (updated[groupIdx]) updated[groupIdx] = fresh;
@@ -1094,30 +1184,37 @@ export default function App() {
       return g;
     });
     let nextHints = brandHints;
+    let nextNames = names;
     if (isLastInSource) {
       next = next.filter((_, idx) => idx !== sourceGroup);
       nextHints = brandHints.filter((_, idx) => idx !== sourceGroup);
+      nextNames = names.filter((_, idx) => idx !== sourceGroup);
     }
     setSegmentation({ ...segmentation, groupings: next });
     setBrandHints(nextHints);
+    setNames(nextNames);
   };
 
   const reviewSplitImageToNewGroup = (imageIndex: number, sourceGroup: number, gapIndex: number) => {
     if (!segmentation) return;
     const groupings = segmentation.groupings;
     if (groupings[sourceGroup].length <= 1) return;
-    // Brand-hint policy on split: the lower-index (existing) group keeps its hint; the new group's hint is empty.
+    // Brand-hint + name policy on split: the lower-index (existing) group keeps its values;
+    // the new split-off group's brand and name default to "".
     const next = groupings.map((g, idx) =>
       idx === sourceGroup ? g.filter((i) => i !== imageIndex) : g,
     );
     next.splice(gapIndex, 0, [imageIndex]);
     const nextHints = [...brandHints];
     nextHints.splice(gapIndex, 0, "");
+    const nextNames = [...names];
+    nextNames.splice(gapIndex, 0, "");
     setSegmentation({ ...segmentation, groupings: next });
     setBrandHints(nextHints);
+    setNames(nextNames);
   };
 
-  // Merge sourceGroup INTO destGroup: destGroup keeps its brand hint, source's hint is dropped.
+  // Merge sourceGroup INTO destGroup: destGroup keeps its brand+name; source's are dropped.
   const reviewMergeGroups = (sourceGroup: number, destGroup: number) => {
     if (!segmentation || sourceGroup === destGroup) return;
     const groupings = segmentation.groupings;
@@ -1128,12 +1225,22 @@ export default function App() {
       return g;
     }).filter((_, idx) => idx !== sourceGroup);
     const nextHints = brandHints.filter((_, idx) => idx !== sourceGroup);
+    const nextNames = names.filter((_, idx) => idx !== sourceGroup);
     setSegmentation({ ...segmentation, groupings: merged });
     setBrandHints(nextHints);
+    setNames(nextNames);
   };
 
   const updateBrandHint = (groupIdx: number, value: string) => {
     setBrandHints((prev) => {
+      const next = [...prev];
+      next[groupIdx] = value;
+      return next;
+    });
+  };
+
+  const updateName = (groupIdx: number, value: string) => {
+    setNames((prev) => {
       const next = [...prev];
       next[groupIdx] = value;
       return next;
@@ -1173,12 +1280,16 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to post listing");
       const posted = await res.json();
       if (posted?.id) {
-        addToHistory({ id: posted.id, title: productDetails.title, imageUrl: posted.imageUrl || "", price: productDetails.price, type: "listed" });
+        addToHistory({ id: posted.id, title: formatTitle(productDetails.brand, productDetails.name), imageUrl: posted.imageUrl || "", price: productDetails.price, type: "listed" });
       }
 
       setProductDetails(null);
       setUploadedImages([]);
       setPostPickupLocation("");
+      // Reset wizard inputs that may have been left over from a single-item flow.
+      setNames([]);
+      setRationale("");
+      setRationaleOther("");
 
       setTradeMode("buy");
       setPage("market");
@@ -1224,7 +1335,7 @@ export default function App() {
           body: formData,
         });
 
-        if (!res.ok) throw new Error(`Failed to post listing: ${item.title}`);
+        if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
       }
 
       setBulkItems([]);
@@ -1233,6 +1344,12 @@ export default function App() {
       setProductDetails(null);
       setUploadedImages([]);
       setPostPickupLocation("");
+      // Wizard reset on successful bulk publish.
+      setSegmentation(null);
+      setBrandHints([]);
+      setNames([]);
+      setRationale("");
+      setRationaleOther("");
 
       setTradeMode("buy");
       setPage("market");
@@ -1276,6 +1393,11 @@ export default function App() {
     setUploadedImages([]);
     setBulkItems([]);
     setBulkReviewPhase(null);
+    setSegmentation(null);
+    setBrandHints([]);
+    setNames([]);
+    setRationale("");
+    setRationaleOther("");
     setPage("home");
   };
 
@@ -1481,7 +1603,7 @@ export default function App() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex items-center gap-8">
-              <button onClick={() => setPage("home")} className={`flex items-center gap-2 bg-transparent border-none cursor-pointer transition-opacity duration-500 ${bulkReviewPhase === "review" ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
+              <button onClick={() => setPage("home")} className={`flex items-center gap-2 bg-transparent border-none cursor-pointer transition-opacity duration-500 ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason") ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
                 <div className="relative">
                   <DollarSign className="size-8 text-fuchsia-400 absolute top-0 left-0" />
                   <DollarSign className="size-8 text-cyan-400 relative" style={{ transform: 'translate(8px, 0)' }} />
@@ -1907,7 +2029,7 @@ export default function App() {
       {/* Hero Section */}
       <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-7xl mx-auto w-full">
-          <div className={`text-center transition-all duration-300 overflow-hidden ${bulkReviewPhase === "review" ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
+          <div className={`text-center transition-all duration-300 overflow-hidden ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason") ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
             <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
               {displayText.split('').map((letter, index) => (
                 <span
@@ -2023,7 +2145,7 @@ export default function App() {
               ) : (
                 <>
                   {/* Sell Upload Area */}
-                  <div className={`relative flex items-center gap-2 transition-all duration-300 overflow-hidden ${bulkReviewPhase === "review" ? "max-h-0 mb-0 opacity-0 pointer-events-none" : "max-h-32 mb-2 opacity-100"}`}>
+                  <div className={`relative flex items-center gap-2 transition-all duration-300 overflow-hidden ${(bulkReviewPhase === "review" || bulkReviewPhase === "reason") ? "max-h-0 mb-0 opacity-0 pointer-events-none" : "max-h-32 mb-2 opacity-100"}`}>
                     <label className="flex-1 flex items-center gap-3 px-4 py-3 bg-white/5 border border-dashed border-fuchsia-400/40 rounded-lg cursor-pointer hover:bg-white/10 hover:border-fuchsia-400/60 transition-all">
                       <Upload className="size-5 text-fuchsia-400 shrink-0" />
                       <p className="text-sm inline-flex items-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
@@ -2090,7 +2212,7 @@ export default function App() {
                   */}
                   {uploadedImages.length > 0 && (
                     <>
-                      {bulkReviewPhase === "review" && segmentation ? (
+                      {(bulkReviewPhase === "review" || bulkReviewPhase === "reason") && segmentation ? (
                         /*
                           Review phase: inline cluster layout. Each group is an
                           inline-flex column (thumbs on top, brand bubble below).
@@ -2104,15 +2226,48 @@ export default function App() {
                         */
                         <>
                         {/*
-                          Helper instructions — only rendered in review phase.
-                          Sits above the cluster row (not inside the bar) as
-                          three concise lines of muted italic guidance.
+                          Wizard progress indicator — minimal "Step N of 4" +
+                          step name. No bar, no chrome. Sits above the
+                          cluster row across both Step 2 ("review") and Step
+                          3 ("reason") so the user always knows where they
+                          are in the flow.
                         */}
-                        <p className="mt-3 text-4xl font-light text-white leading-snug tracking-wide text-center">
-                          {typedInstruction}
-                          {typedInstruction.length < 40 && <span className="animate-pulse">|</span>}
-                        </p>
-                        <div className="flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2">
+                        <div className="mt-3 flex items-center justify-center gap-2 text-xs text-white/40 uppercase tracking-wider">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Back arrow:
+                              //  • Step 3 → Step 2 (rationale persists in state)
+                              //  • Step 2 → Step 1 (drop segmentation; brand/name are about to
+                              //    be invalidated by re-segmentation anyway)
+                              if (bulkReviewPhase === "reason") {
+                                setInstructionExiting(true);
+                                setTimeout(() => {
+                                  startTransition(() => {
+                                    setInstructionExiting(false);
+                                    setBulkReviewPhase("review");
+                                  });
+                                }, 300);
+                              } else if (bulkReviewPhase === "review") {
+                                setBulkReviewPhase(null);
+                                setSegmentation(null);
+                                setBrandHints([]);
+                                setNames([]);
+                                setRationale("");
+                                setRationaleOther("");
+                              }
+                            }}
+                            aria-label="Back"
+                            className="size-6 rounded-full flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+                          >
+                            <ChevronRight className="size-3.5 rotate-180" />
+                          </button>
+                          <span>
+                            {bulkReviewPhase === "review" ? "Step 2 of 4 — Review groups" : "Step 3 of 4 — Why are you selling?"}
+                          </span>
+                        </div>
+                        <TypedInstruction bulkReviewPhase={bulkReviewPhase} exiting={instructionExiting} />
+                        <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "reason" ? "opacity-30" : "opacity-100"}`}>
                           {segmentation.groupings.map((group, groupIdx) => {
                             const isDropTarget = dragOverGroup === groupIdx;
                             return (
@@ -2124,7 +2279,7 @@ export default function App() {
                                   />
                                 )}
                                 <div
-                                  className={`inline-flex flex-col gap-1 rounded-lg p-1 transition-colors ${
+                                  className={`inline-flex flex-col items-center gap-1 rounded-lg p-1 transition-colors ${
                                     isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
                                   }`}
                                   onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
@@ -2158,30 +2313,68 @@ export default function App() {
                                             className="size-full object-cover rounded-lg"
                                             draggable={false}
                                           />
-                                          <button
-                                            type="button"
-                                            aria-label={`Delete photo ${imgIdx + 1}`}
-                                            onMouseDown={handleDeletePhotoMouseDown}
-                                            onClick={handleDeletePhotoClick(imgIdx)}
-                                            className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
-                                          >
-                                            <X className="size-3" />
-                                          </button>
+                                          {bulkReviewPhase !== "reason" && (
+                                            <button
+                                              type="button"
+                                              aria-label={`Delete photo ${imgIdx + 1}`}
+                                              onMouseDown={handleDeletePhotoMouseDown}
+                                              onClick={handleDeletePhotoClick(imgIdx)}
+                                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                                            >
+                                              <X className="size-3" />
+                                            </button>
+                                          )}
                                         </div>
                                       );
                                     })}
                                   </div>
-                                  <input
-                                    id={`brand-hint-${groupIdx}`}
-                                    type="text"
-                                    value={brandHints[groupIdx] ?? ""}
-                                    onChange={(e) => updateBrandHint(groupIdx, e.target.value)}
-                                    placeholder="Brand (optional)"
-                                    maxLength={80}
-                                    aria-label={`Brand for item ${groupIdx + 1}`}
-                                    style={{ fieldSizing: "content" }}
-                                    className="self-start min-w-[4rem] max-w-[20rem] rounded-full bg-white/5 px-3 py-1 text-xs text-white placeholder:text-white/40 focus:outline-none focus:bg-white/10 transition-colors"
-                                  />
+                                  {/*
+                                    Per-cluster identity inputs: brand + name
+                                    sit side-by-side on desktop, stack on
+                                    mobile. Both are optional — the wizard's
+                                    Step 2 "Continue" enables regardless. The
+                                    field-sizing trick keeps each input the
+                                    width of its content with sensible
+                                    min/max bounds. Distinct placeholders so
+                                    users don't accidentally duplicate brand
+                                    into name.
+                                  */}
+                                  {bulkReviewPhase === "reason" ? (
+                                    <p className="text-xs text-white text-center mt-1">
+                                      {[brandHints[groupIdx], names[groupIdx]].filter(Boolean).join(" ") || "—"}
+                                    </p>
+                                  ) : (
+                                    <div className="flex items-start gap-3 w-full justify-center">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <input
+                                          id={`brand-hint-${groupIdx}`}
+                                          type="text"
+                                          value={brandHints[groupIdx] ?? ""}
+                                          onChange={(e) => updateBrandHint(groupIdx, e.target.value)}
+                                          placeholder="—"
+                                          maxLength={80}
+                                          aria-label={`Brand for item ${groupIdx + 1}`}
+                                          style={{ fieldSizing: "content" }}
+                                          className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
+                                        />
+                                        <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Brand</label>
+                                      </div>
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <input
+                                          id={`name-hint-${groupIdx}`}
+                                          type="text"
+                                          value={names[groupIdx] ?? ""}
+                                          onChange={(e) => updateName(groupIdx, e.target.value)}
+                                          placeholder="—"
+                                          maxLength={120}
+                                          aria-label={`Name for item ${groupIdx + 1}`}
+                                          style={{ fieldSizing: "content" }}
+                                          className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
+                                        />
+                                        <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Name</label>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               </Fragment>
                             );
@@ -2240,6 +2433,9 @@ export default function App() {
                                 setModifiedGroupIndices(new Set());
                                 setSegmentation(null);
                                 setBrandHints([]);
+                                setNames([]);
+                                setRationale("");
+                                setRationaleOther("");
                                 setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
@@ -2357,6 +2553,9 @@ export default function App() {
                                 setModifiedGroupIndices(new Set());
                                 setSegmentation(null);
                                 setBrandHints([]);
+                                setNames([]);
+                                setRationale("");
+                                setRationaleOther("");
                                 setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
@@ -2404,6 +2603,9 @@ export default function App() {
                                 setNewTag("");
                                 setSegmentation(null);
                                 setBrandHints([]);
+                                setNames([]);
+                                setRationale("");
+                                setRationaleOther("");
                                 setSegmentationError(null);
                               }}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
@@ -2443,28 +2645,118 @@ export default function App() {
                   )}
 
                   {/*
-                    Generate Listings trigger — sits directly below the unified
-                    photo bar in review phase. The cluster row + brand bubbles
-                    now render INSIDE the photo bar above (no separate "Review
-                    groupings" wrapper / heading); this button is the only
-                    review-phase chrome that lives outside the bar.
+                    Wizard panel — single fixed slot below the cluster bar.
+                    Step 2 ("review") shows a Continue button; Step 3
+                    ("reason") shows the rationale radio group + Generate
+                    Listings. Both panels share an outer wrapper that
+                    cross-fades + slides on phase change.
+
+                    Transition:
+                      • outgoing step: opacity 1 → 0, translateY 0 → -8px
+                      • incoming step: opacity 0 → 1, translateY 8px → 0
+                      • duration 300ms, eased with the default Tailwind
+                        ease-out curve
+                    Implementation: a single container with key={phase} so
+                    React unmounts/remounts when the step changes; an inline
+                    keyframe class drives the entry animation. CSS only,
+                    no animation library.
                   */}
-                  {bulkReviewPhase === "review" && !isGenerating && segmentation && (
-                    <Button
-                      onClick={handleGenerateListings}
-                      disabled={
-                        isGenerating ||
-                        segmentation.groupings.length === 0 ||
-                        segmentation.groupings.some((g) => g.length === 0)
-                      }
-                      className="mt-4 w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                  {(bulkReviewPhase === "review" || bulkReviewPhase === "reason") && !isGenerating && segmentation && (
+                    <div
+                      key={bulkReviewPhase}
+                      className="mt-4 wizard-step-enter"
+                      style={{
+                        animation: "wizardStepIn 300ms ease-out both",
+                      }}
                     >
-                      {isGenerating ? (
-                        <Loader2 className="size-4 animate-spin" />
+                      {bulkReviewPhase === "review" ? (
+                        <Button
+                          onClick={() => {
+                            setInstructionExiting(true);
+                            setTimeout(() => {
+                              startTransition(() => {
+                                setInstructionExiting(false);
+                                setBulkReviewPhase("reason");
+                              });
+                            }, 300);
+                          }}
+                          disabled={
+                            segmentation.groupings.length === 0 ||
+                            segmentation.groupings.some((g) => g.length === 0)
+                          }
+                          className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                        >
+                          {`Continue (${segmentation.groupings.length} ${segmentation.groupings.length === 1 ? "item" : "items"})`}
+                        </Button>
                       ) : (
-                        `Generate Listings (${segmentation.groupings.length})`
+                        // Step 3 — rationale radio group + Generate trigger.
+                        <div className="p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
+                          <div className="space-y-2">
+                            {[
+                              "Moving",
+                              "Upgrading",
+                              "No longer fits",
+                              "Gift never used",
+                              "Decluttering",
+                              "Other",
+                            ].map((opt) => {
+                              const isSelected = rationale === opt;
+                              return (
+                                <label
+                                  key={opt}
+                                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all ${
+                                    isSelected
+                                      ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-100"
+                                      : "bg-white/5 border-white/15 text-white/70 hover:bg-white/[0.07] hover:border-white/25"
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name="sell-rationale"
+                                    value={opt}
+                                    checked={isSelected}
+                                    onChange={() => {
+                                      setRationale(opt);
+                                      // Clear the free-text input when leaving "Other"
+                                      // so a stale value doesn't get sent on the next call.
+                                      if (opt !== "Other") setRationaleOther("");
+                                    }}
+                                    className="size-4 accent-fuchsia-500 shrink-0"
+                                  />
+                                  <span className="text-sm">{opt}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {rationale === "Other" && (
+                            <div>
+                              <label className="text-xs text-white/40 uppercase tracking-wider">Tell us briefly why</label>
+                              <Input
+                                value={rationaleOther}
+                                onChange={(e) => setRationaleOther(e.target.value)}
+                                placeholder="Tell us briefly why"
+                                maxLength={200}
+                                className="mt-1 bg-white/5 border-white/20 text-white"
+                              />
+                            </div>
+                          )}
+                          <Button
+                            onClick={handleGenerateListings}
+                            disabled={
+                              isGenerating ||
+                              (rationale === "Other" && rationaleOther.trim() === "")
+                            }
+                            className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                          >
+                            {isGenerating ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              `Generate Listings (${segmentation.groupings.length})`
+                            )}
+                          </Button>
+                        </div>
                       )}
-                    </Button>
+                    </div>
                   )}
 
                   {productDetails && !isGenerating && (
@@ -2478,13 +2770,23 @@ export default function App() {
                           </div>
                         </div>
                       )}
-                      <div>
-                        <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
-                        <Input
-                          value={productDetails.title}
-                          onChange={(e) => setProductDetails({ ...productDetails, title: e.target.value })}
-                          className="mt-1 bg-white/5 border-white/20 text-white"
-                        />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-white/40 uppercase tracking-wider">Brand</label>
+                          <Input
+                            value={productDetails.brand}
+                            onChange={(e) => setProductDetails({ ...productDetails, brand: e.target.value })}
+                            className="mt-1 bg-white/5 border-white/20 text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-white/40 uppercase tracking-wider">Name</label>
+                          <Input
+                            value={productDetails.name}
+                            onChange={(e) => setProductDetails({ ...productDetails, name: e.target.value })}
+                            className="mt-1 bg-white/5 border-white/20 text-white"
+                          />
+                        </div>
                       </div>
                       <div>
                         <label className="text-xs text-white/40 uppercase tracking-wider">Description</label>
@@ -2788,13 +3090,23 @@ export default function App() {
                             </div>
                           </div>
                         )}
-                        <div>
-                          <label className="text-xs text-white/40 uppercase tracking-wider">Title</label>
-                          <Input
-                            value={bulkItems[currentCardIndex].title}
-                            onChange={(e) => updateBulkItem(currentCardIndex, "title", e.target.value)}
-                            className="mt-1 bg-white/5 border-white/20 text-white"
-                          />
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-white/40 uppercase tracking-wider">Brand</label>
+                            <Input
+                              value={bulkItems[currentCardIndex].brand}
+                              onChange={(e) => updateBulkItem(currentCardIndex, "brand", e.target.value)}
+                              className="mt-1 bg-white/5 border-white/20 text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-white/40 uppercase tracking-wider">Name</label>
+                            <Input
+                              value={bulkItems[currentCardIndex].name}
+                              onChange={(e) => updateBulkItem(currentCardIndex, "name", e.target.value)}
+                              className="mt-1 bg-white/5 border-white/20 text-white"
+                            />
+                          </div>
                         </div>
                         <div>
                           <label className="text-xs text-white/40 uppercase tracking-wider">Description</label>
@@ -2969,11 +3281,11 @@ export default function App() {
                               <div className="shrink-0">
                                 <ListingImageCarousel
                                   images={itemImages.length > 0 ? itemImages : [""]}
-                                  alt={item.title}
+                                  alt={formatTitle(item.brand, item.name)}
                                 />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <h3 className="text-lg font-medium truncate pr-10 text-left">{item.title}</h3>
+                                <h3 className="text-lg font-medium truncate pr-10 text-left">{formatTitle(item.brand, item.name)}</h3>
                                 <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
                                   <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{item.condition}</span>
                                 </div>
@@ -3361,28 +3673,29 @@ export default function App() {
                     )}
                     <ListingImageCarousel
                       images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
-                      alt={listing.title}
+                      alt={formatTitle(listing.brand, listing.name)}
                     />
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-medium truncate pr-10">{listing.title}</h3>
+                      <h3 className="text-lg font-medium truncate pr-10">{formatTitle(listing.brand, listing.name)}</h3>
                       <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
                         <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{listing.condition}</span>
                         {listing.status === "sold" && <span className="px-2 py-0.5 rounded bg-white/10 text-xs text-white/40">Sold</span>}
                       </div>
-                      {/* Key category attributes */}
-                      {listing.categoryAttributes && (() => {
-                        const attrs = listing.categoryAttributes;
+                      {/* Key category attributes — brand is now top-level on the
+                          listing, so for non-collectibles we show only the
+                          remaining category-specific attribute. brand_or_creator
+                          is still a category attribute on collectibles only. */}
+                      {(() => {
+                        const attrs = listing.categoryAttributes || {};
                         const cat = listing.category || "other";
                         const display: string[] = [];
                         if (cat === "clothing") {
-                          if (attrs.brand) display.push(attrs.brand);
                           if (attrs.size) display.push(attrs.size);
                         } else if (cat === "furniture") {
-                          if (attrs.brand) display.push(attrs.brand);
                           if (attrs.carry_difficulty) display.push(attrs.carry_difficulty);
-                        } else {
-                          if (attrs.brand || attrs.brand_or_creator) display.push(attrs.brand || attrs.brand_or_creator || "");
-                          if (attrs.model) display.push(attrs.model);
+                        } else if (cat === "collectibles") {
+                          if (attrs.brand_or_creator) display.push(attrs.brand_or_creator);
+                          if (attrs.year) display.push(attrs.year);
                         }
                         if (display.length === 0) return null;
                         return (
@@ -4114,7 +4427,7 @@ export default function App() {
                 <div className="relative w-full aspect-square bg-black">
                   <img
                     src={images[listingDetailImageIndex]}
-                    alt={listingDetailData.title}
+                    alt={formatTitle(listingDetailData.brand, listingDetailData.name)}
                     className="w-full h-full object-contain"
                   />
                   {images.length > 1 && (
@@ -4149,7 +4462,7 @@ export default function App() {
             {/* Product Info */}
             <div className="p-5">
               <div className="flex items-start justify-between gap-3 mb-2">
-                <h2 className="text-xl font-medium">{listingDetailData.title}</h2>
+                <h2 className="text-xl font-medium">{formatTitle(listingDetailData.brand, listingDetailData.name)}</h2>
                 <span className="text-xl font-semibold text-fuchsia-400 shrink-0">${listingDetailData.price}</span>
               </div>
               <div className="flex items-center gap-3 text-sm text-white/50 mb-3">
@@ -4169,8 +4482,9 @@ export default function App() {
                 </div>
               )}
 
-              {/* Category Attributes */}
-              {listingDetailData.categoryAttributes && Object.keys(listingDetailData.categoryAttributes).filter(k => listingDetailData.categoryAttributes![k]).length > 0 ? (
+              {/* Category Attributes (excluding brand/model — those are now
+                  top-level fields rendered as part of formatTitle above). */}
+              {listingDetailData.categoryAttributes && Object.keys(listingDetailData.categoryAttributes).filter(k => k !== "brand" && k !== "model" && listingDetailData.categoryAttributes![k]).length > 0 ? (
                 <div className="space-y-1.5 mt-3 mb-4">
                   {listingDetailData.category && listingDetailData.category !== "other" && (
                     <span className="inline-block px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300 mb-2">
@@ -4179,6 +4493,10 @@ export default function App() {
                   )}
                   {Object.entries(listingDetailData.categoryAttributes).map(([key, value]) => {
                     if (!value) return null;
+                    // brand and model are top-level on the listing now and
+                    // surface in the formatted title — skip them in the
+                    // attributes list so legacy rows don't double-render.
+                    if (key === "brand" || key === "model") return null;
                     const label = key === "carry_difficulty" ? "Carry Difficulty"
                       : key === "brand_or_creator" ? "Brand / Creator"
                       : key === "style_code" ? "Style Code"
@@ -4359,11 +4677,11 @@ export default function App() {
               <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg border border-white/10 mb-5">
                 <img
                   src={listingDetailData.imageUrl}
-                  alt={listingDetailData.title}
+                  alt={formatTitle(listingDetailData.brand, listingDetailData.name)}
                   className="size-14 rounded-lg object-cover border border-white/10"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{listingDetailData.title}</p>
+                  <p className="text-sm font-medium truncate">{formatTitle(listingDetailData.brand, listingDetailData.name)}</p>
                   <p className="text-lg font-semibold text-fuchsia-400">${listingDetailData.price}</p>
                 </div>
               </div>
@@ -4582,13 +4900,28 @@ export default function App() {
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Title</label>
-                  <Input
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                  />
+                {/*
+                  Brand + Name replace the old single Title input. The
+                  buyer-facing title is computed via formatTitle on render
+                  and never stored as an editable field.
+                */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Brand</label>
+                    <Input
+                      value={editBrand}
+                      onChange={(e) => setEditBrand(e.target.value)}
+                      className="bg-white/5 border-white/10 text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Name</label>
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="bg-white/5 border-white/10 text-white text-sm"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -4708,7 +5041,7 @@ export default function App() {
                   </Button>
                   <Button
                     onClick={handleSaveListingFromMarket}
-                    disabled={isSavingListing || !editTitle.trim() || !editPrice.trim()}
+                    disabled={isSavingListing || (!editBrand.trim() && !editName.trim()) || !editPrice.trim()}
                     className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
                   >
                     {isSavingListing ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}

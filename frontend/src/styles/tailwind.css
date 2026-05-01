@@ -34,6 +34,34 @@
   animation: letter-flash 0.3s ease-in-out;
 }
 
+/*
+  Wizard step transition — used by the seller-listing wizard panel between
+  Step 2 (review groupings) and Step 3 (sell rationale). Keyed by the
+  bulkReviewPhase state so each remount fires the entry animation. Pure
+  CSS — no animation library — to keep the build light.
+*/
+@keyframes wizardStepIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wizardStepOut {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
 /* ── Minimal Scrollbar ── */
 .scrollbar-thin::-webkit-scrollbar {
   height: 4px;

@@ -32,6 +32,7 @@ import {
   Star,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { formatTitle } from "../lib/format";
 
 const MANHATTAN_NEIGHBORHOODS = [
   "Battery Park City", "Carnegie Hill", "Chelsea", "Chinatown", "Civic Center",
@@ -85,7 +86,13 @@ interface ProfileStats {
 
 interface MyListing {
   id: string;
-  title: string;
+  // Brand + name replace the old computed `title`. Display title is
+  // composed at render time via formatTitle. The legacy `title` column
+  // may still arrive from older API responses during the rollout — keep
+  // it optional for safety but never write it from the client.
+  brand: string;
+  name: string;
+  title?: string;
   description: string;
   price: string;
   condition: string;
@@ -124,10 +131,15 @@ interface OrderData {
 
 interface WishlistListing {
   id: string;
-  title: string;
+  // Same brand/name unification as MyListing — a buyer-facing display
+  // title is computed via formatTitle on render.
+  brand: string;
+  name: string;
+  title?: string;
   price: string;
   imageUrl: string;
   imageUrls?: string[];
+  status?: string;
 }
 
 interface MyAccountPageProps {
@@ -262,10 +274,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [myListings, setMyListings] = useState<MyListing[]>([]);
   const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
-  // Edit listing modal state
+  // Edit listing modal state. Brand + name replace the old single Title input;
+  // the buyer-facing title is composed via formatTitle on render.
   const [showEditListingModal, setShowEditListingModal] = useState(false);
   const [editListing, setEditListing] = useState<MyListing | null>(null);
-  const [editTitle, setEditTitle] = useState("");
+  const [editBrand, setEditBrand] = useState("");
+  const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [editCondition, setEditCondition] = useState("");
@@ -276,7 +290,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const openEditListing = (listing: MyListing) => {
     setEditListing(listing);
-    setEditTitle(listing.title);
+    setEditBrand(listing.brand || "");
+    setEditName(listing.name || "");
     setEditDescription(listing.description || "");
     setEditPrice(listing.price);
     setEditCondition(listing.condition);
@@ -292,7 +307,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       const formData = new FormData();
       formData.append("data", JSON.stringify({
-        title: editTitle,
+        brand: editBrand,
+        name: editName,
         description: editDescription,
         price: editPrice,
         condition: editCondition,
@@ -600,7 +616,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           setShowConfirmSummary(true);
           onAddToHistory?.({
             id: orderModalListing.id,
-            title: orderModalListing.title,
+            title: formatTitle(orderModalListing.brand, orderModalListing.name),
             imageUrl: orderModalListing.imageUrl,
             price: orderModalListing.price,
             type: "sold",
@@ -1831,7 +1847,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           }}
                         >
                           <div className="relative shrink-0">
-                            <img src={listing.imageUrl} alt={listing.title} className="size-10 rounded-md object-cover border border-white/10" />
+                            <img src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} className="size-10 rounded-md object-cover border border-white/10" />
                             {hasPendingOrders && (
                               <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
                                 {listing.pendingOrderCount}
@@ -1839,7 +1855,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-white/80 truncate">{listing.title}</p>
+                            <p className="text-xs text-white/80 truncate">{formatTitle(listing.brand, listing.name)}</p>
                             <div className="flex items-center gap-1.5">
                               {isSellerCompleted ? (
                                 <span className="text-[10px] text-white/30">Completed</span>
@@ -2073,9 +2089,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
                     onClick={() => openListingDetail?.(item)}
                   >
-                    <img src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl} alt={item.title} className="size-10 rounded-md object-cover shrink-0" />
+                    <img src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl} alt={formatTitle(item.brand, item.name)} className="size-10 rounded-md object-cover shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium truncate">{item.title}</p>
+                      <p className="text-xs font-medium truncate">{formatTitle(item.brand, item.name)}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <p className="text-[10px] text-fuchsia-400">${item.price}</p>
                         {item.status === "sold" && (
@@ -3110,7 +3126,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           }}
                         >
                           <div className="relative shrink-0">
-                            <img src={listing.imageUrl} alt={listing.title} className="size-14 rounded-lg object-cover border border-white/10" />
+                            <img src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} className="size-14 rounded-lg object-cover border border-white/10" />
                             {hasPendingOrders && (
                               <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
                                 {listing.pendingOrderCount}
@@ -3118,7 +3134,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white/80 truncate">{listing.title}</p>
+                            <p className="text-sm text-white/80 truncate">{formatTitle(listing.brand, listing.name)}</p>
                             <div className="flex items-center gap-1.5">
                               {isSellerCompletedM ? (
                                 <span className="text-[10px] text-white/30">Completed</span>
@@ -3793,13 +3809,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Title</label>
-                <Input
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="bg-white/5 border-white/10 text-white text-sm"
-                />
+              {/*
+                Brand + Name replace the old single Title input. The
+                buyer-facing title is computed via formatTitle on render.
+              */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">Brand</label>
+                  <Input
+                    value={editBrand}
+                    onChange={(e) => setEditBrand(e.target.value)}
+                    className="bg-white/5 border-white/10 text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/40 mb-1 block">Name</label>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="bg-white/5 border-white/10 text-white text-sm"
+                  />
+                </div>
               </div>
 
               <div>
@@ -3899,7 +3929,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 </Button>
                 <Button
                   onClick={handleSaveListing}
-                  disabled={isSavingListing || !editTitle.trim() || !editPrice.trim()}
+                  disabled={isSavingListing || (!editBrand.trim() && !editName.trim()) || !editPrice.trim()}
                   className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
                 >
                   {isSavingListing ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}
@@ -3944,11 +3974,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <div className="flex items-center gap-3">
                 <img
                   src={confirmSummaryData.listing.imageUrl}
-                  alt={confirmSummaryData.listing.title}
+                  alt={formatTitle(confirmSummaryData.listing.brand, confirmSummaryData.listing.name)}
                   className="size-12 rounded-lg object-cover border border-white/10 shrink-0"
                 />
                 <div className="min-w-0">
-                  <p className="text-xs font-medium truncate">{confirmSummaryData.listing.title}</p>
+                  <p className="text-xs font-medium truncate">{formatTitle(confirmSummaryData.listing.brand, confirmSummaryData.listing.name)}</p>
                   <p className="text-sm text-fuchsia-400 font-medium">${confirmSummaryData.listing.price}</p>
                 </div>
               </div>
@@ -4093,11 +4123,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             <div className="flex items-center gap-3 mb-5">
               <img
                 src={orderModalListing.imageUrl}
-                alt={orderModalListing.title}
+                alt={formatTitle(orderModalListing.brand, orderModalListing.name)}
                 className="size-12 rounded-lg object-cover border border-white/10 shrink-0"
               />
               <div className="min-w-0">
-                <h3 className="text-sm font-medium truncate">{orderModalListing.title}</h3>
+                <h3 className="text-sm font-medium truncate">{formatTitle(orderModalListing.brand, orderModalListing.name)}</h3>
                 <p className="text-xs text-fuchsia-400">${orderModalListing.price}</p>
               </div>
             </div>

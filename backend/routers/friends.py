@@ -345,7 +345,9 @@ async def get_user_profile(
     active_listings = [
         {
             "id": r.id,
-            "title": r.title or "",
+            "title": r.title_str,
+            "brand": (r.brand or ""),
+            "name": (r.name or ""),
             "price": r.price or "",
             "imageUrl": r.image_url or "",
             "imageUrls": json.loads(r.image_urls) if r.image_urls else [],

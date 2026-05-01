@@ -56,7 +56,13 @@ export function CategoryAttributeFields({
   onChange,
 }: CategoryAttributeFieldsProps) {
   const schema = schemas[category];
-  const allFields = schema?.fields || [];
+  // Brand and model are now top-level listing fields (edited via the
+  // listing-level Brand/Name inputs in EditListingModal). If a backend
+  // schema still ships them as category attributes, filter them out so we
+  // don't render duplicate inputs that drift from the canonical values.
+  const allFields = (schema?.fields || []).filter(
+    (f) => f.key !== "brand" && f.key !== "model",
+  );
 
   if (allFields.length === 0) return null;
 
@@ -65,7 +71,10 @@ export function CategoryAttributeFields({
   return (
     <div className="grid grid-cols-2 gap-3">
       {allFields.map((field) => {
-        const needsAmberOutline = isLowConfidence && (field.key === "brand" || field.key === "model" || field.key === "brand_or_creator");
+        // brand_or_creator (collectibles) still gets the low-confidence
+        // amber outline since it's the only remaining identity-style field
+        // rendered through this component.
+        const needsAmberOutline = isLowConfidence && field.key === "brand_or_creator";
         const value = attributes[field.key] || "";
         const isRecommendedEmpty = field.required && !value;
 

@@ -68,7 +68,7 @@ def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
     # All slots expired
     order.status = "expired"
     listing = _find_listing(order.listing_id, db)
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     db.add(Notification(
         user_id=order.buyer_id,
         type="order_expired",
@@ -137,7 +137,7 @@ async def create_order(
         user_id=seller_id,
         type="purchase",
         title="New Purchase!",
-        message=f'{buyer_name} wants to buy your "{listing.title}"',
+        message=f'{buyer_name} wants to buy your "{listing.title_str}"',
         related_user_id=current_user.id,
         listing_id=req.listing_id,
     )
@@ -189,7 +189,7 @@ async def confirm_order(
 
     # Notify the buyer
     seller_name = current_user.display_name or "Seller"
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     slot_date = req.confirmed_slot.get("date", "")
     slot_time = req.confirmed_slot.get("time", "")
     time_labels = {"morning": "8am-12pm", "afternoon": "12-5pm", "evening": "5-9pm"}
@@ -259,7 +259,7 @@ async def decline_order(
 
     # Notify the buyer
     listing = _find_listing(order.listing_id, db)
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     notification = Notification(
         user_id=order.buyer_id,
         type="order_declined",
@@ -294,7 +294,7 @@ async def withdraw_order(
 
     listing = _find_listing(order.listing_id, db)
     buyer_name = current_user.display_name or "Someone"
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     db.add(Notification(
         user_id=order.seller_id,
         type="order_withdrawn",
@@ -353,7 +353,7 @@ async def update_order_slots(
 
     listing = _find_listing(order.listing_id, db)
     buyer_name = current_user.display_name or "Someone"
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     db.add(Notification(
         user_id=order.seller_id,
         type="order_updated",
@@ -394,7 +394,7 @@ async def notify_pickup_ready(
     order.pickup_notified = 1
 
     listing = _find_listing(order.listing_id, db)
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
 
     db.add(Notification(
         user_id=order.buyer_id,
@@ -500,7 +500,7 @@ async def complete_order(
 
     # Notify the other party
     listing = _find_listing(order.listing_id, db)
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     reviewer_name = current_user.display_name or "Someone"
 
     if role == "buyer":
@@ -582,7 +582,7 @@ async def release_address(
 
     order.address_released = 1
 
-    listing_title = listing.title if listing else "an item"
+    listing_title = listing.title_str if listing else "an item"
     buyer = db.query(User).filter(User.id == order.buyer_id).first()
     seller = db.query(User).filter(User.id == order.seller_id).first()
     buyer_name = buyer.display_name if buyer else "Buyer"
@@ -681,7 +681,7 @@ async def get_orders(
             # Notify buyers with pending orders that the listing expired
             if o.status == "pending" and o.buyer_id == current_user.id:
                 raw_listing = _find_listing(o.listing_id, db, check_expiry=False)
-                listing_title = raw_listing.title if raw_listing else "an item"
+                listing_title = raw_listing.title_str if raw_listing else "an item"
                 db.add(Notification(
                     user_id=o.buyer_id,
                     type="order_cancelled",
@@ -700,7 +700,7 @@ async def get_orders(
         results.append({
             "id": o.id,
             "listing_id": o.listing_id,
-            "listing_title": listing.title or "",
+            "listing_title": listing.title_str,
             "listing_image": listing.image_url or "",
             "listing_price": listing.price or "",
             "buyer_id": o.buyer_id,
