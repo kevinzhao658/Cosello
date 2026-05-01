@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { PriceInput } from "../components/ui/price-input";
 import {
   User,
   Globe,
@@ -3845,11 +3846,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Price</label>
-                  <Input
+                  <PriceInput
                     value={editPrice}
-                    onChange={(e) => setEditPrice(e.target.value)}
+                    onChange={setEditPrice}
                     className="bg-white/5 border-white/10 text-white text-sm"
-                    placeholder="0.00"
+                    placeholder="0"
                   />
                 </div>
                 <div>

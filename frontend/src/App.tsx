@@ -1,6 +1,7 @@
 import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
+import { PriceInput } from "./components/ui/price-input";
 import { useSettings } from "./contexts/SettingsContext";
 import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
@@ -1580,6 +1581,17 @@ export default function App() {
     });
   }, []);
 
+  // Backend POST /api/listings requires priceCents (non-negative int, cents).
+  // The wizard edits price as a free-text dollar string, so convert here.
+  // Mirrors the backend PATCH fallback: strip "$", parseFloat, round to cents.
+  const priceStringToCents = (raw: string): number | null => {
+    const cleaned = raw.replace(/^\$/, "").trim();
+    if (cleaned === "") return null;
+    const dollars = Number.parseFloat(cleaned);
+    if (!Number.isFinite(dollars) || dollars < 0) return null;
+    return Math.round(dollars * 100);
+  };
+
   const handlePostListing = async () => {
     if (!productDetails || uploadedImages.length === 0) return;
 
@@ -1588,10 +1600,17 @@ export default function App() {
       return;
     }
 
+    const priceCents = priceStringToCents(productDetails.price);
+    if (priceCents === null) {
+      alert("Enter a valid price before posting.");
+      return;
+    }
+
     try {
       const formData = new FormData();
       uploadedImages.forEach((img) => formData.append("images", img.file));
-      const { identifierConfidence: _, retrieval_fallback: _rf, ...postData } = productDetails;
+      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = productDetails;
+      const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
 
       // All listings are public per MVP scope. Backend auto-attaches the
@@ -1660,6 +1679,13 @@ export default function App() {
       return;
     }
 
+    const invalidIdx = bulkItems.findIndex((item) => priceStringToCents(item.price) === null);
+    if (invalidIdx !== -1) {
+      const offender = bulkItems[invalidIdx];
+      alert(`Enter a valid price for "${formatTitle(offender.brand, offender.name)}" before posting.`);
+      return;
+    }
+
     setIsPostingBulk(true);
 
     try {
@@ -1679,7 +1705,8 @@ export default function App() {
             formData.append("images", uploadedImages[imgIdx].file);
           }
         }
-        const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...productData } = item;
+        const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
+        const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
         formData.append("data", JSON.stringify(productData));
         formData.append("communities", "");
         formData.append("visibility", "public");
@@ -3013,9 +3040,9 @@ export default function App() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs text-white/40 uppercase tracking-wider">Price ($)</label>
-                          <Input
+                          <PriceInput
                             value={productDetails.price}
-                            onChange={(e) => setProductDetails({ ...productDetails, price: e.target.value })}
+                            onChange={(next) => setProductDetails({ ...productDetails, price: next })}
                             className="mt-1 bg-white/5 border-white/20 text-white"
                           />
                         </div>
@@ -3263,9 +3290,9 @@ export default function App() {
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-xs text-white/40 uppercase tracking-wider">Price ($)</label>
-                            <Input
+                            <PriceInput
                               value={bulkItems[currentCardIndex].price}
-                              onChange={(e) => updateBulkItem(currentCardIndex, "price", e.target.value)}
+                              onChange={(next) => updateBulkItem(currentCardIndex, "price", next)}
                               className="mt-1 bg-white/5 border-white/20 text-white"
                             />
                           </div>
@@ -4873,11 +4900,11 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs text-white/40 mb-1 block">Price</label>
-                    <Input
+                    <PriceInput
                       value={editPrice}
-                      onChange={(e) => setEditPrice(e.target.value)}
+                      onChange={setEditPrice}
                       className="bg-white/5 border-white/10 text-white text-sm"
-                      placeholder="0.00"
+                      placeholder="0"
                     />
                   </div>
                   <div>
