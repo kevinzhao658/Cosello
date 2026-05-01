@@ -1,8 +1,11 @@
-"""Manual eval harness for the hybrid vision listing pipeline.
+"""Manual eval harness for the hybrid vision listing pipeline (two-pass).
 
-Runs a fixed canary set of local images against POST /api/generate-listing
-and prints a side-by-side comparison of expected vs returned brand / model /
-category, plus a tally of identification hits.
+Runs a fixed canary set of local images against the live two-pass pipeline:
+  1) POST /api/segment-photos   (multipart upload)
+  2) POST /api/generate-listings (JSON, using step-1 outputs)
+
+Prints a side-by-side comparison of expected vs returned brand / model /
+category plus a tally of identification hits.
 
 Manual only — NOT wired into CI. Requires:
   - The backend running locally (default http://127.0.0.1:8000).
@@ -39,6 +42,9 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 
 
+DEFAULT_RATIONALE = "Decluttering"
+
+
 @dataclass
 class Canary:
     canary_id: str
@@ -48,6 +54,8 @@ class Canary:
     expected_model: str | None
     expected_category: str
     notes: str = ""
+    rationale: str = DEFAULT_RATIONALE
+    rationale_other: str = ""
 
     def image_paths(self) -> list[Path]:
         return [FIXTURES_DIR / rel for rel in self.images]
@@ -154,6 +162,8 @@ class BulkCanary:
     canary_id: str
     items: list[BulkItem]
     notes: str = ""
+    rationale: str = DEFAULT_RATIONALE
+    rationale_other: str = ""
 
 
 # Bulk canaries — recycle individual canary fixtures to exercise the bulk path.
@@ -288,12 +298,12 @@ class CanaryResult:
         return self.canary.expected_category.lower() == self.returned_category.lower()
 
 
-def _post_canary(base_url: str, canary: Canary) -> CanaryResult:
-    paths = canary.image_paths()
-    missing = [str(p) for p in paths if not p.exists()]
-    if missing:
-        return CanaryResult(canary=canary, skipped_reason=f"missing fixtures: {missing}")
+def _post_segment_photos(base_url: str, paths: list[Path]) -> tuple[dict[str, Any] | None, str | None]:
+    """Step 1: upload images to /api/segment-photos.
 
+    Returns (segmentation_payload, error_message). On success, the payload contains
+    keys: groupings, image_urls, vision_signals.
+    """
     files = []
     open_handles = []
     try:
@@ -304,37 +314,102 @@ def _post_canary(base_url: str, canary: Canary) -> CanaryResult:
             files.append(("images", (p.name, fh, mime)))
 
         try:
-            resp = requests.post(f"{base_url}/api/generate-listing", files=files, timeout=120)
+            resp = requests.post(f"{base_url}/api/segment-photos", files=files, timeout=120)
         except requests.RequestException as exc:
-            return CanaryResult(canary=canary, error=f"request failed: {exc}")
+            return None, f"segment-photos request failed: {exc}"
 
         if resp.status_code != 200:
-            return CanaryResult(
-                canary=canary,
-                error=f"HTTP {resp.status_code}: {resp.text[:200]}",
-            )
+            return None, f"segment-photos HTTP {resp.status_code}: {resp.text[:200]}"
 
         try:
-            payload = resp.json()
+            return resp.json(), None
         except json.JSONDecodeError as exc:
-            return CanaryResult(canary=canary, error=f"non-JSON response: {exc}")
-
-        items = payload if isinstance(payload, list) else [payload]
-        first = items[0] if items else {}
-        return CanaryResult(
-            canary=canary,
-            returned_brand=first.get("categoryAttributes", {}).get("brand", first.get("brand")),
-            returned_model=first.get("categoryAttributes", {}).get("model", first.get("model")),
-            returned_category=first.get("category"),
-            retrieval_fallback=bool(first.get("retrieval_fallback")),
-            raw=items,
-        )
+            return None, f"segment-photos non-JSON response: {exc}"
     finally:
         for fh in open_handles:
             try:
                 fh.close()
             except Exception:
                 pass
+
+
+def _post_generate_listings(
+    base_url: str,
+    *,
+    image_urls: list[str],
+    vision_signals: list[dict[str, Any]],
+    groupings: list[list[int]],
+    rationale: str,
+    rationale_other: str,
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """Step 2: generate listings from step-1 outputs.
+
+    `brand_hints` and `names` default to empty per group — the canaries don't
+    pre-confirm a brand/name; the test is whether the pipeline identifies them
+    on its own.
+    """
+    n_groups = len(groupings)
+    payload = {
+        "image_urls": image_urls,
+        "vision_signals": vision_signals,
+        "groupings": groupings,
+        "brand_hints": [""] * n_groups,
+        "names": [""] * n_groups,
+        "rationale": rationale,
+        "rationale_other": rationale_other,
+    }
+    try:
+        resp = requests.post(f"{base_url}/api/generate-listings", json=payload, timeout=180)
+    except requests.RequestException as exc:
+        return None, f"generate-listings request failed: {exc}"
+
+    if resp.status_code != 200:
+        return None, f"generate-listings HTTP {resp.status_code}: {resp.text[:200]}"
+
+    try:
+        body = resp.json()
+    except json.JSONDecodeError as exc:
+        return None, f"generate-listings non-JSON response: {exc}"
+
+    return (body if isinstance(body, list) else [body]), None
+
+
+def _post_canary(base_url: str, canary: Canary) -> CanaryResult:
+    paths = canary.image_paths()
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        return CanaryResult(canary=canary, skipped_reason=f"missing fixtures: {missing}")
+
+    seg_payload, seg_err = _post_segment_photos(base_url, paths)
+    if seg_err is not None or seg_payload is None:
+        return CanaryResult(canary=canary, error=seg_err or "segment-photos returned no payload")
+
+    image_urls = seg_payload.get("image_urls") or []
+    vision_signals = seg_payload.get("vision_signals") or []
+    groupings = seg_payload.get("groupings") or []
+    if not groupings:
+        return CanaryResult(canary=canary, error=f"segment-photos returned empty groupings: {seg_payload!r}")
+
+    listings, gen_err = _post_generate_listings(
+        base_url,
+        image_urls=image_urls,
+        vision_signals=vision_signals,
+        groupings=groupings,
+        rationale=canary.rationale,
+        rationale_other=canary.rationale_other,
+    )
+    if gen_err is not None or listings is None:
+        return CanaryResult(canary=canary, error=gen_err or "generate-listings returned no payload")
+
+    first = listings[0] if listings else {}
+    return CanaryResult(
+        canary=canary,
+        returned_brand=first.get("categoryAttributes", {}).get("brand", first.get("brand")),
+        returned_model=first.get("categoryAttributes", {}).get("model", first.get("model")),
+        returned_category=first.get("category"),
+        retrieval_fallback=bool(first.get("retrieval_fallback")),
+        raw=listings,
+    )
 
 
 def _extract_brand(listing: dict[str, Any]) -> str | None:
@@ -362,105 +437,92 @@ def _post_bulk_canary(base_url: str, canary: BulkCanary) -> BulkCanaryResult:
     if missing:
         return BulkCanaryResult(canary=canary, skipped_reason=f"missing fixtures: {missing}")
 
-    files = []
-    open_handles = []
-    try:
-        for p in paths:
-            fh = open(p, "rb")
-            open_handles.append(fh)
-            mime = mimetypes.guess_type(str(p))[0] or "image/jpeg"
-            files.append(("images", (p.name, fh, mime)))
+    seg_payload, seg_err = _post_segment_photos(base_url, paths)
+    if seg_err is not None or seg_payload is None:
+        return BulkCanaryResult(canary=canary, error=seg_err or "segment-photos returned no payload")
 
-        try:
-            resp = requests.post(f"{base_url}/api/generate-listing", files=files, timeout=180)
-        except requests.RequestException as exc:
-            return BulkCanaryResult(canary=canary, error=f"request failed: {exc}")
+    image_urls = seg_payload.get("image_urls") or []
+    vision_signals = seg_payload.get("vision_signals") or []
 
-        if resp.status_code != 200:
-            return BulkCanaryResult(
-                canary=canary,
-                error=f"HTTP {resp.status_code}: {resp.text[:200]}",
-            )
+    # Bulk canaries enforce one-listing-per-item: override the segmenter's
+    # decision so we test the brand-bleed invariant under known groupings.
+    forced_groupings: list[list[int]] = [[i] for i in range(len(canary.items))]
 
-        try:
-            payload = resp.json()
-        except json.JSONDecodeError as exc:
-            return BulkCanaryResult(canary=canary, error=f"non-JSON response: {exc}")
+    listings, gen_err = _post_generate_listings(
+        base_url,
+        image_urls=image_urls,
+        vision_signals=vision_signals,
+        groupings=forced_groupings,
+        rationale=canary.rationale,
+        rationale_other=canary.rationale_other,
+    )
+    if gen_err is not None or listings is None:
+        return BulkCanaryResult(canary=canary, error=gen_err or "generate-listings returned no payload")
 
-        listings = payload if isinstance(payload, list) else [payload]
-        retrieval_fallback = bool(listings[0].get("retrieval_fallback")) if listings else None
+    retrieval_fallback = bool(listings[0].get("retrieval_fallback")) if listings else None
 
-        # Map each request image index → the returned listing that claims it.
-        # If a listing omits imageIndices we fall back to positional alignment when possible.
-        index_to_listing: dict[int, dict[str, Any]] = {}
-        used_listings_by_index: list[dict[str, Any]] = []
-        for listing in listings:
-            indices = _extract_image_indices(listing)
-            for i in indices:
-                if i not in index_to_listing:
-                    index_to_listing[i] = listing
-
-        # Positional fallback: if a listing has no indices, assume one per request slot.
-        if not index_to_listing and len(listings) == len(canary.items):
-            for i, listing in enumerate(listings):
+    # Map each request image index → the returned listing that claims it.
+    # If a listing omits imageIndices we fall back to positional alignment when possible.
+    index_to_listing: dict[int, dict[str, Any]] = {}
+    for listing in listings:
+        indices = _extract_image_indices(listing)
+        for i in indices:
+            if i not in index_to_listing:
                 index_to_listing[i] = listing
 
-        # Score each expected item.
-        item_results: list[BulkItemResult] = []
-        listing_id_to_item_brands: dict[int, list[str]] = {}
-        for req_idx, item in enumerate(canary.items):
-            matched = index_to_listing.get(req_idx)
-            returned_brand = _extract_brand(matched) if matched else None
-            returned_category = _extract_category(matched) if matched else None
+    # Positional fallback: if a listing has no indices, assume one per request slot.
+    if not index_to_listing and len(listings) == len(canary.items):
+        for i, listing in enumerate(listings):
+            index_to_listing[i] = listing
 
-            # Bleed check: did this listing pick up another expected item's brand?
-            bled_from = None
-            if returned_brand:
-                rb = returned_brand.lower()
-                for other_idx, other in enumerate(canary.items):
-                    if other_idx == req_idx:
-                        continue
-                    if other.expected_brand and other.expected_brand.lower() in rb:
-                        # Don't flag bleed if the correct brand also appears (some listings
-                        # legitimately mention multiple brands in description, but for the
-                        # title/brand attr we expect a single dominant brand).
-                        own = item.expected_brand.lower() if item.expected_brand else ""
-                        if not own or own not in rb:
-                            bled_from = other.expected_brand
-                            break
+    # Score each expected item.
+    item_results: list[BulkItemResult] = []
+    for req_idx, item in enumerate(canary.items):
+        matched = index_to_listing.get(req_idx)
+        returned_brand = _extract_brand(matched) if matched else None
+        returned_category = _extract_category(matched) if matched else None
 
-            # Collapse check: is this listing also claimed by a different expected item?
-            collapsed_with: list[str] = []
-            if matched is not None:
-                lid = id(matched)
-                for other_idx, other in enumerate(canary.items):
-                    if other_idx == req_idx:
-                        continue
-                    if index_to_listing.get(other_idx) is matched:
-                        if other.expected_brand:
-                            collapsed_with.append(other.expected_brand)
+        # Bleed check: did this listing pick up another expected item's brand?
+        bled_from = None
+        if returned_brand:
+            rb = returned_brand.lower()
+            for other_idx, other in enumerate(canary.items):
+                if other_idx == req_idx:
+                    continue
+                if other.expected_brand and other.expected_brand.lower() in rb:
+                    # Don't flag bleed if the correct brand also appears (some listings
+                    # legitimately mention multiple brands in description, but for the
+                    # title/brand attr we expect a single dominant brand).
+                    own = item.expected_brand.lower() if item.expected_brand else ""
+                    if not own or own not in rb:
+                        bled_from = other.expected_brand
+                        break
 
-            item_results.append(BulkItemResult(
-                item=item,
-                matched_listing=matched,
-                returned_brand=returned_brand,
-                returned_category=returned_category,
-                bled_from_brand=bled_from,
-                collapsed_with=collapsed_with,
-            ))
+        # Collapse check: is this listing also claimed by a different expected item?
+        collapsed_with: list[str] = []
+        if matched is not None:
+            for other_idx, other in enumerate(canary.items):
+                if other_idx == req_idx:
+                    continue
+                if index_to_listing.get(other_idx) is matched:
+                    if other.expected_brand:
+                        collapsed_with.append(other.expected_brand)
 
-        return BulkCanaryResult(
-            canary=canary,
-            item_results=item_results,
-            retrieval_fallback=retrieval_fallback,
-            raw=listings,
-        )
-    finally:
-        for fh in open_handles:
-            try:
-                fh.close()
-            except Exception:
-                pass
+        item_results.append(BulkItemResult(
+            item=item,
+            matched_listing=matched,
+            returned_brand=returned_brand,
+            returned_category=returned_category,
+            bled_from_brand=bled_from,
+            collapsed_with=collapsed_with,
+        ))
+
+    return BulkCanaryResult(
+        canary=canary,
+        item_results=item_results,
+        retrieval_fallback=retrieval_fallback,
+        raw=listings,
+    )
 
 
 def _print_bulk_result(result: BulkCanaryResult) -> None:
@@ -494,7 +556,7 @@ def _print_row(label: str, expected: str | None, returned: str | None, hit: bool
 
 
 def _run_single(base_url: str, canaries: list[Canary]) -> list[CanaryResult]:
-    print(f"Running {len(canaries)} single-item canaries against {base_url}/api/generate-listing")
+    print(f"Running {len(canaries)} single-item canaries against {base_url} (segment-photos -> generate-listings)")
     print("-" * 80)
 
     results: list[CanaryResult] = []
@@ -557,7 +619,7 @@ def _print_single_tally(results: list[CanaryResult]) -> None:
 
 
 def _run_bulk(base_url: str) -> list[BulkCanaryResult]:
-    print(f"\nRunning {len(BULK_CANARIES)} bulk canaries against {base_url}/api/generate-listing")
+    print(f"\nRunning {len(BULK_CANARIES)} bulk canaries against {base_url} (segment-photos -> generate-listings, forced one-group-per-item)")
     print("-" * 80)
 
     results: list[BulkCanaryResult] = []
