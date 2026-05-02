@@ -1,6 +1,7 @@
 import json
+import time
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from database import Base
@@ -218,6 +219,41 @@ class Listing(Base):
             "originalPostedAt": self.original_posted_at,
             "relistCount": int(self.relist_count) if self.relist_count is not None else 0,
         }
+
+
+class ListingView(Base):
+    __tablename__ = "listing_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    listing_id = Column(String(20), ForeignKey("listings.id"), nullable=False, index=True)
+    source = Column(String(20), nullable=False)  # feed | search | profile | direct
+    dwell_ms = Column(Integer, nullable=False, default=0)
+    ts = Column(Float, nullable=False, default=lambda: time.time(), index=True)
+
+
+class SearchQuery(Base):
+    __tablename__ = "search_queries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    query_text = Column(String(500), nullable=False)
+    filters_json = Column(Text, nullable=True)
+    ts = Column(Float, nullable=False, default=lambda: time.time(), index=True)
+
+
+class ListingInteraction(Base):
+    __tablename__ = "listing_interactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    listing_id = Column(String(20), ForeignKey("listings.id"), nullable=False, index=True)
+    action = Column(String(30), nullable=False)  # hide | block_seller | not_interested
+    ts = Column(Float, nullable=False, default=lambda: time.time(), index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "listing_id", "action", name="uq_listing_interaction"),
+    )
 
 
 class Review(Base):
