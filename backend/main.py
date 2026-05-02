@@ -25,6 +25,7 @@ from models import User, Community, CommunityMember, WishlistItem, PurchaseOrder
 from auth import get_current_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
+from routers.events import router as events_router
 from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
@@ -108,6 +109,7 @@ app.add_middleware(
 # Include routes
 app.include_router(auth_router)
 app.include_router(communities_router)
+app.include_router(events_router)
 app.include_router(friends_router)
 app.include_router(notifications_router)
 app.include_router(orders_router)
