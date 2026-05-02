@@ -11,6 +11,7 @@ import MyAccountPage from "./pages/MyAccountPage";
 import UserProfileOverlay from "./pages/UserProfilePage";
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
 import { formatTitle } from "./lib/format";
+import { logView, logSearch, type ViewSource } from "./lib/events";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
@@ -650,7 +651,10 @@ export default function App() {
     setViewingUserId(userId);
   };
 
-  const openListingDetail = async (listing: Listing) => {
+  const listingViewSourceRef = useRef<ViewSource>("direct");
+
+  const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
+    listingViewSourceRef.current = source;
     setShowListingDetailModal(true);
     setListingDetailData(listing);
     setListingDetailSellerProfile(null);
@@ -676,6 +680,43 @@ export default function App() {
       finally { setIsLoadingListingDetail(false); }
     }
   };
+
+  // Dwell-time tracking for the listing detail view.
+  //
+  // Fires logView exactly once per "view session" — the period from when the
+  // detail modal opens to when it closes (cleanup), the listing changes
+  // (cleanup with a new id), the route changes (cleanup because page in deps
+  // forces re-run), or the tab is hidden (visibilitychange).
+  //
+  // The fired guard prevents double-firing: visibilitychange may flush first,
+  // then cleanup runs on unmount and is a no-op.
+  useEffect(() => {
+    if (!showListingDetailModal || !listingDetailData) return;
+    const listingId = listingDetailData.id;
+    const source = listingViewSourceRef.current;
+    const startTs = performance.now();
+    let fired = false;
+
+    const flush = () => {
+      if (fired) return;
+      fired = true;
+      logView({
+        listing_id: listingId,
+        source,
+        dwell_ms: Math.max(0, Math.round(performance.now() - startTs)),
+      });
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, [showListingDetailModal, listingDetailData?.id, page]);
 
   const computeAvailablePickupDays = (listing: Listing) => {
     const now = new Date();
@@ -2294,8 +2335,16 @@ export default function App() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
+                      const query = homeSearch.trim();
                       setMarketSearch(homeSearch);
                       setPage("market");
+                      if (query) {
+                        const filters: Record<string, unknown> = {};
+                        if (selectedCategories.length > 0) filters.categories = selectedCategories;
+                        if (selectedMarketCommunities.length > 0) filters.communities = selectedMarketCommunities;
+                        if (marketSort && marketSort !== "newest") filters.sort = marketSort;
+                        logSearch({ query, filters });
+                      }
                     }}
                     className="relative flex items-center gap-2 mb-2"
                   >
@@ -3628,7 +3677,7 @@ export default function App() {
                   <div
                     key={listing.id}
                     className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors cursor-pointer"
-                    onClick={() => openListingDetail(listing)}
+                    onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
                   >
                     {isAuthenticated && listing.userId !== user?.id && (
                       <button
