@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
@@ -11,7 +11,7 @@ import MyAccountPage from "./pages/MyAccountPage";
 import UserProfileOverlay from "./pages/UserProfilePage";
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
 import { formatTitle } from "./lib/format";
-import { logView, logSearch, type ViewSource } from "./lib/events";
+import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
@@ -1936,6 +1936,11 @@ export default function App() {
     }
   };
 
+  const handleNotForMe = (listingId: string) => {
+    setListings((prev) => prev.filter((l) => l.id !== listingId));
+    logInteraction({ listing_id: listingId, action: "not_interested" });
+  };
+
   useEffect(() => {
     if (page === "market") fetchListings();
   }, [page, marketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated]);
@@ -3680,14 +3685,24 @@ export default function App() {
                     onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
                   >
                     {isAuthenticated && listing.userId !== user?.id && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
-                        className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
-                      >
-                        <Heart
-                          className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
-                        />
-                      </button>
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleNotForMe(listing.id); }}
+                          aria-label="Not for me"
+                          title="Not for me"
+                          className="absolute top-3 right-11 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
+                        >
+                          <EyeOff className="size-4 text-white/30 hover:text-white/50" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
+                          className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
+                        >
+                          <Heart
+                            className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
+                          />
+                        </button>
+                      </>
                     )}
                     <ListingImageCarousel
                       images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
