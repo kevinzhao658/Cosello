@@ -34,6 +34,7 @@ from services.google import vision
 from services.google.vision import VisionResult
 from services.evidence import build_evidence_block, _format_single_image_evidence
 from services.cache import PHashCache
+from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 
 logger = logging.getLogger(__name__)
 
@@ -1215,7 +1216,13 @@ async def get_listings(
     now = time.time()
     cutoff = now - LISTING_EXPIRY_SECONDS
     rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
+    rows_by_id: dict[str, Listing] = {r.id: r for r in rows}
     results = [r.to_dict() for r in rows]
+
+    # FYP mode is the default feed: no search, no community filter (or "All").
+    # Search relevance and explicit community browses retain their existing
+    # tier/relevance ordering.
+    fyp_mode = (not search) and (not community or community == "All")
 
     all_public_ids: set[int] = {
         c.id for c in db.query(Community).filter(Community.is_public == True).all()
@@ -1340,6 +1347,23 @@ async def get_listings(
             results.sort(key=lambda l: (_tier(l), float(l.get("price", 0))))
         elif sort == "price_high":
             results.sort(key=lambda l: (_tier(l), -float(l.get("price", 0))))
+        elif fyp_mode:
+            # FYP path: drop excluded listings, score the rest, sort by
+            # (-score, -postedAt). Score is internal and never serialized.
+            candidate_rows = [
+                rows_by_id[l["id"]] for l in results if l["id"] in rows_by_id
+            ]
+            kept_rows = _fyp_apply_exclusions(current_user, candidate_rows, db)
+            kept_ids = {r.id for r in kept_rows}
+            scored = score_listings(current_user, kept_rows, db, now)
+            score_by_id: dict[str, float] = {r.id: s for r, s in scored}
+            results = [l for l in results if l["id"] in kept_ids]
+            results.sort(
+                key=lambda l: (
+                    -score_by_id.get(l["id"], 0.0),
+                    -l.get("postedAt", 0),
+                )
+            )
         else:
             results.sort(key=lambda l: (_tier(l), -l.get("postedAt", 0)))
 
