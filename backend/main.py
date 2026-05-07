@@ -363,14 +363,36 @@ def _validate_groupings(parsed: object, n: int) -> list[list[int]] | None:
     return out
 
 
+SEGMENTATION_THUMBNAIL_DIM = 768
+
+
+def _downscale_for_segmentation(raw: bytes) -> bytes:
+    """Aggressive downscale for Claude segmentation calls — payload reduction.
+
+    Segmentation only needs enough detail to tell items apart, not full
+    resolution. Caps the longest side at SEGMENTATION_THUMBNAIL_DIM and
+    drops JPEG quality to 75. Cuts payload ~10x vs the 2048px originals,
+    which keeps Sonnet's multi-image latency in single-digit seconds.
+    """
+    pil_img = Image.open(io.BytesIO(raw))
+    if pil_img.mode != "RGB":
+        pil_img = pil_img.convert("RGB")
+    pil_img.thumbnail((SEGMENTATION_THUMBNAIL_DIM, SEGMENTATION_THUMBNAIL_DIM), Image.LANCZOS)
+    buf = io.BytesIO()
+    pil_img.save(buf, format="JPEG", quality=75)
+    return buf.getvalue()
+
+
 def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[VisionResult]) -> list[list[int]]:
     """Run a segmentation-only Claude call. Falls back to a single group on any failure."""
     n = len(image_bytes_list)
     if n <= 1:
         return [[i for i in range(n)]] if n == 1 else []
 
+    thumbnails = [_downscale_for_segmentation(b) for b in image_bytes_list]
+
     content: list[dict] = []
-    for idx, data in enumerate(image_bytes_list):
+    for idx, data in enumerate(thumbnails):
         content.append({"type": "text", "text": f"[Image {idx}]"})
         content.append({
             "type": "image",
@@ -392,6 +414,7 @@ def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[Vis
             model="claude-sonnet-4-6",
             max_tokens=256,
             messages=[{"role": "user", "content": content}],
+            timeout=45.0,
         )
         raw = _strip_fences(response.content[0].text)
         parsed = json.loads(raw)
