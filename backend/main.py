@@ -25,6 +25,7 @@ from models import User, Community, CommunityMember, WishlistItem, PurchaseOrder
 from auth import get_current_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
+from routers.events import router as events_router
 from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
@@ -33,6 +34,7 @@ from services.google import vision
 from services.google.vision import VisionResult
 from services.evidence import build_evidence_block, _format_single_image_evidence
 from services.cache import PHashCache
+from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,7 @@ app.add_middleware(
 # Include routes
 app.include_router(auth_router)
 app.include_router(communities_router)
+app.include_router(events_router)
 app.include_router(friends_router)
 app.include_router(notifications_router)
 app.include_router(orders_router)
@@ -360,14 +363,36 @@ def _validate_groupings(parsed: object, n: int) -> list[list[int]] | None:
     return out
 
 
+SEGMENTATION_THUMBNAIL_DIM = 768
+
+
+def _downscale_for_segmentation(raw: bytes) -> bytes:
+    """Aggressive downscale for Claude segmentation calls — payload reduction.
+
+    Segmentation only needs enough detail to tell items apart, not full
+    resolution. Caps the longest side at SEGMENTATION_THUMBNAIL_DIM and
+    drops JPEG quality to 75. Cuts payload ~10x vs the 2048px originals,
+    which keeps Sonnet's multi-image latency in single-digit seconds.
+    """
+    pil_img = Image.open(io.BytesIO(raw))
+    if pil_img.mode != "RGB":
+        pil_img = pil_img.convert("RGB")
+    pil_img.thumbnail((SEGMENTATION_THUMBNAIL_DIM, SEGMENTATION_THUMBNAIL_DIM), Image.LANCZOS)
+    buf = io.BytesIO()
+    pil_img.save(buf, format="JPEG", quality=75)
+    return buf.getvalue()
+
+
 def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[VisionResult]) -> list[list[int]]:
     """Run a segmentation-only Claude call. Falls back to a single group on any failure."""
     n = len(image_bytes_list)
     if n <= 1:
         return [[i for i in range(n)]] if n == 1 else []
 
+    thumbnails = [_downscale_for_segmentation(b) for b in image_bytes_list]
+
     content: list[dict] = []
-    for idx, data in enumerate(image_bytes_list):
+    for idx, data in enumerate(thumbnails):
         content.append({"type": "text", "text": f"[Image {idx}]"})
         content.append({
             "type": "image",
@@ -389,6 +414,7 @@ def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[Vis
             model="claude-sonnet-4-6",
             max_tokens=256,
             messages=[{"role": "user", "content": content}],
+            timeout=45.0,
         )
         raw = _strip_fences(response.content[0].text)
         parsed = json.loads(raw)
@@ -1213,7 +1239,13 @@ async def get_listings(
     now = time.time()
     cutoff = now - LISTING_EXPIRY_SECONDS
     rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
+    rows_by_id: dict[str, Listing] = {r.id: r for r in rows}
     results = [r.to_dict() for r in rows]
+
+    # FYP mode is the default feed: no search, no community filter (or "All").
+    # Search relevance and explicit community browses retain their existing
+    # tier/relevance ordering.
+    fyp_mode = (not search) and (not community or community == "All")
 
     all_public_ids: set[int] = {
         c.id for c in db.query(Community).filter(Community.is_public == True).all()
@@ -1338,6 +1370,23 @@ async def get_listings(
             results.sort(key=lambda l: (_tier(l), float(l.get("price", 0))))
         elif sort == "price_high":
             results.sort(key=lambda l: (_tier(l), -float(l.get("price", 0))))
+        elif fyp_mode:
+            # FYP path: drop excluded listings, score the rest, sort by
+            # (-score, -postedAt). Score is internal and never serialized.
+            candidate_rows = [
+                rows_by_id[l["id"]] for l in results if l["id"] in rows_by_id
+            ]
+            kept_rows = _fyp_apply_exclusions(current_user, candidate_rows, db)
+            kept_ids = {r.id for r in kept_rows}
+            scored = score_listings(current_user, kept_rows, db, now)
+            score_by_id: dict[str, float] = {r.id: s for r, s in scored}
+            results = [l for l in results if l["id"] in kept_ids]
+            results.sort(
+                key=lambda l: (
+                    -score_by_id.get(l["id"], 0.0),
+                    -l.get("postedAt", 0),
+                )
+            )
         else:
             results.sort(key=lambda l: (_tier(l), -l.get("postedAt", 0)))
 

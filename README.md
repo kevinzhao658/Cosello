@@ -134,3 +134,27 @@ Cosello uses a **hybrid retrieval pipeline**: Google Cloud Vision identifies the
 7. The user can edit any field before posting
 
 **Fallback behavior:** if Vision is unreachable (missing credentials, network error, 10s timeout), the response is stamped with `retrieval_fallback: true`. Claude still writes the listing from photos alone, and the frontend renders a yellow warning banner on the draft view prompting the seller to double-check brand, model, and price before posting.
+
+## Testing & Fixtures
+
+### FYP fixture seed
+
+[backend/scripts/seed_fyp_fixture.py](backend/scripts/seed_fyp_fixture.py) inserts 16 deterministic listings across three existing test users (Bob, John, Test) so the For-You ranker has variety in brand, category, community, and freshness to rank against. Use this before any FYP browser-validation pass — without it, your feed only contains listings you've personally created.
+
+```bash
+cd backend
+python3 scripts/seed_fyp_fixture.py
+```
+
+**Idempotent.** Every seeded row uses an `id` prefixed with `fypfix`, and any `fypfix-*` files in `backend/uploads/` are also wiped at the start of each run. Safe to re-run.
+
+**Per-listing curated images.** Drop product photos into [backend/scripts/fixture_images/](backend/scripts/fixture_images/) using the filenames in each row's `image` field (e.g., `nike_air_max_90.jpg`). On seed, the script copies each fixture into `backend/uploads/` with a `fypfix-` prefix so the existing static mount serves it. Rows whose fixture file is missing fall back to a placeholder image — partial-image states are safe, and the script reports how many listings matched.
+
+**Manual cleanup** (e.g., to reset state without re-seeding):
+
+```sql
+DELETE FROM listings WHERE id LIKE 'fypfix%';
+```
+```bash
+rm backend/uploads/fypfix-*
+```

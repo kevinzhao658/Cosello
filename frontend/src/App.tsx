@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
@@ -10,7 +10,12 @@ import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
 import UserProfileOverlay from "./pages/UserProfilePage";
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
+import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
+import { useMediaQuery } from "./hooks/useMediaQuery";
 import { formatTitle } from "./lib/format";
+import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
+
+const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
@@ -505,6 +510,40 @@ export default function App() {
   const [postPickupLocation, setPostPickupLocation] = useState("");
   const [categorySchemas, setCategorySchemas] = useState<Record<string, CategorySchema>>({});
   const [selectedCategories, setSelectedCategories] = useState<CategorySlug[]>([]);
+  const [showMyListings, setShowMyListings] = useState(false);
+
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const [marketSidebarCollapsed, setMarketSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    if (!window.matchMedia("(min-width: 1024px)").matches) return true;
+    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+  });
+  useEffect(() => {
+    if (!isDesktop) return;
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(marketSidebarCollapsed));
+  }, [marketSidebarCollapsed, isDesktop]);
+  useEffect(() => {
+    if (isDesktop) {
+      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      setMarketSidebarCollapsed(stored === "true");
+    } else {
+      setMarketSidebarCollapsed(true);
+    }
+  }, [isDesktop]);
+  const toggleMarketSidebar = useCallback(() => setMarketSidebarCollapsed((c) => !c), []);
+  const handleToggleMarketCommunity = useCallback((cid: string) => {
+    setSelectedMarketCommunities((prev) =>
+      prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
+    );
+  }, []);
+  const handleClearMarketCommunities = useCallback(() => setSelectedMarketCommunities([]), []);
+  const handleToggleCategory = useCallback((slug: CategorySlug) => {
+    setSelectedCategories((prev) =>
+      prev.includes(slug) ? prev.filter((c) => c !== slug) : [...prev, slug]
+    );
+  }, []);
+  const handleClearCategories = useCallback(() => setSelectedCategories([]), []);
+  const handleToggleMyListings = useCallback(() => setShowMyListings((v) => !v), []);
 
   // Wishlist state
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
@@ -650,7 +689,10 @@ export default function App() {
     setViewingUserId(userId);
   };
 
-  const openListingDetail = async (listing: Listing) => {
+  const listingViewSourceRef = useRef<ViewSource>("direct");
+
+  const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
+    listingViewSourceRef.current = source;
     setShowListingDetailModal(true);
     setListingDetailData(listing);
     setListingDetailSellerProfile(null);
@@ -676,6 +718,43 @@ export default function App() {
       finally { setIsLoadingListingDetail(false); }
     }
   };
+
+  // Dwell-time tracking for the listing detail view.
+  //
+  // Fires logView exactly once per "view session" — the period from when the
+  // detail modal opens to when it closes (cleanup), the listing changes
+  // (cleanup with a new id), the route changes (cleanup because page in deps
+  // forces re-run), or the tab is hidden (visibilitychange).
+  //
+  // The fired guard prevents double-firing: visibilitychange may flush first,
+  // then cleanup runs on unmount and is a no-op.
+  useEffect(() => {
+    if (!showListingDetailModal || !listingDetailData) return;
+    const listingId = listingDetailData.id;
+    const source = listingViewSourceRef.current;
+    const startTs = performance.now();
+    let fired = false;
+
+    const flush = () => {
+      if (fired) return;
+      fired = true;
+      logView({
+        listing_id: listingId,
+        source,
+        dwell_ms: Math.max(0, Math.round(performance.now() - startTs)),
+      });
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, [showListingDetailModal, listingDetailData?.id, page]);
 
   const computeAvailablePickupDays = (listing: Listing) => {
     const now = new Date();
@@ -957,8 +1036,12 @@ export default function App() {
       setUploadedImages(updatedImages);
       setSegmentationError(null);
       setIsGenerating(true);
+      segmentationAbortRef.current?.abort();
+      const controller = new AbortController();
+      segmentationAbortRef.current = controller;
       try {
-        const result = await segmentPhotos(updatedImages.map((img) => img.file));
+        const result = await segmentPhotos(updatedImages.map((img) => img.file), controller.signal);
+        if (controller.signal.aborted) return;
         if (!Array.isArray(result.groupings) || result.groupings.length === 0) {
           throw new Error("Segmentation returned no groupings");
         }
@@ -967,10 +1050,14 @@ export default function App() {
         setNames(result.groupings.map(() => ""));
         // Rationale is per-batch, not per-group, so it survives a re-segmentation.
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         console.error("Re-segment after +Add failed:", err);
         setSegmentationError(err instanceof Error ? err.message : "Something went wrong");
       } finally {
-        setIsGenerating(false);
+        if (segmentationAbortRef.current === controller) {
+          segmentationAbortRef.current = null;
+          setIsGenerating(false);
+        }
       }
       return;
     }
@@ -1325,12 +1412,15 @@ export default function App() {
   //
   // vision_signals is opaque — passed back to /api/generate-listings unchanged.
 
-  const segmentPhotos = async (files: File[]): Promise<SegmentationResult> => {
+  const segmentationAbortRef = useRef<AbortController | null>(null);
+
+  const segmentPhotos = async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
     const formData = new FormData();
     files.forEach((file) => formData.append("images", file));
     const res = await fetch("/api/segment-photos", {
       method: "POST",
       body: formData,
+      signal,
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: "Server error" }));
@@ -1338,6 +1428,30 @@ export default function App() {
     }
     return (await res.json()) as SegmentationResult;
   };
+
+  const clearAllUploads = useCallback(() => {
+    segmentationAbortRef.current?.abort();
+    segmentationAbortRef.current = null;
+    setUploadedImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.preview));
+      return [];
+    });
+    setProductDetails(null);
+    setBulkItems([]);
+    setBulkReviewPhase(null);
+    setCurrentCardIndex(0);
+    setNewTag("");
+    setGroupingsModified(false);
+    setModifiedGroupIndices(new Set());
+    setSegmentation(null);
+    setBrandHints([]);
+    setNames([]);
+    setRationale("");
+    setRationaleOther("");
+    setBulkPickupLocation("");
+    setSegmentationError(null);
+    setIsGenerating(false);
+  }, []);
 
   const generateListings = async (payload: {
     groupings: number[][];
@@ -1368,8 +1482,12 @@ export default function App() {
     setProductDetails(null);
     setSegmentationError(null);
     setIsGenerating(true);
+    segmentationAbortRef.current?.abort();
+    const controller = new AbortController();
+    segmentationAbortRef.current = controller;
     try {
-      const result = await segmentPhotos(uploadedImages.map((img) => img.file));
+      const result = await segmentPhotos(uploadedImages.map((img) => img.file), controller.signal);
+      if (controller.signal.aborted) return;
       // Defensive: server should always return a non-empty groupings array; bail if not.
       if (!Array.isArray(result.groupings) || result.groupings.length === 0) {
         throw new Error("Segmentation returned no groupings");
@@ -1388,10 +1506,14 @@ export default function App() {
       setModifiedGroupIndices(new Set());
       setPostPickupLocation(user?.pickup_address || "");
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error("Segment photos failed:", err);
       setSegmentationError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
-      setIsGenerating(false);
+      if (segmentationAbortRef.current === controller) {
+        segmentationAbortRef.current = null;
+        setIsGenerating(false);
+      }
     }
   };
 
@@ -1816,6 +1938,18 @@ export default function App() {
   }, []);
 
   const fetchListings = async () => {
+    if (showMyListings && isAuthenticated && token) {
+      try {
+        const res = await fetch(`/api/listings/mine`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) setListings(await res.json());
+      } catch (err) {
+        console.error("Failed to fetch my listings:", err);
+      }
+      return;
+    }
+
     const params = new URLSearchParams();
     if (marketSearch) params.set("search", marketSearch);
     params.set("sort", marketSort);
@@ -1895,9 +2029,26 @@ export default function App() {
     }
   };
 
+  const handleNotForMe = (listingId: string) => {
+    setListings((prev) => prev.filter((l) => l.id !== listingId));
+    logInteraction({ listing_id: listingId, action: "not_interested" });
+  };
+
   useEffect(() => {
     if (page === "market") fetchListings();
-  }, [page, marketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated]);
+  }, [page, marketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
+
+  // Keep the URL hash in sync with the current page so a browser refresh
+  // preserves where the user was. The initializer above reads from the hash
+  // on load; this effect closes the loop on every setPage(...) transition.
+  // replaceState (not pushState) so we don't pollute back-button history —
+  // back still exits the app, matching prior behavior.
+  useEffect(() => {
+    const current = window.location.hash.replace("#", "");
+    if (current !== page) {
+      window.history.replaceState(null, "", `#${page}`);
+    }
+  }, [page]);
 
   useEffect(() => {
     if (token) fetchWishlist();
@@ -1983,9 +2134,9 @@ export default function App() {
   }, [needsRegistration, pendingSignupToken]);
 
   return (
-    <div className="size-full bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white overflow-auto">
+    <div className="min-h-screen bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white">
       {/* Navigation */}
-      <nav className="border-b border-white/10 bg-black/20 backdrop-blur-sm relative z-50">
+      <nav className="sticky top-0 border-b border-white/10 bg-black/60 backdrop-blur-md z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
@@ -1999,6 +2150,9 @@ export default function App() {
 
               {/* Desktop Navigation */}
               <div className="hidden md:flex gap-6">
+                <button onClick={() => setPage("home")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "home" ? "text-white" : "text-white/60"}`}>
+                  Search
+                </button>
                 <button onClick={() => setPage("market")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "market" ? "text-white" : "text-white/60"}`}>
                   Market
                 </button>
@@ -2294,8 +2448,16 @@ export default function App() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
+                      const query = homeSearch.trim();
                       setMarketSearch(homeSearch);
                       setPage("market");
+                      if (query) {
+                        const filters: Record<string, unknown> = {};
+                        if (selectedCategories.length > 0) filters.categories = selectedCategories;
+                        if (selectedMarketCommunities.length > 0) filters.communities = selectedMarketCommunities;
+                        if (marketSort && marketSort !== "newest") filters.sort = marketSort;
+                        logSearch({ query, filters });
+                      }
                     }}
                     className="relative flex items-center gap-2 mb-2"
                   >
@@ -2620,24 +2782,7 @@ export default function App() {
                                 <Plus className="size-4" />
                               </button>
                               <button
-                                onClick={() => {
-                                  uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
-                                  setUploadedImages([]);
-                                  setProductDetails(null);
-                                  setBulkItems([]);
-                                  setBulkReviewPhase(null);
-                                  setCurrentCardIndex(0);
-                                  setNewTag("");
-                                  setGroupingsModified(false);
-                                  setModifiedGroupIndices(new Set());
-                                  setSegmentation(null);
-                                  setBrandHints([]);
-                                  setNames([]);
-                                  setRationale("");
-                                  setRationaleOther("");
-                                  setBulkPickupLocation("");
-                                  setSegmentationError(null);
-                                }}
+                                onClick={clearAllUploads}
                                 className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
                               >
                                 Clear all
@@ -2742,24 +2887,7 @@ export default function App() {
                           </div>
                           <div className="shrink-0 ml-auto flex flex-col gap-1">
                             <button
-                              onClick={() => {
-                                uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
-                                setUploadedImages([]);
-                                setProductDetails(null);
-                                setBulkItems([]);
-                                setBulkReviewPhase(null);
-                                setCurrentCardIndex(0);
-                                setNewTag("");
-                                setGroupingsModified(false);
-                                setModifiedGroupIndices(new Set());
-                                setSegmentation(null);
-                                setBrandHints([]);
-                                setNames([]);
-                                setRationale("");
-                                setRationaleOther("");
-                                setBulkPickupLocation("");
-                                setSegmentationError(null);
-                              }}
+                              onClick={clearAllUploads}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
                             >
                               Clear all
@@ -2795,22 +2923,7 @@ export default function App() {
                           </button>
                           <div className="ml-auto shrink-0 flex flex-col gap-1">
                             <button
-                              onClick={() => {
-                                uploadedImages.forEach((img) => URL.revokeObjectURL(img.preview));
-                                setUploadedImages([]);
-                                setProductDetails(null);
-                                setBulkItems([]);
-                                setBulkReviewPhase(null);
-                                setCurrentCardIndex(0);
-                                setNewTag("");
-                                setSegmentation(null);
-                                setBrandHints([]);
-                                setNames([]);
-                                setRationale("");
-                                setRationaleOther("");
-                                setBulkPickupLocation("");
-                                setSegmentationError(null);
-                              }}
+                              onClick={clearAllUploads}
                               className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
                             >
                               Clear all
@@ -3502,112 +3615,33 @@ export default function App() {
       )}
 
       {page === "market" && (
-        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-3xl font-light tracking-wider mb-8" style={{ fontFamily: "'Courier Prime', monospace" }}>
-              Marketplace
-            </h2>
-
-            {/* Search, Filter & Sort Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-8">
-              <div className="flex flex-col flex-1">
-                <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Search</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 size-4" />
-                  <input
-                    type="text"
-                    value={marketSearch}
-                    onChange={(e) => setMarketSearch(e.target.value)}
-                    placeholder="Search items..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-cyan-400 transition-colors"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col">
-                <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Sort By</label>
-                <select
-                  value={marketSort}
-                  onChange={(e) => setMarketSort(e.target.value)}
-                  className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
-                >
-                  <option value="newest">Newest</option>
-                  <option value="price_low">Price: Low to High</option>
-                  <option value="price_high">Price: High to Low</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Community Filter Chips */}
-            {isAuthenticated && filterCommunities.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto pb-1 -mt-2 mb-1">
-                {filterCommunities.map((community) => {
-                  const cid = String(community.id);
-                  const isSelected = selectedMarketCommunities.includes(cid);
-                  return (
-                    <button
-                      key={cid}
-                      onClick={() =>
-                        setSelectedMarketCommunities((prev) =>
-                          isSelected ? prev.filter((x) => x !== cid) : [...prev, cid]
-                        )
-                      }
-                      className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all ${
-                        isSelected
-                          ? "bg-fuchsia-500/15 border-fuchsia-400/30 text-fuchsia-300"
-                          : "bg-white/5 border-white/15 text-white/50 hover:bg-white/10"
-                      }`}
-                    >
-                      {community.is_public !== false ? <Globe className="size-3" /> : <Lock className="size-3" />}
-                      {community.name}
-                    </button>
-                  );
-                })}
-                {selectedMarketCommunities.length > 0 && (
-                  <button
-                    onClick={() => setSelectedMarketCommunities([])}
-                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border border-white/10 text-white/30 hover:text-white/50 hover:bg-white/5 transition-all"
-                  >
-                    <X className="size-3" />
-                    Clear
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Category Filters */}
-            {Object.keys(categorySchemas).length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-3 mb-4">
-                {Object.entries(categorySchemas).map(([slug, schema]) => {
-                  const isSelected = selectedCategories.includes(slug as CategorySlug);
-                  return (
-                    <button
-                      key={slug}
-                      onClick={() => {
-                        setSelectedCategories((prev) =>
-                          isSelected ? prev.filter((c) => c !== slug) : [...prev, slug as CategorySlug]
-                        );
-                      }}
-                      className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
-                        isSelected
-                          ? "bg-fuchsia-500/20 border-fuchsia-400/40 text-fuchsia-300"
-                          : "bg-white/5 border-white/15 text-white/50 hover:text-white/70 hover:border-white/30"
-                      }`}
-                    >
-                      {schema.label}
-                    </button>
-                  );
-                })}
-                {selectedCategories.length > 0 && (
-                  <button
-                    onClick={() => setSelectedCategories([])}
-                    className="px-3 py-1.5 rounded-full text-xs border border-white/15 text-white/30 hover:text-white/50 transition-all"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            )}
+        <section
+          className={`relative min-h-[calc(100vh-64px)] transition-[padding] duration-300 ease-out ${
+            isDesktop && !marketSidebarCollapsed ? "lg:pl-72" : ""
+          }`}
+        >
+          <MarketplaceSidebar
+            collapsed={marketSidebarCollapsed}
+            onToggleCollapsed={toggleMarketSidebar}
+            isMobile={!isDesktop}
+            marketSearch={marketSearch}
+            onMarketSearchChange={setMarketSearch}
+            marketSort={marketSort}
+            onMarketSortChange={setMarketSort}
+            isAuthenticated={isAuthenticated}
+            filterCommunities={filterCommunities}
+            selectedMarketCommunities={selectedMarketCommunities}
+            onToggleCommunity={handleToggleMarketCommunity}
+            onClearCommunities={handleClearMarketCommunities}
+            categorySchemas={categorySchemas}
+            selectedCategories={selectedCategories}
+            onToggleCategory={handleToggleCategory}
+            onClearCategories={handleClearCategories}
+            showMyListings={showMyListings}
+            onToggleMyListings={handleToggleMyListings}
+          />
+          <div className="py-12 px-4 sm:px-6 lg:px-8">
+            <div className="max-w-4xl mx-auto">
 
             {/* Listings */}
             {listings.length === 0 ? (
@@ -3628,17 +3662,27 @@ export default function App() {
                   <div
                     key={listing.id}
                     className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors cursor-pointer"
-                    onClick={() => openListingDetail(listing)}
+                    onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
                   >
                     {isAuthenticated && listing.userId !== user?.id && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
-                        className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
-                      >
-                        <Heart
-                          className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
-                        />
-                      </button>
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleNotForMe(listing.id); }}
+                          aria-label="Not for me"
+                          title="Not for me"
+                          className="absolute top-3 right-11 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
+                        >
+                          <EyeOff className="size-4 text-white/30 hover:text-white/50" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
+                          className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
+                        >
+                          <Heart
+                            className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
+                          />
+                        </button>
+                      </>
                     )}
                     <ListingImageCarousel
                       images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
@@ -3790,6 +3834,7 @@ export default function App() {
                 ))}
               </div>
             )}
+            </div>
           </div>
         </section>
       )}
