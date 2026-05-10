@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -11,8 +10,7 @@ from database import get_db
 from models import Community, CommunityMember, User, Notification
 from models import JoinRequest as JoinRequestModel
 from auth import get_current_user
-
-UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
+from services import storage
 
 router = APIRouter(prefix="/api/communities", tags=["communities"])
 
@@ -176,26 +174,25 @@ async def create_community(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Save image if provided
-    image_path = None
+    # Validate image early (before creating the row) — keeps a bad upload from
+    # leaving an orphan community.
+    image_bytes: Optional[bytes] = None
+    image_ext = "jpg"
     if image and image.filename:
         content_type = image.content_type or ""
         if not content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="File must be an image")
-        ext = image.filename.rsplit(".", 1)[-1] if "." in image.filename else "jpg"
-        filename = f"community_{uuid.uuid4().hex[:8]}.{ext}"
-        filepath = UPLOADS_DIR / filename
-        contents = await image.read()
-        filepath.write_bytes(contents)
-        image_path = f"/uploads/{filename}"
+        image_ext = image.filename.rsplit(".", 1)[-1] if "." in image.filename else "jpg"
+        image_bytes = await image.read()
 
+    # Create the community row first so we have community.id for the storage path.
     community = Community(
         name=name,
         description=description,
         neighborhood=neighborhood,
         pickup_address=pickup_address,
         zip_code=zip_code,
-        image=image_path,
+        image=None,
         is_public=is_public,
         invite_code=_generate_invite_code(),
         created_by=current_user.id,
@@ -212,6 +209,14 @@ async def create_community(
     )
     db.add(membership)
     db.commit()
+
+    # Now upload the badge keyed by community.id and patch the row.
+    if image_bytes is not None:
+        community.image = storage.upload_image(
+            "communities", str(community.id), image_bytes, image_ext
+        )
+        db.commit()
+        db.refresh(community)
 
     return _community_to_out(community, db, current_user.id)
 

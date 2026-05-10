@@ -1730,7 +1730,20 @@ export default function App() {
 
     try {
       const formData = new FormData();
-      uploadedImages.forEach((img) => formData.append("images", img.file));
+      // Tier 2: prefer draft URLs from /api/segment-photos to avoid re-uploading
+      // file bytes. The single-item path collapses a single segmentation group
+      // into `productDetails`, so segmentation.image_urls is this listing's
+      // draft URL list. Fresh-files fallback retains the legacy `images` upload.
+      const draftUrls = segmentation
+        ? segmentation.image_urls.filter(
+            (url): url is string => typeof url === "string" && url.length > 0,
+          )
+        : [];
+      if (draftUrls.length > 0) {
+        formData.append("draft_urls", JSON.stringify(draftUrls));
+      } else {
+        uploadedImages.forEach((img) => formData.append("images", img.file));
+      }
       const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = productDetails;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
@@ -1822,9 +1835,22 @@ export default function App() {
 
       for (const item of bulkItems) {
         const formData = new FormData();
-        for (const imgIdx of item.imageIndices) {
-          if (uploadedImages[imgIdx]) {
-            formData.append("images", uploadedImages[imgIdx].file);
+        // Tier 2: send draft URLs returned by /api/segment-photos instead of
+        // re-uploading file bytes. Backend relocates from drafts/ to the final
+        // listing folder server-side. Fresh-files fallback (no segmentation)
+        // re-uploads the bytes via the legacy `images` field.
+        const draftUrlsForItem = segmentation
+          ? item.imageIndices
+              .map((i) => segmentation.image_urls[i])
+              .filter((url): url is string => typeof url === "string" && url.length > 0)
+          : [];
+        if (draftUrlsForItem.length > 0) {
+          formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
+        } else {
+          for (const imgIdx of item.imageIndices) {
+            if (uploadedImages[imgIdx]) {
+              formData.append("images", uploadedImages[imgIdx].file);
+            }
           }
         }
         const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;

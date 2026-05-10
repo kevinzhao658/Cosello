@@ -1,5 +1,3 @@
-import uuid
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -10,8 +8,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 from auth import get_current_user
-
-UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
+from services import storage
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -141,13 +138,10 @@ async def upload_profile_picture(
         raise HTTPException(status_code=400, detail="File must be an image")
 
     ext = image.filename.rsplit(".", 1)[-1] if image.filename and "." in image.filename else "jpg"
-    filename = f"pfp_{current_user.id}_{uuid.uuid4().hex[:8]}.{ext}"
-    filepath = UPLOADS_DIR / filename
-
     contents = await image.read()
-    filepath.write_bytes(contents)
+    url = storage.upload_image("profiles", str(current_user.id), contents, ext)
 
-    current_user.profile_picture = f"/uploads/{filename}"
+    current_user.profile_picture = url
     db.commit()
     db.refresh(current_user)
     return _user_to_out(db, current_user)

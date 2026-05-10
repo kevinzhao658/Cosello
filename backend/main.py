@@ -35,6 +35,7 @@ from services.google.vision import VisionResult
 from services.evidence import build_evidence_block, _format_single_image_evidence
 from services.cache import PHashCache
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
+from services import storage
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,11 @@ def _preprocess_image_bytes(raw: bytes) -> bytes:
 
 
 async def _save_uploaded_images(images: list[UploadFile]) -> tuple[list[bytes], list[str]]:
-    """Read, preprocess, and persist uploads under backend/uploads/.
+    """Read, preprocess, and push uploads to Supabase Storage.
+
+    Used by `/api/segment-photos` — listing_id doesn't exist yet here
+    (drafts), so files land under listings/drafts/. The actual listing-create
+    path generates an id upfront and uses it for its uploads.
 
     Returns (bytes_list, image_urls) preserving original order.
     """
@@ -229,28 +234,37 @@ async def _save_uploaded_images(images: list[UploadFile]) -> tuple[list[bytes], 
     for img in images:
         raw = await img.read()
         processed = _preprocess_image_bytes(raw)
-        filename = f"{uuid.uuid4().hex}.jpg"
-        (UPLOADS_DIR / filename).write_bytes(processed)
+        url = storage.upload_image("listings", "drafts", processed, "jpg")
         bytes_list.append(processed)
-        image_urls.append(f"/uploads/{filename}")
+        image_urls.append(url)
     return bytes_list, image_urls
 
 
-def _resolve_image_url_to_path(url: str) -> Path | None:
-    """Map a /uploads/<name> URL to a Path on disk. Reject path traversal."""
-    if not url or not url.startswith("/uploads/"):
+def _resolve_image_url_to_bytes(url: str) -> bytes | None:
+    """Resolve an image URL to raw bytes for the listing-gen pipeline.
+
+    Handles three formats:
+      - Supabase Storage public URL → download via storage.download_image
+      - `/uploads/<name>` (legacy local file) → read from disk
+      - anything else → None
+    """
+    if not url:
         return None
-    name = url[len("/uploads/"):]
-    if "/" in name or "\\" in name or name in ("", ".", ".."):
-        return None
-    candidate = (UPLOADS_DIR / name).resolve()
-    try:
-        candidate.relative_to(UPLOADS_DIR.resolve())
-    except ValueError:
-        return None
-    if not candidate.is_file():
-        return None
-    return candidate
+    if storage.is_storage_url(url):
+        return storage.download_image(url)
+    if url.startswith("/uploads/"):
+        name = url[len("/uploads/"):]
+        if "/" in name or "\\" in name or name in ("", ".", ".."):
+            return None
+        candidate = (UPLOADS_DIR / name).resolve()
+        try:
+            candidate.relative_to(UPLOADS_DIR.resolve())
+        except ValueError:
+            return None
+        if not candidate.is_file():
+            return None
+        return candidate.read_bytes()
+    return None
 
 
 def _build_segmentation_prompt(n: int) -> str:
@@ -948,16 +962,16 @@ async def generate_listings(req: GenerateListingsRequest):
         )
 
     n = len(req.image_urls)
-    # Validate group indices and resolve image bytes from disk
+    # Validate group indices and resolve image bytes (legacy disk OR Storage)
     image_bytes_list: list[bytes] = []
     for url in req.image_urls:
-        path = _resolve_image_url_to_path(url)
-        if path is None:
+        data = _resolve_image_url_to_bytes(url)
+        if data is None:
             raise HTTPException(
                 status_code=400,
-                detail=f"Image URL does not resolve to a file on disk: {url}",
+                detail=f"Image URL does not resolve to readable bytes: {url}",
             )
-        image_bytes_list.append(path.read_bytes())
+        image_bytes_list.append(data)
 
     seen: set[int] = set()
     for group in req.groupings:
@@ -998,11 +1012,12 @@ async def generate_listings(req: GenerateListingsRequest):
 
 @app.post("/api/listings")
 async def create_listing(
-    images: list[UploadFile] = File(...),
+    images: list[UploadFile] = File(default_factory=list),
     data: str = Form(...),
     communities: str = Form(""),
     visibility: str = Form("public"),
     pickup_location: str = Form(""),
+    draft_urls: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1014,6 +1029,22 @@ async def create_listing(
 
     if visibility not in ("public", "private"):
         raise HTTPException(status_code=400, detail="visibility must be 'public' or 'private'")
+
+    # Parse draft_urls (relocated draft objects from /api/segment-photos).
+    parsed_draft_urls: list[str] = []
+    if draft_urls:
+        try:
+            parsed_draft_urls = json.loads(draft_urls)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in draft_urls field")
+        if not isinstance(parsed_draft_urls, list) or not all(isinstance(u, str) for u in parsed_draft_urls):
+            raise HTTPException(status_code=400, detail="draft_urls must be a JSON array of strings")
+        for u in parsed_draft_urls:
+            if not storage.is_storage_url(u):
+                raise HTTPException(status_code=400, detail=f"draft_urls contains non-Storage URL: {u}")
+
+    if not images and not parsed_draft_urls:
+        raise HTTPException(status_code=400, detail="At least one image or draft_url is required")
 
     # Parse community IDs the listing is posted to
     community_ids: list = []
@@ -1061,15 +1092,18 @@ async def create_listing(
     if category_slug not in CATEGORY_SCHEMAS:
         raise HTTPException(status_code=400, detail=f"Invalid category: {category_slug}")
 
-    # Save all uploaded images to disk
+    # Generate listing_id upfront so uploads land under listings/{listing_id}/
+    listing_id = uuid.uuid4().hex[:12]
+
+    # Push all images to Supabase Storage. Drafts move server-side (no bytes
+    # transferred); freshly attached files upload as before. Drafts come first.
     image_urls: list[str] = []
+    for url in parsed_draft_urls:
+        image_urls.append(storage.move_image(url, "listings", listing_id))
     for img in images:
         ext = img.filename.rsplit(".", 1)[-1] if img.filename and "." in img.filename else "jpg"
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        filepath = UPLOADS_DIR / filename
         contents = await img.read()
-        filepath.write_bytes(contents)
-        image_urls.append(f"/uploads/{filename}")
+        image_urls.append(storage.upload_image("listings", listing_id, contents, ext))
 
     # Resolve brand + name. Prefer the new top-level fields. If a transitional
     # client still sends only `title`, derive (brand, name) by stripping a
@@ -1136,7 +1170,7 @@ async def create_listing(
 
     posted_at = time.time()
     listing = Listing(
-        id=uuid.uuid4().hex[:12],
+        id=listing_id,
         user_id=current_user.id,
         brand=brand_str or None,
         name=name_str or None,
