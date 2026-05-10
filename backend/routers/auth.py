@@ -1,15 +1,15 @@
 import uuid
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, OTPVerification
-from auth import generate_otp, send_otp, create_access_token, get_current_user
+from models import User
+from auth import get_current_user
 
 UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
 
@@ -17,15 +17,6 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 # ---------- Request / Response schemas ----------
-
-class SendOTPRequest(BaseModel):
-    phone_number: str
-
-
-class VerifyOTPRequest(BaseModel):
-    phone_number: str
-    otp_code: str = Field(..., min_length=6, max_length=6)
-
 
 class RegisterRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=100)
@@ -42,7 +33,7 @@ class UpdateProfileRequest(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: int
+    id: str
     phone_number: str
     display_name: Optional[str] = None
     neighborhood: Optional[str] = None
@@ -50,89 +41,38 @@ class UserOut(BaseModel):
     pickup_address: Optional[str] = None
     zip_code: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+
+def _phone_for_user(db: Session, user_id: str) -> str:
+    """Look up phone from auth.users — service_role can read it directly."""
+    row = db.execute(
+        text("SELECT phone FROM auth.users WHERE id = :uid LIMIT 1"),
+        {"uid": user_id},
+    ).first()
+    return (row[0] or "") if row else ""
+
+
+def _user_to_out(db: Session, user: User) -> UserOut:
+    return UserOut(
+        id=str(user.id),
+        phone_number=_phone_for_user(db, str(user.id)),
+        display_name=user.display_name,
+        neighborhood=user.neighborhood,
+        profile_picture=user.profile_picture,
+        pickup_address=user.pickup_address,
+        zip_code=user.zip_code,
+    )
 
 
 # ---------- Endpoints ----------
 
 @router.get("/check-phone")
 async def check_phone(phone_number: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.phone_number == phone_number.strip()).first()
-    return {"exists": user is not None}
-
-
-@router.post("/send-otp")
-async def send_otp_endpoint(req: SendOTPRequest, db: Session = Depends(get_db)):
-    phone = req.phone_number.strip()
-    if not phone:
-        raise HTTPException(status_code=400, detail="Phone number is required")
-
-    otp_code = generate_otp()
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
-
-    record = OTPVerification(
-        phone_number=phone,
-        otp_code=otp_code,
-        expires_at=expires_at,
-    )
-    db.add(record)
-    db.commit()
-
-    send_otp(phone, otp_code)
-
-    return {"message": "OTP sent", "phone_number": phone}
-
-
-@router.post("/verify-otp")
-async def verify_otp_endpoint(req: VerifyOTPRequest, db: Session = Depends(get_db)):
-    phone = req.phone_number.strip()
-
-    record = (
-        db.query(OTPVerification)
-        .filter(
-            OTPVerification.phone_number == phone,
-            OTPVerification.is_verified == 0,
-        )
-        .order_by(OTPVerification.created_at.desc())
-        .first()
-    )
-
-    if not record:
-        raise HTTPException(status_code=400, detail="No pending OTP for this number")
-
-    if datetime.utcnow() > record.expires_at:
-        record.is_verified = 2
-        db.commit()
-        raise HTTPException(status_code=400, detail="OTP expired — request a new one")
-
-    if record.otp_code != req.otp_code:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    record.is_verified = 1
-    db.commit()
-
-    user = db.query(User).filter(User.phone_number == phone).first()
-
-    if user:
-        token = create_access_token(user.id)
-        return {
-            "access_token": token,
-            "user_exists": True,
-            "user": UserOut.model_validate(user).model_dump(),
-        }
-    else:
-        new_user = User(phone_number=phone)
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-
-        token = create_access_token(new_user.id)
-        return {
-            "access_token": token,
-            "user_exists": False,
-            "user": UserOut.model_validate(new_user).model_dump(),
-        }
+    """Check whether a phone is already registered in Supabase Auth."""
+    row = db.execute(
+        text("SELECT 1 FROM auth.users WHERE phone = :phone LIMIT 1"),
+        {"phone": phone_number.strip()},
+    ).first()
+    return {"exists": row is not None}
 
 
 @router.post("/register", response_model=UserOut)
@@ -141,15 +81,26 @@ async def register(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    current_user.display_name = req.display_name
-    current_user.neighborhood = req.neighborhood
+    """UPSERT public.users for the authenticated Supabase user.
+
+    `current_user` is resolved from the bearer token's `sub` UUID. If the row
+    already exists (returning user updating profile), we patch the supplied
+    fields; otherwise we insert with the UUID from the token.
+    """
+    existing = db.query(User).filter(User.id == current_user.id).first()
+    if existing is None:
+        existing = User(id=str(current_user.id))
+        db.add(existing)
+
+    existing.display_name = req.display_name
+    existing.neighborhood = req.neighborhood
     if req.pickup_address is not None:
-        current_user.pickup_address = req.pickup_address
+        existing.pickup_address = req.pickup_address
     if req.zip_code is not None:
-        current_user.zip_code = req.zip_code
+        existing.zip_code = req.zip_code
     db.commit()
-    db.refresh(current_user)
-    return current_user
+    db.refresh(existing)
+    return _user_to_out(db, existing)
 
 
 @router.put("/profile", response_model=UserOut)
@@ -168,12 +119,15 @@ async def update_profile(
         current_user.zip_code = req.zip_code
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return _user_to_out(db, current_user)
 
 
 @router.get("/me", response_model=UserOut)
-async def me(current_user: User = Depends(get_current_user)):
-    return current_user
+async def me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return _user_to_out(db, current_user)
 
 
 @router.put("/profile-picture", response_model=UserOut)
@@ -196,7 +150,7 @@ async def upload_profile_picture(
     current_user.profile_picture = f"/uploads/{filename}"
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return _user_to_out(db, current_user)
 
 
 @router.post("/logout")

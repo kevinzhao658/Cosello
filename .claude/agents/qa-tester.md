@@ -21,7 +21,7 @@ Key directories:
 - `frontend/` — React/TypeScript UI
 - `backend/` — Python/FastAPI API
 - `backend/uploads/` — 187 existing product images available as test fixtures
-- `backend/cosello.db` — SQLite database
+- Database — Supabase Postgres. Connection string in `backend/.env` as `DATABASE_URL`. SQLAlchemy engine reads it at runtime. Inspect via `database.engine` or the Supabase dashboard's table editor — do NOT look for a local `cosello.db` (the SQLite file was retired with the Phase 1+2 migration).
 
 ## Responsibilities
 

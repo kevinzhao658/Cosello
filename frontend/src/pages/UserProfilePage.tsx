@@ -15,13 +15,13 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
 
 interface ProfileData {
-  id: number;
+  id: string;
   display_name: string | null;
   neighborhood: string | null;
   profile_picture: string | null;
   is_friend: boolean;
   communities: { id: number; name: string; image: string | null; is_mutual: boolean; is_public?: boolean }[];
-  mutual_friends: { id: number; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
+  mutual_friends: { id: string; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
   // brand + name replace the old computed `title`. Display title is composed
   // via formatTitle on render. `title` may still arrive from older API
   // responses during the rollout — keep it optional for back-compat.
@@ -32,9 +32,9 @@ interface ProfileData {
 }
 
 interface UserProfileOverlayProps {
-  userId: number;
+  userId: string;
   onClose: () => void;
-  onViewUser: (userId: number) => void;
+  onViewUser: (userId: string) => void;
   openListingDetail?: (listing: any) => void;
 }
 

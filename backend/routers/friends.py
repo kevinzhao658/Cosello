@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/friends", tags=["friends"])
 # ---------- Schemas ----------
 
 class FriendOut(BaseModel):
-    id: int
+    id: str
     display_name: Optional[str] = None
     neighborhood: Optional[str] = None
     profile_picture: Optional[str] = None
@@ -28,7 +28,7 @@ class FriendOut(BaseModel):
 
 
 class AddFriendRequest(BaseModel):
-    user_id: int
+    user_id: str
 
 
 class StatsOut(BaseModel):
@@ -41,7 +41,7 @@ class StatsOut(BaseModel):
 
 # ---------- Helpers ----------
 
-def _get_friend_ids(user_id: int, db: Session) -> set[int]:
+def _get_friend_ids(user_id: str, db: Session) -> set[str]:
     """Get all friend IDs for a user."""
     rows = (
         db.query(Friendship)
@@ -60,25 +60,25 @@ def _get_friend_ids(user_id: int, db: Session) -> set[int]:
     return ids
 
 
-def _get_community_ids(user_id: int, db: Session) -> set[int]:
+def _get_community_ids(user_id: str, db: Session) -> set[int]:
     """Get all community IDs a user belongs to."""
     rows = db.query(CommunityMember.community_id).filter(CommunityMember.user_id == user_id).all()
     return {r[0] for r in rows}
 
 
-def _count_mutual_friends(user_id: int, other_id: int, db: Session) -> int:
+def _count_mutual_friends(user_id: str, other_id: str, db: Session) -> int:
     my_friends = _get_friend_ids(user_id, db)
     their_friends = _get_friend_ids(other_id, db)
     return len(my_friends & their_friends)
 
 
-def _count_shared_communities(user_id: int, other_id: int, db: Session) -> int:
+def _count_shared_communities(user_id: str, other_id: str, db: Session) -> int:
     my_communities = _get_community_ids(user_id, db)
     their_communities = _get_community_ids(other_id, db)
     return len(my_communities & their_communities)
 
 
-def _user_to_friend_out(user: User, current_user_id: int, friend_ids: set[int], db: Session) -> dict:
+def _user_to_friend_out(user: User, current_user_id: str, friend_ids: set[str], db: Session) -> dict:
     return {
         "id": user.id,
         "display_name": user.display_name,
@@ -145,7 +145,7 @@ async def add_friend(
 
 @router.delete("/{friend_id}")
 async def remove_friend(
-    friend_id: int,
+    friend_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -288,7 +288,7 @@ async def get_stats(
 
 @router.get("/profile/{user_id}")
 async def get_user_profile(
-    user_id: int,
+    user_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

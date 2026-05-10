@@ -20,7 +20,7 @@ from PIL import Image
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from database import engine, Base, get_db
+from database import get_db
 from models import User, Community, CommunityMember, WishlistItem, PurchaseOrder, Notification, Listing
 from auth import get_current_user
 from routers.auth import router as auth_router
@@ -37,66 +37,6 @@ from services.cache import PHashCache
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 
 logger = logging.getLogger(__name__)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-# Migrate: add missing columns to existing tables
-with engine.connect() as conn:
-    from sqlalchemy import text, inspect
-    inspector = inspect(engine)
-
-    # Add related_user_id, listing_id to notifications if missing
-    if "notifications" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("notifications")]
-        if "related_user_id" not in cols:
-            conn.execute(text("ALTER TABLE notifications ADD COLUMN related_user_id INTEGER REFERENCES users(id)"))
-            conn.commit()
-        if "listing_id" not in cols:
-            conn.execute(text("ALTER TABLE notifications ADD COLUMN listing_id VARCHAR(20)"))
-            conn.commit()
-
-    # Add pickup_address, zip_code to users if missing
-    if "users" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("users")]
-        if "pickup_address" not in cols:
-            conn.execute(text("ALTER TABLE users ADD COLUMN pickup_address VARCHAR(255)"))
-            conn.commit()
-        if "zip_code" not in cols:
-            conn.execute(text("ALTER TABLE users ADD COLUMN zip_code VARCHAR(10)"))
-            conn.commit()
-
-    # Add buyer_reviewed, seller_reviewed, pickup_address, address_released to purchase_orders if missing
-    if "purchase_orders" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("purchase_orders")]
-        if "buyer_reviewed" not in cols:
-            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN buyer_reviewed BOOLEAN DEFAULT 0"))
-            conn.commit()
-        if "seller_reviewed" not in cols:
-            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN seller_reviewed BOOLEAN DEFAULT 0"))
-            conn.commit()
-        if "pickup_address" not in cols:
-            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN pickup_address VARCHAR(255)"))
-            conn.commit()
-        if "address_released" not in cols:
-            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN address_released INTEGER DEFAULT 0"))
-            conn.commit()
-        if "confirmed_time" not in cols:
-            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN confirmed_time VARCHAR(20)"))
-            conn.commit()
-        if "pickup_notified" not in cols:
-            conn.execute(text("ALTER TABLE purchase_orders ADD COLUMN pickup_notified INTEGER DEFAULT 0"))
-            conn.commit()
-
-    # Add category, category_attributes to listings if missing
-    if "listings" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("listings")]
-        if "category" not in cols:
-            conn.execute(text("ALTER TABLE listings ADD COLUMN category VARCHAR(30) DEFAULT 'other'"))
-            conn.commit()
-        if "category_attributes" not in cols:
-            conn.execute(text("ALTER TABLE listings ADD COLUMN category_attributes VARCHAR(2000)"))
-            conn.commit()
 
 app = FastAPI()
 
@@ -1258,7 +1198,7 @@ async def get_listings(
 
     # Batch-fetch poster user records for neighborhood checks
     poster_ids = {l.get("userId") for l in results if l.get("userId")}
-    poster_map: dict[int, User] = {}
+    poster_map: dict[str, User] = {}
     if poster_ids:
         poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(poster_ids)).all()}
 
@@ -1548,7 +1488,7 @@ async def get_public_listings(
             pub_info[c.id] = {"name": c.name, "is_public": c.is_public}
 
     pub_poster_ids = {l.get("userId") for l in results if l.get("userId")}
-    pub_poster_map: dict[int, User] = {}
+    pub_poster_map: dict[str, User] = {}
     if pub_poster_ids:
         pub_poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(pub_poster_ids)).all()}
 

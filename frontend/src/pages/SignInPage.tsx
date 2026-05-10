@@ -3,6 +3,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, ArrowRight, Phone, ChevronDown, CheckCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
+import { supabase } from "../lib/supabase";
 
 const COUNTRIES = [
   { flag: "🇺🇸", name: "United States", code: "+1", maxDigits: 10, format: [3, 3, 4] },
@@ -115,20 +116,17 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
     setError("");
 
     try {
-      const res = await fetch("/api/auth/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone_number: fullNumber }),
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        phone: fullNumber,
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ detail: "Failed to send code" }));
-        throw new Error(data.detail);
+      if (otpError) {
+        throw new Error(otpError.message || "Failed to send code");
       }
 
       setStep("otp");
-    } catch (err: any) {
-      setError(err.message || "Failed to send code");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send code");
     } finally {
       setIsLoading(false);
     }
@@ -144,21 +142,40 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
     setError("");
 
     try {
-      const res = await fetch("/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone_number: fullNumber, otp_code: otp }),
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        phone: fullNumber,
+        token: otp,
+        type: "sms",
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ detail: "Verification failed" }));
-        throw new Error(data.detail);
+      if (verifyError) {
+        throw new Error(verifyError.message || "Verification failed");
       }
 
-      const data = await res.json();
-      onSuccess(data.access_token, data.user_exists, data.user);
-    } catch (err: any) {
-      setError(err.message || "Verification failed");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const session = sessionData.session;
+      if (!session) {
+        throw new Error("Session unavailable after verification");
+      }
+
+      const accessToken = session.access_token;
+      const meRes = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      let profile: AuthUser | null = null;
+      if (meRes.ok) {
+        profile = (await meRes.json()) as AuthUser;
+      } else if (meRes.status !== 404) {
+        // 404 = profile doesn't exist yet (new user); other errors should surface.
+        const data = await meRes.json().catch(() => ({ detail: "Failed to load profile" }));
+        throw new Error(data.detail || "Failed to load profile");
+      }
+
+      const userExists = profile !== null && Boolean(profile.display_name);
+      onSuccess(accessToken, userExists, profile);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Verification failed");
     } finally {
       setIsLoading(false);
     }

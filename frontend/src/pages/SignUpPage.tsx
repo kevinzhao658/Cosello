@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
+import type { AuthUser } from "../contexts/AuthContext";
 
 const MANHATTAN_NEIGHBORHOODS = [
   "Battery Park City",
@@ -48,16 +49,6 @@ const MANHATTAN_NEIGHBORHOODS = [
   "West Village",
   "Yorkville",
 ];
-
-interface AuthUser {
-  id: number;
-  phone_number: string;
-  display_name: string | null;
-  neighborhood: string | null;
-  profile_picture: string | null;
-  pickup_address: string | null;
-  zip_code: string | null;
-}
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -133,10 +124,10 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
         throw new Error(data.detail);
       }
 
-      const user = await res.json();
+      const user = (await res.json()) as AuthUser;
       onComplete(user);
-    } catch (err: any) {
-      setError(err.message || "Registration failed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setIsLoading(false);
     }

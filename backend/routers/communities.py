@@ -24,10 +24,12 @@ class CommunityOut(BaseModel):
     name: str
     description: Optional[str] = None
     neighborhood: Optional[str] = None
+    pickup_address: Optional[str] = None
+    zip_code: Optional[str] = None
     image: Optional[str] = None
     is_public: bool
     invite_code: str
-    created_by: int
+    created_by: str
     member_count: int = 0
     role: Optional[str] = None
 
@@ -40,7 +42,7 @@ class JoinByCodeRequest(BaseModel):
 
 
 class UserSearchOut(BaseModel):
-    id: int
+    id: str
     display_name: Optional[str] = None
     neighborhood: Optional[str] = None
     profile_picture: Optional[str] = None
@@ -51,13 +53,15 @@ class UserSearchOut(BaseModel):
 
 class InviteRequest(BaseModel):
     community_id: int
-    user_ids: list[int]
+    user_ids: list[str]
 
 
 class UpdateCommunityRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     neighborhood: Optional[str] = None
+    pickup_address: Optional[str] = None
+    zip_code: Optional[str] = None
     is_public: Optional[bool] = None
 
 
@@ -71,7 +75,7 @@ def _generate_invite_code() -> str:
     return uuid.uuid4().hex[:8].upper()
 
 
-def _community_to_out(community: Community, db: Session, user_id: int) -> dict:
+def _community_to_out(community: Community, db: Session, user_id: str) -> dict:
     member_count = (
         db.query(sa_func.count(CommunityMember.id))
         .filter(CommunityMember.community_id == community.id)
@@ -87,6 +91,8 @@ def _community_to_out(community: Community, db: Session, user_id: int) -> dict:
         "name": community.name,
         "description": community.description,
         "neighborhood": community.neighborhood,
+        "pickup_address": community.pickup_address,
+        "zip_code": community.zip_code,
         "image": community.image,
         "is_public": community.is_public,
         "invite_code": community.invite_code,
@@ -163,6 +169,8 @@ async def create_community(
     name: str = Form(...),
     description: Optional[str] = Form(None),
     neighborhood: Optional[str] = Form(None),
+    pickup_address: Optional[str] = Form(None),
+    zip_code: Optional[str] = Form(None),
     is_public: bool = Form(True),
     image: Optional[UploadFile] = File(None),
     current_user: User = Depends(get_current_user),
@@ -185,6 +193,8 @@ async def create_community(
         name=name,
         description=description,
         neighborhood=neighborhood,
+        pickup_address=pickup_address,
+        zip_code=zip_code,
         image=image_path,
         is_public=is_public,
         invite_code=_generate_invite_code(),
@@ -586,6 +596,10 @@ async def update_community(
         community.description = req.description
     if req.neighborhood is not None:
         community.neighborhood = req.neighborhood
+    if req.pickup_address is not None:
+        community.pickup_address = req.pickup_address
+    if req.zip_code is not None:
+        community.zip_code = req.zip_code
     if req.is_public is not None:
         community.is_public = req.is_public
 

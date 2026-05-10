@@ -68,7 +68,7 @@ interface SegmentationResult {
 
 interface Listing extends ProductDetails {
   id: string;
-  userId?: number;
+  userId?: string;
   imageUrl: string;
   imageUrls?: string[];
   postedAt: number;
@@ -336,9 +336,9 @@ const GroupCard = memo(function GroupCard({
 const NotificationItem = memo(function NotificationItem({
   n, countdownTick, onOpenUserDashboard, onAction, onClick, onConfirmPickup,
 }: {
-  n: { id: number; type: string; message: string; is_read: boolean; related_user_id: number | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null };
+  n: { id: number; type: string; message: string; is_read: boolean; related_user_id: string | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null };
   countdownTick: number;
-  onOpenUserDashboard: (userId: number) => void;
+  onOpenUserDashboard: (userId: string) => void;
   onAction: (id: number, action: "accept" | "reject") => void;
   onClick: () => void;
   onConfirmPickup: () => void;
@@ -556,7 +556,7 @@ export default function App() {
   // Notifications state
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement>(null);
-  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; related_user_id: number | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null }[]>([]);
+  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; related_user_id: string | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null }[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Notification countdown tick (forces re-render every 60s for live pickup countdowns)
@@ -589,16 +589,16 @@ export default function App() {
   };
 
   // User profile overlay state
-  const [viewingUserId, setViewingUserId] = useState<number | null>(null);
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
 
   // Listing detail modal state
   const [showListingDetailModal, setShowListingDetailModal] = useState(false);
   const [listingDetailData, setListingDetailData] = useState<Listing | null>(null);
   const [listingDetailSellerProfile, setListingDetailSellerProfile] = useState<{
-    id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null;
+    id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null;
     is_friend: boolean;
     communities: { id: number; name: string; image: string | null; is_mutual: boolean; is_public?: boolean }[];
-    mutual_friends: { id: number; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
+    mutual_friends: { id: string; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
   } | null>(null);
   const [isLoadingListingDetail, setIsLoadingListingDetail] = useState(false);
   const [listingDetailImageIndex, setListingDetailImageIndex] = useState(0);
@@ -684,7 +684,7 @@ export default function App() {
     }
   };
 
-  const openUserDashboard = (userId: number) => {
+  const openUserDashboard = (userId: string) => {
     if (!token || userId === user?.id) return;
     setViewingUserId(userId);
   };
@@ -1881,7 +1881,7 @@ export default function App() {
     } catch {
       // ignore
     }
-    logout();
+    await logout();
     setListings([]);
     setNotifications([]);
     setUnreadCount(0);

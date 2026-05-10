@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { supabase } from "../lib/supabase";
 
 export interface AuthUser {
-  id: number;
+  id: string;
   phone_number: string;
   display_name: string | null;
   neighborhood: string | null;
@@ -17,7 +18,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   needsRegistration: boolean;
   login: (token: string, user: AuthUser | null) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateUser: (user: AuthUser) => void;
 }
 
@@ -28,62 +29,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Restore from localStorage on mount
+  // Restore session from Supabase on mount; subscribe to auth changes.
   useEffect(() => {
-    const savedToken = localStorage.getItem("auth_token");
-    const savedUser = localStorage.getItem("auth_user");
+    let isMounted = true;
 
-    if (savedToken) {
-      setToken(savedToken);
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch {
-          // ignore bad JSON
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!isMounted) return;
+      const session = data.session;
+      if (session) {
+        setToken(session.access_token);
+        const cachedProfile = localStorage.getItem("auth_user");
+        if (cachedProfile) {
+          try {
+            setUser(JSON.parse(cachedProfile) as AuthUser);
+          } catch {
+            // ignore bad JSON; profile will be re-fetched by the effect below
+          }
         }
       }
-    }
-    setIsLoading(false);
+      setIsLoading(false);
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+      if (event === "SIGNED_OUT" || !session) {
+        setToken(null);
+        setUser(null);
+        localStorage.removeItem("auth_user");
+        return;
+      }
+      // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED — sync the access token.
+      setToken(session.access_token);
+    });
+
+    return () => {
+      isMounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
-  // If we have a token but no user, fetch /api/auth/me
+  // If we have a token but no profile cached, fetch /api/auth/me.
   useEffect(() => {
     if (!token || user || isLoading) return;
 
+    let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/auth/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (cancelled) return;
         if (res.ok) {
-          const data: AuthUser = await res.json();
+          const data = (await res.json()) as AuthUser;
           setUser(data);
           localStorage.setItem("auth_user", JSON.stringify(data));
         } else {
-          // token invalid
-          setToken(null);
-          localStorage.removeItem("auth_token");
-          localStorage.removeItem("auth_user");
+          // Token rejected by backend — sign out of Supabase to clear state.
+          await supabase.auth.signOut();
         }
       } catch {
         // network error — keep token, user will retry
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [token, user, isLoading]);
 
   const login = (newToken: string, newUser: AuthUser | null) => {
     setToken(newToken);
     setUser(newUser);
-    localStorage.setItem("auth_token", newToken);
     if (newUser) {
       localStorage.setItem("auth_user", JSON.stringify(newUser));
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setToken(null);
     setUser(null);
-    localStorage.removeItem("auth_token");
     localStorage.removeItem("auth_user");
   };
 

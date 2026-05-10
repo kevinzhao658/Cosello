@@ -4,7 +4,10 @@ anthropic
 python-multipart
 Pillow
 sqlalchemy
-pyjwt
+pyjwt[crypto]
+cryptography
+certifi
+psycopg2-binary
 python-dotenv
 google-cloud-vision>=3.7.0
 imagehash>=4.3.1

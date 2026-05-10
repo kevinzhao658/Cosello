@@ -854,37 +854,6 @@ def test_listing_to_dict_handles_null_history_fields():
     assert out["relistCount"] == 0
 
 
-def test_migration_parse_price_to_cents_helper():
-    """The migration's price-string parser handles canonical happy + sad paths."""
-    import importlib.util
-    from pathlib import Path
-
-    mig_path = (
-        Path(__file__).resolve().parent.parent
-        / "migrations"
-        / "2026_05_01_listing_db_history.py"
-    )
-    spec = importlib.util.spec_from_file_location("listing_history_mig", mig_path)
-    mig = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mig)
-
-    f = mig._parse_price_to_cents
-    # Happy paths
-    assert f("45") == 4500
-    assert f("$120.50") == 12050
-    assert f("  $0  ") == 0
-    assert f("9.99") == 999
-    # Malformed -> None
-    assert f("Free") is None
-    assert f("negotiable") is None
-    assert f("") is None
-    assert f(None) is None
-    assert f("$") is None
-    assert f("12.34.56") is None
-    assert f("-5") is None  # leading minus rejected (pattern is \d+)
-
-
 def test_validate_groupings_strict():
     f = main._validate_groupings
     assert f([[0, 1, 2]], 3) == [[0, 1, 2]]
