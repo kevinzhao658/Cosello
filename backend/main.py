@@ -57,10 +57,14 @@ app.include_router(friends_router)
 app.include_router(notifications_router)
 app.include_router(orders_router)
 
-# Create uploads directory
+# Legacy local-disk uploads directory. Pre-Phase 3 listings stored images here;
+# everything new goes to Supabase Storage. On Vercel the runtime filesystem is
+# read-only, so we skip the mkdir + StaticFiles mount when running there —
+# nothing writes to this path in production anyway.
 UPLOADS_DIR = Path(__file__).parent / "uploads"
-UPLOADS_DIR.mkdir(exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+if not os.getenv("VERCEL"):
+    UPLOADS_DIR.mkdir(exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
 @app.get("/api/categories")
