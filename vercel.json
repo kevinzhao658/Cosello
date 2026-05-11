@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "runtime": "@vercel/python@6.39.0",
+      "maxDuration": 60,
+      "memory": 1024,
+      "excludeFiles": "{backend/uploads/**,backend/tests/**,backend/scripts/**,backend/__pycache__/**,backend/**/__pycache__/**,backend/cosello.db,backend/cosello.db.bak.preunify,backend/.venv/**,**/*.pyc,**/.DS_Store}"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.py" }
+  ]
+}

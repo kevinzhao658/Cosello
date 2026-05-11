@@ -169,6 +169,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [showInviteCode, setShowInviteCode] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1035,7 +1036,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   };
 
   const handleCreateCommunity = async () => {
-    if (!createName.trim() || !createDescription.trim() || !createNeighborhood.trim() || !token) return;
+    setCreateError(null);
+    if (!createName.trim() || !createDescription.trim() || !createNeighborhood.trim()) {
+      setCreateError("Name, description, and neighborhood are required");
+      return;
+    }
+    if (!token) {
+      setCreateError("Sign in to create a community");
+      return;
+    }
     setIsCreating(true);
     try {
       const formData = new FormData();
@@ -1053,7 +1062,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Create failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ detail: `Server returned ${res.status}` }));
+        throw new Error(data.detail || `Create failed (${res.status})`);
+      }
 
       const community = await res.json();
       setCreatedCommunity(community);
@@ -1065,6 +1077,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       onCommunitiesChanged?.();
     } catch (err) {
       console.error("Create community failed:", err);
+      setCreateError(err instanceof Error ? err.message : "Create failed");
     } finally {
       setIsCreating(false);
     }
@@ -2510,6 +2523,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   />
                 </button>
               </div>
+
+              {createError && (
+                <p className="text-sm text-red-400">{createError}</p>
+              )}
 
               {/* Create Button */}
               <Button

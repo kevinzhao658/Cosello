@@ -17,7 +17,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depen
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -33,7 +33,6 @@ from category_schemas import CATEGORY_SCHEMAS
 from services.google import vision
 from services.google.vision import VisionResult
 from services.evidence import build_evidence_block, _format_single_image_evidence
-from services.cache import PHashCache
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 from services import storage
 
@@ -41,9 +40,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+_cors_allowed = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
+_cors_origins = [o.strip() for o in _cors_allowed.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -68,7 +69,6 @@ async def get_categories():
 
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
-_phash_cache = PHashCache()
 
 import random
 
@@ -81,6 +81,8 @@ async def seed_listings(
     db: Session = Depends(get_db),
 ):
     """Dev-only: seed the database with sample listings using existing uploaded images."""
+    if os.getenv("VERCEL"):
+        raise HTTPException(status_code=404, detail="Not Found")
     # Clear previous seed listings for this user to avoid duplicates
     db.query(Listing).filter(Listing.user_id == current_user.id).delete(synchronize_session=False)
     db.commit()
@@ -145,34 +147,19 @@ async def seed_listings(
 
 
 def _run_vision_with_cache(resized_bytes_list: list[bytes]) -> tuple[list, bool]:
-    """Run Google Vision on images, using phash cache for dedup. Returns (VisionResults, retrieval_fallback)."""
-    retrieval_fallback = False
-    vision_results = []
+    """Run Google Vision on images. Returns (VisionResults, retrieval_fallback).
+
+    The phash-based dedup cache was removed when imagehash+scipy were dropped to
+    fit Vercel's 250 MB bundle cap. At MVP scale per-image cost (~$0.0015) is
+    negligible; reintroduce a numpy-only inline pHash dedup if Vision spend
+    becomes material. See docs/COMMERCIAL_PR_CHECKLIST.md.
+    """
     try:
-        uncached_indices = []
-        uncached_bytes = []
-        for i, img_bytes in enumerate(resized_bytes_list):
-            cached = _phash_cache.get(img_bytes)
-            if cached is not None:
-                vision_results.append((i, cached))
-            else:
-                uncached_indices.append(i)
-                uncached_bytes.append(img_bytes)
-
-        if uncached_bytes:
-            fresh = vision.analyze_images(uncached_bytes)
-            for idx, result in zip(uncached_indices, fresh):
-                _phash_cache.set(resized_bytes_list[idx], result)
-                vision_results.append((idx, result))
-
-        vision_results.sort(key=lambda x: x[0])
-        vision_results = [r for _, r in vision_results]
+        vision_results = vision.analyze_images(resized_bytes_list)
+        return vision_results, False
     except Exception as e:
         logger.warning("Google Vision call failed, falling back to visual-only: %s", e)
-        retrieval_fallback = True
-        vision_results = []
-
-    return vision_results, retrieval_fallback
+        return [], True
 
 
 # --- Two-pass listing generation: segment-photos -> generate-listings ---
@@ -892,13 +879,66 @@ async def _generate_one_listing_async(
     return parsed
 
 
+_SIGNED_UPLOAD_ALLOWED_EXTS = {"jpg", "jpeg", "png", "webp", "gif"}
+
+
+class SignedUploadUrlRequest(BaseModel):
+    count: int = Field(1, ge=1, le=20)
+    ext: str = Field("jpg")
+
+
+@app.post("/api/storage/signed-upload-url")
+async def create_signed_upload_urls(
+    req: SignedUploadUrlRequest,
+    current_user: User = Depends(get_current_user),
+):
+    ext_normalized = req.ext.lower().lstrip(".")
+    if ext_normalized not in _SIGNED_UPLOAD_ALLOWED_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"ext must be one of {sorted(_SIGNED_UPLOAD_ALLOWED_EXTS)}",
+        )
+    return [
+        storage.mint_signed_upload_url("listings", f"drafts/{current_user.id}", ext_normalized)
+        for _ in range(req.count)
+    ]
+
+
 @app.post("/api/segment-photos")
-async def segment_photos(images: list[UploadFile] = File(...)):
-    if not images:
-        raise HTTPException(status_code=400, detail="At least one image is required")
+async def segment_photos(
+    images: list[UploadFile] = File(default_factory=list),
+    image_urls: str = Form(""),
+    current_user: User = Depends(get_current_user),
+):
+    parsed_image_urls: list[str] = []
+    if image_urls:
+        try:
+            parsed_image_urls = json.loads(image_urls)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in image_urls field")
+        if not isinstance(parsed_image_urls, list) or not all(isinstance(u, str) for u in parsed_image_urls):
+            raise HTTPException(status_code=400, detail="image_urls must be a JSON array of strings")
+        for u in parsed_image_urls:
+            if not storage.is_storage_url(u):
+                raise HTTPException(status_code=400, detail=f"image_urls contains non-Storage URL: {u}")
+
+    if not images and not parsed_image_urls:
+        raise HTTPException(status_code=400, detail="At least one image or image_url is required")
+
+    total_count = len(images) + len(parsed_image_urls)
+    if total_count > 20:
+        raise HTTPException(status_code=400, detail="At most 20 images allowed per request")
 
     try:
-        bytes_list, image_urls = await _save_uploaded_images(images)
+        if parsed_image_urls:
+            # Direct-uploaded objects in Storage are the user's raw originals
+            # (Tier 3 swap removed the pre-upload Pillow pass). Preprocess on
+            # the way in so Vision + Claude see resized bytes under their
+            # respective per-image size limits (Claude rejects >5 MB).
+            bytes_list = [_preprocess_image_bytes(storage.download_image(u)) for u in parsed_image_urls]
+            out_image_urls = parsed_image_urls
+        else:
+            bytes_list, out_image_urls = await _save_uploaded_images(images)
     except Exception as e:
         logger.exception("Failed to preprocess uploaded images")
         raise HTTPException(status_code=502, detail=f"Image preprocessing failed: {e}")
@@ -915,7 +955,7 @@ async def segment_photos(images: list[UploadFile] = File(...)):
 
     return {
         "groupings": groupings,
-        "image_urls": image_urls,
+        "image_urls": out_image_urls,
         "vision_signals": [_vision_result_to_dict(r) for r in vision_results],
     }
 
@@ -931,7 +971,10 @@ class GenerateListingsRequest(BaseModel):
 
 
 @app.post("/api/generate-listings")
-async def generate_listings(req: GenerateListingsRequest):
+async def generate_listings(
+    req: GenerateListingsRequest,
+    current_user: User = Depends(get_current_user),
+):
     if len(req.image_urls) != len(req.vision_signals):
         raise HTTPException(
             status_code=400,
@@ -962,7 +1005,9 @@ async def generate_listings(req: GenerateListingsRequest):
         )
 
     n = len(req.image_urls)
-    # Validate group indices and resolve image bytes (legacy disk OR Storage)
+    # Validate group indices and resolve image bytes (legacy disk OR Storage).
+    # Always Pillow-preprocess so Claude per-image bytes stay under 5 MB; raw
+    # phone uploads regularly exceed that since Tier 3 stopped pre-resizing.
     image_bytes_list: list[bytes] = []
     for url in req.image_urls:
         data = _resolve_image_url_to_bytes(url)
@@ -971,6 +1016,7 @@ async def generate_listings(req: GenerateListingsRequest):
                 status_code=400,
                 detail=f"Image URL does not resolve to readable bytes: {url}",
             )
+        data = _preprocess_image_bytes(data)
         image_bytes_list.append(data)
 
     seen: set[int] = set()
@@ -1045,6 +1091,9 @@ async def create_listing(
 
     if not images and not parsed_draft_urls:
         raise HTTPException(status_code=400, detail="At least one image or draft_url is required")
+
+    if len(parsed_draft_urls) + len(images) > 20:
+        raise HTTPException(status_code=400, detail="At most 20 images allowed per listing")
 
     # Parse community IDs the listing is posted to
     community_ids: list = []

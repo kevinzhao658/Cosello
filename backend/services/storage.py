@@ -76,6 +76,41 @@ def upload_image(category: str, owner_id: str, raw_bytes: bytes, ext: str) -> st
     return _public_url(object_path)
 
 
+def mint_signed_upload_url(category: str, owner_id: str, ext: str) -> dict:
+    """Mint a one-shot signed upload URL for a fresh object in cosello-images.
+
+    Returns {upload_url, public_url, path}. Path layout matches upload_image():
+    {category}/{owner_id}/{uuid}.{ext}.
+    """
+    if category not in ALLOWED_CATEGORIES:
+        raise ValueError(f"category must be one of {ALLOWED_CATEGORIES}")
+    ext_normalized = (ext or "jpg").lower().lstrip(".")
+    if ext_normalized not in _EXT_TO_CONTENT_TYPE:
+        raise ValueError(f"ext must be one of {sorted(_EXT_TO_CONTENT_TYPE)}")
+    object_path = f"{category}/{owner_id}/{uuid.uuid4().hex}.{ext_normalized}"
+
+    try:
+        result = _get_client().storage.from_(BUCKET_NAME).create_signed_upload_url(object_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to mint signed upload URL: {e}",
+        )
+
+    signed_url = result.get("signed_url") if isinstance(result, dict) else None
+    if not signed_url:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Signed upload URL response missing signed_url: {result!r}",
+        )
+
+    return {
+        "upload_url": signed_url,
+        "public_url": _public_url(object_path),
+        "path": object_path,
+    }
+
+
 def download_image(url: str) -> bytes:
     """Fetch raw bytes for a Supabase Storage public URL."""
     try:

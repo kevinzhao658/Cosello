@@ -39,7 +39,7 @@ async def get_notifications(
             "message": n.message,
             "is_read": n.is_read,
             "community_id": n.community_id,
-            "related_user_id": n.related_user_id,
+            "related_user_id": str(n.related_user_id) if n.related_user_id is not None else None,
             "listing_id": n.listing_id,
             "created_at": n.created_at.isoformat() if n.created_at else None,
         }

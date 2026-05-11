@@ -14,6 +14,7 @@ import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
+import { uploadToStorage } from "./lib/uploadToStorage";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
@@ -1020,11 +1021,26 @@ export default function App() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    const newImages = Array.from(files).map((file) => ({
+    // Snapshot the FileList BEFORE clearing the input. e.target.files is a live
+    // reference; setting e.target.value = "" empties it in place, so any later
+    // Array.from(files) would return [].
+    const incoming = Array.from(files);
+    e.target.value = "";
+
+    // 20-image hard cap applies to the total in-flight photo set.
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    if (incoming.length > remaining) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const newImages = incoming.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
-    e.target.value = "";
 
     // Step 2 (review): re-run segmentation in place with the combined photo
     // set. The user STAYS on Step 2 — newly added photos appear in the
@@ -1241,7 +1257,17 @@ export default function App() {
   };
 
   const addPhotoToBulkItem = (index: number, files: FileList) => {
-    const newImages = Array.from(files).map((file) => ({
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const incoming = Array.from(files);
+    if (incoming.length > remaining) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const newImages = incoming.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -1415,10 +1441,18 @@ export default function App() {
   const segmentationAbortRef = useRef<AbortController | null>(null);
 
   const segmentPhotos = async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
+    if (files.length > 20) {
+      throw new Error("Maximum 20 photos per upload");
+    }
+    if (!token) {
+      throw new Error("Sign in to upload");
+    }
+    const urls = await uploadToStorage(files, token);
     const formData = new FormData();
-    files.forEach((file) => formData.append("images", file));
+    formData.append("image_urls", JSON.stringify(urls));
     const res = await fetch("/api/segment-photos", {
       method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
       body: formData,
       signal,
     });
@@ -1462,9 +1496,15 @@ export default function App() {
     rationale: string;
     rationale_other: string;
   }): Promise<BulkItemDetails[]> => {
+    if (!token) {
+      throw new Error("Sign in to upload");
+    }
     const res = await fetch("/api/generate-listings", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -1479,6 +1519,14 @@ export default function App() {
   // renders, even for a single photo — UX consistency, ~5s overhead is acceptable.
   const handleSellSubmit = async () => {
     if (uploadedImages.length === 0) return;
+    if (uploadedImages.length > 20) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    if (!token) {
+      setSegmentationError("Sign in to upload");
+      return;
+    }
     setProductDetails(null);
     setSegmentationError(null);
     setIsGenerating(true);
@@ -4444,7 +4492,7 @@ export default function App() {
             onClick={() => { setShowListingDetailModal(false); setListingDetailData(null); setListingDetailSellerProfile(null); }}
           />
           <div
-            className="relative w-full max-w-lg mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            className="relative w-full max-w-4xl mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
           >
             <button
