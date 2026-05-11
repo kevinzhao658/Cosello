@@ -1,1 +1,16 @@
--r ../backend/requirements.txt
+# MUST stay in sync with backend/requirements.txt — Vercel's pip doesn't follow
+# `-r` relative includes, so we duplicate the dep list here. When you add or
+# bump a dep in backend/requirements.txt, mirror the change here.
+fastapi
+uvicorn
+anthropic
+python-multipart
+Pillow
+sqlalchemy
+pyjwt[crypto]
+cryptography
+certifi
+psycopg2-binary
+python-dotenv
+google-cloud-vision>=3.7.0
+supabase
