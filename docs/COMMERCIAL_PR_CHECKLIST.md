@@ -27,6 +27,7 @@ Items to bundle into the PR that flips Cosello from closed beta to public-facing
 - [ ] Architectural fix: switch SQLAlchemy user-id columns from `Column(String(36))` to `Column(UUID(as_uuid=False))` — eliminates the recurring "UUID-vs-str" serialization landmine that's bitten communities + friends + orders + notifications
 - [ ] Refresh `backend/tests/` pytest fixtures — many seed integer user_ids that broke after the UUID migration; the suite was never re-validated post-Phase 1+2 and likely has multiple failing tests
 - [ ] Re-run eval canaries post-migration — walking pad ("Wellfit" brand) and bulk brand-bleed (BLEEDS=0) were never reconfirmed after Tier 3 changed where Pillow preprocessing happens (now post-download from Storage rather than pre-upload)
+- [ ] Fix integration test infra (deferred from cleanup #2) — `public.users.id` FK to `auth.users.id` prevents tests from seeding users directly. Either (a) have fixtures insert a minimal `auth.users` row via raw SQL before `public.users`, or (b) stand up a separate test DB without the FK. Currently skipped: all of `test_events.py`, all of `test_ranking.py`, and 4 tests in `test_two_pass_flow.py` (~69 tests total). Marking last in the cleanup backlog — preserve all 30 currently-passing tests; do not let infra work block the rest of the cleanup branch.
 
 ## Performance / Cost Optimization
 
