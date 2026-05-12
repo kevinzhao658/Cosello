@@ -94,7 +94,7 @@ def _community_to_out(community: Community, db: Session, user_id: str) -> dict:
         "image": community.image,
         "is_public": community.is_public,
         "invite_code": community.invite_code,
-        "created_by": str(community.created_by) if community.created_by is not None else None,
+        "created_by": community.created_by,
         "member_count": member_count,
         "role": membership.role if membership else None,
     }
@@ -423,7 +423,7 @@ async def get_join_requests(
         if user:
             result.append({
                 "id": r.id,
-                "user_id": str(user.id),
+                "user_id": user.id,
                 "display_name": user.display_name,
                 "neighborhood": user.neighborhood,
                 "profile_picture": user.profile_picture,

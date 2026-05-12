@@ -80,7 +80,7 @@ def _count_shared_communities(user_id: str, other_id: str, db: Session) -> int:
 
 def _user_to_friend_out(user: User, current_user_id: str, friend_ids: set[str], db: Session) -> dict:
     return {
-        "id": str(user.id),
+        "id": user.id,
         "display_name": user.display_name,
         "neighborhood": user.neighborhood,
         "profile_picture": user.profile_picture,

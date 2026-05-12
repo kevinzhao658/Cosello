@@ -50,8 +50,8 @@ def _phone_for_user(db: Session, user_id: str) -> str:
 
 def _user_to_out(db: Session, user: User) -> UserOut:
     return UserOut(
-        id=str(user.id),
-        phone_number=_phone_for_user(db, str(user.id)),
+        id=user.id,
+        phone_number=_phone_for_user(db, user.id),
         display_name=user.display_name,
         neighborhood=user.neighborhood,
         profile_picture=user.profile_picture,
@@ -86,7 +86,7 @@ async def register(
     """
     existing = db.query(User).filter(User.id == current_user.id).first()
     if existing is None:
-        existing = User(id=str(current_user.id))
+        existing = User(id=current_user.id)
         db.add(existing)
 
     existing.display_name = req.display_name
@@ -139,7 +139,7 @@ async def upload_profile_picture(
 
     ext = image.filename.rsplit(".", 1)[-1] if image.filename and "." in image.filename else "jpg"
     contents = await image.read()
-    url = storage.upload_image("profiles", str(current_user.id), contents, ext)
+    url = storage.upload_image("profiles", current_user.id, contents, ext)
 
     current_user.profile_picture = url
     db.commit()

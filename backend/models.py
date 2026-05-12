@@ -2,6 +2,7 @@ import json
 import time
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
 from database import Base
@@ -10,7 +11,7 @@ from database import Base
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String(36), primary_key=True, index=True)
+    id = Column(UUID(as_uuid=False), primary_key=True, index=True)
     display_name = Column(String(100), nullable=True)
     neighborhood = Column(String(100), nullable=True)
     profile_picture = Column(String(255), nullable=True)
@@ -31,7 +32,7 @@ class Community(Base):
     image = Column(String(255), nullable=True)
     is_public = Column(Boolean, default=True)
     invite_code = Column(String(20), unique=True, index=True, nullable=False)
-    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_by = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -40,7 +41,7 @@ class CommunityMember(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     community_id = Column(Integer, ForeignKey("communities.id"), nullable=False)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     role = Column(String(20), default="member")
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -54,7 +55,7 @@ class JoinRequest(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     community_id = Column(Integer, ForeignKey("communities.id"), nullable=False)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     status = Column(String(20), default="pending")  # pending, accepted, rejected
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -67,13 +68,13 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # join_request, request_accepted
     title = Column(String(200), nullable=False)
     message = Column(String(500), nullable=False)
     is_read = Column(Boolean, default=False)
     community_id = Column(Integer, ForeignKey("communities.id"), nullable=True)
-    related_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    related_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
     listing_id = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -82,7 +83,7 @@ class WishlistItem(Base):
     __tablename__ = "wishlist_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     listing_id = Column(String(20), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -95,8 +96,8 @@ class Friendship(Base):
     __tablename__ = "friendships"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    friend_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    friend_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     status = Column(String(20), default="accepted")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -110,8 +111,8 @@ class PurchaseOrder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     listing_id = Column(String(20), nullable=False, index=True)
-    buyer_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    seller_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
+    seller_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String(20), default="pending")
     selected_pickup_slots = Column(String(2000), nullable=True)
     confirmed_time = Column(String(20), nullable=True)
@@ -131,7 +132,7 @@ class Listing(Base):
     __tablename__ = "listings"
 
     id = Column(String(20), primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     brand = Column(String(200), nullable=True)
     name = Column(String(200), nullable=True)
     description = Column(String(2000), nullable=True)
@@ -182,7 +183,7 @@ class Listing(Base):
         price_cents = int(self.price_cents) if self.price_cents is not None else 0
         return {
             "id": self.id,
-            "userId": str(self.user_id) if self.user_id is not None else None,
+            "userId": self.user_id,
             "brand": brand,
             "name": name,
             "title": title,
@@ -213,7 +214,7 @@ class ListingView(Base):
     __tablename__ = "listing_views"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     listing_id = Column(String(20), ForeignKey("listings.id"), nullable=False, index=True)
     source = Column(String(20), nullable=False)  # feed | search | profile | direct
     dwell_ms = Column(Integer, nullable=False, default=0)
@@ -224,7 +225,7 @@ class SearchQuery(Base):
     __tablename__ = "search_queries"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     query_text = Column(String(500), nullable=False)
     filters_json = Column(Text, nullable=True)
     ts = Column(Float, nullable=False, default=lambda: time.time(), index=True)
@@ -234,7 +235,7 @@ class ListingInteraction(Base):
     __tablename__ = "listing_interactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     listing_id = Column(String(20), ForeignKey("listings.id"), nullable=False, index=True)
     action = Column(String(30), nullable=False)  # hide | block_seller | not_interested
     ts = Column(Float, nullable=False, default=lambda: time.time(), index=True)
@@ -249,8 +250,8 @@ class Review(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("purchase_orders.id"), nullable=False, index=True)
-    reviewer_id = Column(String(36), ForeignKey("users.id"), nullable=False)
-    reviewee_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    reviewer_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    reviewee_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     reviewer_role = Column(String(10), nullable=False)  # "buyer" or "seller"
     rating = Column(Integer, nullable=False)  # 1-5
     comment = Column(String(1000), nullable=True)
