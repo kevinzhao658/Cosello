@@ -232,30 +232,14 @@ async def _save_uploaded_images(images: list[UploadFile]) -> tuple[list[bytes], 
 
 
 def _resolve_image_url_to_bytes(url: str) -> bytes | None:
-    """Resolve an image URL to raw bytes for the listing-gen pipeline.
+    """Download bytes for an image URL — used by the listing-generation pipeline.
 
-    Handles three formats:
-      - Supabase Storage public URL → download via storage.download_image
-      - `/uploads/<name>` (legacy local file) → read from disk
-      - anything else → None
+    Production stores listing images exclusively as Supabase Storage public URLs.
+    Returns None for any URL that doesn't point at the cosello-images bucket.
     """
-    if not url:
+    if not url or not storage.is_storage_url(url):
         return None
-    if storage.is_storage_url(url):
-        return storage.download_image(url)
-    if url.startswith("/uploads/"):
-        name = url[len("/uploads/"):]
-        if "/" in name or "\\" in name or name in ("", ".", ".."):
-            return None
-        candidate = (UPLOADS_DIR / name).resolve()
-        try:
-            candidate.relative_to(UPLOADS_DIR.resolve())
-        except ValueError:
-            return None
-        if not candidate.is_file():
-            return None
-        return candidate.read_bytes()
-    return None
+    return storage.download_image(url)
 
 
 def _build_segmentation_prompt(n: int) -> str:
