@@ -768,8 +768,8 @@ export default function App() {
     const currentHour = now.getHours();
     for (let d = new Date(startDate); d <= expiresAt; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split("T")[0];
-      // Skip today if current time is past 9 PM (21:00)
-      if (dateStr === todayStr && currentHour >= 21) continue;
+      // Skip today if no valid pickup window fits before 9 PM (need at least from=19, to=20+)
+      if (dateStr === todayStr && currentHour >= 20) continue;
       const dayLabel = dateStr === todayStr
         ? "Today"
         : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -4804,8 +4804,8 @@ export default function App() {
                                     delete next[day.date];
                                     return next;
                                   }
-                                  const defaultFrom = isToday ? Math.max(currentHour, 8) : 8;
-                                  const defaultTo = isToday ? Math.min(Math.max(currentHour + 1, 9), 21) : 21;
+                                  const defaultFrom = isToday ? Math.min(Math.max(currentHour, 8), 19) : 8;
+                                  const defaultTo = isToday ? Math.min(Math.max(defaultFrom + 1, 9), 21) : 21;
                                   return { ...prev, [day.date]: { slots: [{ from: defaultFrom, to: defaultTo }], dayLabel: day.dayLabel } };
                                 });
                               }}
@@ -4839,9 +4839,18 @@ export default function App() {
                                       }}
                                       className="flex-1 px-2 py-1 rounded bg-white/5 border border-white/15 text-xs text-white focus:outline-none focus:border-fuchsia-400 transition-colors"
                                     >
-                                      {HOURS.slice(0, -1).map((h) => (
-                                        <option key={h} value={h}>{formatHour(h)}</option>
-                                      ))}
+                                      {isToday ? (
+                                        <>
+                                          <option value={currentHour}>{`Now (${formatHour(currentHour)})`}</option>
+                                          {HOURS.slice(0, -1).filter((h) => h > currentHour).map((h) => (
+                                            <option key={h} value={h}>{formatHour(h)}</option>
+                                          ))}
+                                        </>
+                                      ) : (
+                                        HOURS.slice(0, -1).map((h) => (
+                                          <option key={h} value={h}>{formatHour(h)}</option>
+                                        ))
+                                      )}
                                     </select>
                                     <label className="text-[10px] text-white/30">To</label>
                                     <select
@@ -4889,9 +4898,9 @@ export default function App() {
                                       return { ...prev, [day.date]: { ...updated, slots: [...updated.slots, { from: newFrom, to: newTo }] } };
                                     });
                                   }}
-                                  className="flex items-center gap-1 text-[10px] text-fuchsia-400/70 hover:text-fuchsia-300 transition-colors"
+                                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-dashed border-fuchsia-400/40 text-xs font-medium text-fuchsia-300 hover:text-fuchsia-200 hover:border-fuchsia-400/70 hover:bg-fuchsia-500/10 transition-colors"
                                 >
-                                  <Plus className="size-3" />
+                                  <Plus className="size-3.5" />
                                   Add another time window
                                 </button>
                               </div>
