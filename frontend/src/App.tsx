@@ -14,6 +14,7 @@ import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
+import { uploadToStorage } from "./lib/uploadToStorage";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
@@ -68,7 +69,7 @@ interface SegmentationResult {
 
 interface Listing extends ProductDetails {
   id: string;
-  userId?: number;
+  userId?: string;
   imageUrl: string;
   imageUrls?: string[];
   postedAt: number;
@@ -336,9 +337,9 @@ const GroupCard = memo(function GroupCard({
 const NotificationItem = memo(function NotificationItem({
   n, countdownTick, onOpenUserDashboard, onAction, onClick, onConfirmPickup,
 }: {
-  n: { id: number; type: string; message: string; is_read: boolean; related_user_id: number | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null };
+  n: { id: number; type: string; message: string; is_read: boolean; related_user_id: string | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null };
   countdownTick: number;
-  onOpenUserDashboard: (userId: number) => void;
+  onOpenUserDashboard: (userId: string) => void;
   onAction: (id: number, action: "accept" | "reject") => void;
   onClick: () => void;
   onConfirmPickup: () => void;
@@ -556,7 +557,7 @@ export default function App() {
   // Notifications state
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement>(null);
-  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; related_user_id: number | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null }[]>([]);
+  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; related_user_id: string | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null }[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Notification countdown tick (forces re-render every 60s for live pickup countdowns)
@@ -589,16 +590,16 @@ export default function App() {
   };
 
   // User profile overlay state
-  const [viewingUserId, setViewingUserId] = useState<number | null>(null);
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
 
   // Listing detail modal state
   const [showListingDetailModal, setShowListingDetailModal] = useState(false);
   const [listingDetailData, setListingDetailData] = useState<Listing | null>(null);
   const [listingDetailSellerProfile, setListingDetailSellerProfile] = useState<{
-    id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null;
+    id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null;
     is_friend: boolean;
     communities: { id: number; name: string; image: string | null; is_mutual: boolean; is_public?: boolean }[];
-    mutual_friends: { id: number; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
+    mutual_friends: { id: string; display_name: string | null; profile_picture: string | null; neighborhood: string | null }[];
   } | null>(null);
   const [isLoadingListingDetail, setIsLoadingListingDetail] = useState(false);
   const [listingDetailImageIndex, setListingDetailImageIndex] = useState(0);
@@ -684,7 +685,7 @@ export default function App() {
     }
   };
 
-  const openUserDashboard = (userId: number) => {
+  const openUserDashboard = (userId: string) => {
     if (!token || userId === user?.id) return;
     setViewingUserId(userId);
   };
@@ -1020,11 +1021,26 @@ export default function App() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    const newImages = Array.from(files).map((file) => ({
+    // Snapshot the FileList BEFORE clearing the input. e.target.files is a live
+    // reference; setting e.target.value = "" empties it in place, so any later
+    // Array.from(files) would return [].
+    const incoming = Array.from(files);
+    e.target.value = "";
+
+    // 20-image hard cap applies to the total in-flight photo set.
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    if (incoming.length > remaining) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const newImages = incoming.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
-    e.target.value = "";
 
     // Step 2 (review): re-run segmentation in place with the combined photo
     // set. The user STAYS on Step 2 — newly added photos appear in the
@@ -1241,7 +1257,17 @@ export default function App() {
   };
 
   const addPhotoToBulkItem = (index: number, files: FileList) => {
-    const newImages = Array.from(files).map((file) => ({
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const incoming = Array.from(files);
+    if (incoming.length > remaining) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const newImages = incoming.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -1415,10 +1441,18 @@ export default function App() {
   const segmentationAbortRef = useRef<AbortController | null>(null);
 
   const segmentPhotos = async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
+    if (files.length > 20) {
+      throw new Error("Maximum 20 photos per upload");
+    }
+    if (!token) {
+      throw new Error("Sign in to upload");
+    }
+    const urls = await uploadToStorage(files, token);
     const formData = new FormData();
-    files.forEach((file) => formData.append("images", file));
+    formData.append("image_urls", JSON.stringify(urls));
     const res = await fetch("/api/segment-photos", {
       method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
       body: formData,
       signal,
     });
@@ -1462,9 +1496,15 @@ export default function App() {
     rationale: string;
     rationale_other: string;
   }): Promise<BulkItemDetails[]> => {
+    if (!token) {
+      throw new Error("Sign in to upload");
+    }
     const res = await fetch("/api/generate-listings", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -1479,6 +1519,14 @@ export default function App() {
   // renders, even for a single photo — UX consistency, ~5s overhead is acceptable.
   const handleSellSubmit = async () => {
     if (uploadedImages.length === 0) return;
+    if (uploadedImages.length > 20) {
+      setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    if (!token) {
+      setSegmentationError("Sign in to upload");
+      return;
+    }
     setProductDetails(null);
     setSegmentationError(null);
     setIsGenerating(true);
@@ -1730,7 +1778,20 @@ export default function App() {
 
     try {
       const formData = new FormData();
-      uploadedImages.forEach((img) => formData.append("images", img.file));
+      // Tier 2: prefer draft URLs from /api/segment-photos to avoid re-uploading
+      // file bytes. The single-item path collapses a single segmentation group
+      // into `productDetails`, so segmentation.image_urls is this listing's
+      // draft URL list. Fresh-files fallback retains the legacy `images` upload.
+      const draftUrls = segmentation
+        ? segmentation.image_urls.filter(
+            (url): url is string => typeof url === "string" && url.length > 0,
+          )
+        : [];
+      if (draftUrls.length > 0) {
+        formData.append("draft_urls", JSON.stringify(draftUrls));
+      } else {
+        uploadedImages.forEach((img) => formData.append("images", img.file));
+      }
       const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = productDetails;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
@@ -1822,9 +1883,22 @@ export default function App() {
 
       for (const item of bulkItems) {
         const formData = new FormData();
-        for (const imgIdx of item.imageIndices) {
-          if (uploadedImages[imgIdx]) {
-            formData.append("images", uploadedImages[imgIdx].file);
+        // Tier 2: send draft URLs returned by /api/segment-photos instead of
+        // re-uploading file bytes. Backend relocates from drafts/ to the final
+        // listing folder server-side. Fresh-files fallback (no segmentation)
+        // re-uploads the bytes via the legacy `images` field.
+        const draftUrlsForItem = segmentation
+          ? item.imageIndices
+              .map((i) => segmentation.image_urls[i])
+              .filter((url): url is string => typeof url === "string" && url.length > 0)
+          : [];
+        if (draftUrlsForItem.length > 0) {
+          formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
+        } else {
+          for (const imgIdx of item.imageIndices) {
+            if (uploadedImages[imgIdx]) {
+              formData.append("images", uploadedImages[imgIdx].file);
+            }
           }
         }
         const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
@@ -1881,7 +1955,7 @@ export default function App() {
     } catch {
       // ignore
     }
-    logout();
+    await logout();
     setListings([]);
     setNotifications([]);
     setUnreadCount(0);
@@ -4418,7 +4492,7 @@ export default function App() {
             onClick={() => { setShowListingDetailModal(false); setListingDetailData(null); setListingDetailSellerProfile(null); }}
           />
           <div
-            className="relative w-full max-w-lg mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            className="relative w-full max-w-4xl mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
           >
             <button

@@ -1,0 +1,10 @@
+backend/uploads/
+backend/cosello.db
+backend/cosello.db.bak.preunify
+backend/__pycache__/
+backend/**/__pycache__/
+backend/tests/
+backend/scripts/
+.venv/
+*.pyc
+.DS_Store

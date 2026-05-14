@@ -52,23 +52,25 @@ interface CommunityData {
   name: string;
   description: string | null;
   neighborhood: string | null;
+  pickup_address: string | null;
+  zip_code: string | null;
   image: string | null;
   is_public: boolean;
   invite_code: string;
-  created_by: number;
+  created_by: string;
   member_count: number;
   role: string | null;
 }
 
 interface SearchUser {
-  id: number;
+  id: string;
   display_name: string | null;
   neighborhood: string | null;
   profile_picture: string | null;
 }
 
 interface FriendSearchUser {
-  id: number;
+  id: string;
   display_name: string | null;
   neighborhood: string | null;
   profile_picture: string | null;
@@ -113,10 +115,10 @@ interface OrderData {
   listing_title: string;
   listing_image: string;
   listing_price: string;
-  buyer_id: number;
+  buyer_id: string;
   buyer_name: string;
   buyer_picture?: string | null;
-  seller_id: number;
+  seller_id: string;
   status: string;
   selected_pickup_slots: { date: string; time: string }[];
   confirmed_time?: string;
@@ -153,7 +155,7 @@ interface MyAccountPageProps {
   onClearPendingListing?: () => void;
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
   openListingDetail?: (listing: any) => void;
-  onViewUser?: (userId: number) => void;
+  onViewUser?: (userId: string) => void;
 }
 
 export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser }: MyAccountPageProps) {
@@ -167,6 +169,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [showInviteCode, setShowInviteCode] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +178,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [createName, setCreateName] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [createNeighborhood, setCreateNeighborhood] = useState("");
+  const [createPickupAddress, setCreatePickupAddress] = useState("");
+  const [createZipCode, setCreateZipCode] = useState("");
   const [createShowLocationSuggestions, setCreateShowLocationSuggestions] = useState(false);
   const [createIsPublic, setCreateIsPublic] = useState(true);
   const [createImage, setCreateImage] = useState<File | null>(null);
@@ -215,7 +220,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [recommendedFriends, setRecommendedFriends] = useState<FriendSearchUser[]>([]);
   const [isAddFriendsSearching, setIsAddFriendsSearching] = useState(false);
   const [isLoadingRecommended, setIsLoadingRecommended] = useState(false);
-  const [addingFriendId, setAddingFriendId] = useState<number | null>(null);
+  const [addingFriendId, setAddingFriendId] = useState<string | null>(null);
   const addFriendsSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Community search state (join modal)
@@ -243,17 +248,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [friendsList, setFriendsList] = useState<FriendSearchUser[]>([]);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
-  const [removingFriendId, setRemovingFriendId] = useState<number | null>(null);
+  const [removingFriendId, setRemovingFriendId] = useState<string | null>(null);
 
   // Community detail modal state
   const [showCommunityDetail, setShowCommunityDetail] = useState(false);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityData | null>(null);
-  const [communityMembers, setCommunityMembers] = useState<{ id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null; role: string }[]>([]);
+  const [communityMembers, setCommunityMembers] = useState<{ id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null; role: string }[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [isEditingCommunity, setIsEditingCommunity] = useState(false);
   const [editCommunityName, setEditCommunityName] = useState("");
   const [editCommunityDescription, setEditCommunityDescription] = useState("");
   const [editCommunityNeighborhood, setEditCommunityNeighborhood] = useState("");
+  const [editCommunityPickupAddress, setEditCommunityPickupAddress] = useState("");
+  const [editCommunityZipCode, setEditCommunityZipCode] = useState("");
   const [editCommunityIsPublic, setEditCommunityIsPublic] = useState(true);
   const [isSavingCommunity, setIsSavingCommunity] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -264,11 +271,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const editCommunitySuggestionsRef = useRef<HTMLDivElement>(null);
 
   // Pending join requests state (for community owners)
-  const [pendingRequests, setPendingRequests] = useState<{ id: number; user_id: number; display_name: string | null; neighborhood: string | null; profile_picture: string | null }[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<{ id: number; user_id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null }[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
   const [acceptingRequestId, setAcceptingRequestId] = useState<number | null>(null);
   const [rejectingRequestId, setRejectingRequestId] = useState<number | null>(null);
-  const [kickingMemberId, setKickingMemberId] = useState<number | null>(null);
+  const [kickingMemberId, setKickingMemberId] = useState<string | null>(null);
 
   // Profile stats
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0, avg_seller_rating: 5.0, avg_buyer_rating: 5.0 });
@@ -773,7 +780,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   }, [token]);
 
-  const handleRemoveFriend = async (friendId: number) => {
+  const handleRemoveFriend = async (friendId: string) => {
     if (!token) return;
     setRemovingFriendId(friendId);
     try {
@@ -1029,13 +1036,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   };
 
   const handleCreateCommunity = async () => {
-    if (!createName.trim() || !createDescription.trim() || !createIsValidNeighborhood || !token) return;
+    setCreateError(null);
+    if (!createName.trim() || !createDescription.trim() || !createNeighborhood.trim()) {
+      setCreateError("Name, description, and neighborhood are required");
+      return;
+    }
+    if (!token) {
+      setCreateError("Sign in to create a community");
+      return;
+    }
     setIsCreating(true);
     try {
       const formData = new FormData();
       formData.append("name", createName.trim());
       formData.append("description", createDescription.trim());
       formData.append("neighborhood", createNeighborhood.trim());
+      if (createPickupAddress.trim()) formData.append("pickup_address", createPickupAddress.trim());
+      if (createZipCode.trim()) formData.append("zip_code", createZipCode.trim());
       formData.append("is_public", String(createIsPublic));
       if (createImage) formData.append("image", createImage);
 
@@ -1045,7 +1062,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Create failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ detail: `Server returned ${res.status}` }));
+        throw new Error(data.detail || `Create failed (${res.status})`);
+      }
 
       const community = await res.json();
       setCreatedCommunity(community);
@@ -1057,6 +1077,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       onCommunitiesChanged?.();
     } catch (err) {
       console.error("Create community failed:", err);
+      setCreateError(err instanceof Error ? err.message : "Create failed");
     } finally {
       setIsCreating(false);
     }
@@ -1066,15 +1087,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setCreateName("");
     setCreateDescription("");
     setCreateNeighborhood("");
+    setCreatePickupAddress("");
+    setCreateZipCode("");
     setCreateShowLocationSuggestions(false);
     setCreateIsPublic(true);
     setCreateImage(null);
     setCreateImagePreview(null);
   };
-
-  const createIsValidNeighborhood = MANHATTAN_NEIGHBORHOODS.some(
-    (n) => n.toLowerCase() === createNeighborhood.trim().toLowerCase()
-  );
 
   const createFilteredNeighborhoods = createNeighborhood.trim()
     ? MANHATTAN_NEIGHBORHOODS.filter((n) =>
@@ -1193,7 +1212,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  const handleKickMember = async (communityId: number, memberId: number) => {
+  const handleKickMember = async (communityId: number, memberId: string) => {
     if (!token) return;
     setKickingMemberId(memberId);
     try {
@@ -1219,6 +1238,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setEditCommunityName(selectedCommunity.name);
     setEditCommunityDescription(selectedCommunity.description || "");
     setEditCommunityNeighborhood(selectedCommunity.neighborhood || "");
+    setEditCommunityPickupAddress(selectedCommunity.pickup_address || "");
+    setEditCommunityZipCode(selectedCommunity.zip_code || "");
     setEditCommunityIsPublic(selectedCommunity.is_public);
     setIsEditingCommunity(true);
   };
@@ -1228,12 +1249,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         n.toLowerCase().includes(editCommunityNeighborhood.trim().toLowerCase())
       )
     : MANHATTAN_NEIGHBORHOODS;
-
-  const editCommunityIsValidNeighborhood =
-    !editCommunityNeighborhood.trim() ||
-    MANHATTAN_NEIGHBORHOODS.some(
-      (n) => n.toLowerCase() === editCommunityNeighborhood.trim().toLowerCase()
-    );
 
   const handleSaveCommunity = async () => {
     if (!selectedCommunity || !token) return;
@@ -1249,6 +1264,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           name: editCommunityName.trim(),
           description: editCommunityDescription.trim() || null,
           neighborhood: editCommunityNeighborhood.trim() || null,
+          pickup_address: editCommunityPickupAddress.trim() || null,
+          zip_code: editCommunityZipCode.trim() || null,
           is_public: editCommunityIsPublic,
         }),
       });
@@ -1347,7 +1364,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setFriendSearch("");
   };
 
-  const removeFriend = (id: number) => {
+  const removeFriend = (id: string) => {
     setSelectedFriends(selectedFriends.filter((f) => f.id !== id));
   };
 
@@ -1424,7 +1441,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }, 300);
   };
 
-  const handleAddFriend = async (userId: number) => {
+  const handleAddFriend = async (userId: string) => {
     if (!token) return;
     setAddingFriendId(userId);
     try {
@@ -2417,14 +2434,66 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 />
               </div>
 
-              {/* Pickup Location */}
+              {/* Pickup Address */}
               <div>
-                <label className="text-xs text-white/50 mb-1.5 block">Pickup Location *</label>
+                <label className="text-xs text-white/50 mb-1.5 block">Pickup Address</label>
+                <Input
+                  type="text"
+                  placeholder="Street address"
+                  value={createPickupAddress}
+                  onChange={(e) => setCreatePickupAddress(e.target.value)}
+                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                />
+                <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+                  Address is never shown publicly — used to group listings by local geography.
+                </p>
+              </div>
+
+              {/* Neighborhood (free-form, no strict-list validation) */}
+              <div>
+                <label className="text-xs text-white/50 mb-1.5 block">Neighborhood *</label>
                 <Input
                   type="text"
                   placeholder="e.g., Chelsea, the office, swimming pool..."
                   value={createNeighborhood}
                   onChange={(e) => setCreateNeighborhood(e.target.value)}
+                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                />
+              </div>
+
+              {/* City + State (locked to NYC for now, mirrors SignUpPage) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/50 mb-1.5 block">City</label>
+                  <Input
+                    type="text"
+                    value="New York"
+                    disabled
+                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-white/50 mb-1.5 block">State</label>
+                  <Input
+                    type="text"
+                    value="NY"
+                    disabled
+                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              {/* Zip Code */}
+              <div>
+                <label className="text-xs text-white/50 mb-1.5 block">Zip Code</label>
+                <Input
+                  type="text"
+                  placeholder="e.g., 10001"
+                  value={createZipCode}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
+                    setCreateZipCode(val);
+                  }}
                   className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
                 />
               </div>
@@ -2455,9 +2524,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 </button>
               </div>
 
+              {createError && (
+                <p className="text-sm text-red-400">{createError}</p>
+              )}
+
               {/* Create Button */}
               <Button
-                disabled={!createName.trim() || !createDescription.trim() || !createIsValidNeighborhood || isCreating}
+                disabled={!createName.trim() || !createDescription.trim() || !createNeighborhood.trim() || isCreating}
                 onClick={handleCreateCommunity}
                 className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
@@ -3476,40 +3549,57 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     />
                   </div>
 
-                  <div className="relative">
-                    <label className="text-xs text-white/40 mb-1 block">Primary Pickup Location</label>
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Pickup Address</label>
+                    <Input
+                      value={editCommunityPickupAddress}
+                      onChange={(e) => setEditCommunityPickupAddress(e.target.value)}
+                      placeholder="Street address"
+                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Neighborhood</label>
                     <Input
                       ref={editCommunityNeighborhoodRef}
                       value={editCommunityNeighborhood}
-                      onChange={(e) => {
-                        setEditCommunityNeighborhood(e.target.value);
-                        setEditCommunityShowSuggestions(true);
-                      }}
-                      onFocus={() => setEditCommunityShowSuggestions(true)}
-                      placeholder="e.g. Upper West Side"
+                      onChange={(e) => setEditCommunityNeighborhood(e.target.value)}
+                      placeholder="e.g., Upper West Side"
                       className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
                     />
-                    {editCommunityShowSuggestions && editCommunityFilteredNeighborhoods.length > 0 && (
-                      <div
-                        ref={editCommunitySuggestionsRef}
-                        className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-white/20 shadow-lg"
-                        style={{ backgroundColor: "#18181b" }}
-                      >
-                        {editCommunityFilteredNeighborhoods.map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            className="w-full text-left px-3 py-2 text-sm text-white/70 hover:bg-white/10 transition-colors"
-                            onClick={() => {
-                              setEditCommunityNeighborhood(n);
-                              setEditCommunityShowSuggestions(false);
-                            }}
-                          >
-                            {n}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">City</label>
+                      <Input
+                        value="New York"
+                        disabled
+                        className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">State</label>
+                      <Input
+                        value="NY"
+                        disabled
+                        className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-white/40 mb-1 block">Zip Code</label>
+                    <Input
+                      value={editCommunityZipCode}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
+                        setEditCommunityZipCode(val);
+                      }}
+                      placeholder="e.g., 10001"
+                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
+                    />
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -3558,7 +3648,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   </Button>
                   <Button
                     onClick={handleSaveCommunity}
-                    disabled={isSavingCommunity || !editCommunityName.trim() || !editCommunityIsValidNeighborhood}
+                    disabled={isSavingCommunity || !editCommunityName.trim()}
                     className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
                   >
                     {isSavingCommunity ? <Loader2 className="size-4 animate-spin" /> : "Save"}
