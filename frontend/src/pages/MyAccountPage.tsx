@@ -35,6 +35,7 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
 import { supabase } from "../lib/supabase";
+import type { Listing, MyListing } from "../lib/types";
 
 const MANHATTAN_NEIGHBORHOODS = [
   "Battery Park City", "Carnegie Hill", "Chelsea", "Chinatown", "Civic Center",
@@ -88,28 +89,6 @@ interface ProfileStats {
   avg_buyer_rating: number;
 }
 
-interface MyListing {
-  id: string;
-  // Brand + name replace the old computed `title`. Display title is
-  // composed at render time via formatTitle. The legacy `title` column
-  // may still arrive from older API responses during the rollout — keep
-  // it optional for safety but never write it from the client.
-  brand: string;
-  name: string;
-  title?: string;
-  description: string;
-  price: string;
-  condition: string;
-  location: string;
-  tags: string[];
-  imageUrl: string;
-  imageUrls?: string[];
-  postedAt: number;
-  status?: string;
-  pendingOrderCount?: number;
-  latestOrderAt?: string | null;
-}
-
 interface OrderData {
   id: number;
   listing_id: string;
@@ -135,29 +114,16 @@ interface OrderData {
   pickup_notified: boolean;
 }
 
-interface WishlistListing {
-  id: string;
-  // Same brand/name unification as MyListing — a buyer-facing display
-  // title is computed via formatTitle on render.
-  brand: string;
-  name: string;
-  title?: string;
-  price: string;
-  imageUrl: string;
-  imageUrls?: string[];
-  status?: string;
-}
-
 interface MyAccountPageProps {
   onNavigate: (page: string) => void;
   onCommunitiesChanged?: () => void;
-  wishlistItems?: WishlistListing[];
+  wishlistItems?: Listing[];
   wishlist?: Set<string>;
   onToggleWishlist?: (listingId: string) => void;
   pendingListingId?: string | null;
   onClearPendingListing?: () => void;
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
-  openListingDetail?: (listing: any) => void;
+  openListingDetail?: (listing: Listing) => void;
   onViewUser?: (userId: string) => void;
 }
 
@@ -1585,8 +1551,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const updatedUser = await res.json();
       updateUser(updatedUser);
       setShowEditProfileModal(false);
-    } catch (err: any) {
-      setEditProfileError(err.message || "Update failed");
+    } catch (err) {
+      setEditProfileError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setIsUpdatingProfile(false);
     }

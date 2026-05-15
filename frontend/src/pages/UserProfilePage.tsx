@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
+import type { Listing } from "../lib/types";
 
 interface ProfileData {
   id: string;
@@ -35,7 +36,7 @@ interface UserProfileOverlayProps {
   userId: string;
   onClose: () => void;
   onViewUser: (userId: string) => void;
-  openListingDetail?: (listing: any) => void;
+  openListingDetail?: (listing: Listing) => void;
 }
 
 export default function UserProfileOverlay({ userId, onClose, onViewUser, openListingDetail }: UserProfileOverlayProps) {
@@ -227,6 +228,10 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                       key={listing.id}
                       onClick={() => openListingDetail?.({
                         ...listing,
+                        description: "",
+                        location: "",
+                        tags: [],
+                        postedAt: 0,
                         userId: data.id,
                         imageUrls: listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl],
                       })}

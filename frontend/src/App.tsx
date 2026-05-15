@@ -17,10 +17,9 @@ import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
+import type { CategorySlug, Listing } from "./lib/types";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
-
-type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
 interface CategoryField {
   key: string;
@@ -67,27 +66,6 @@ interface SegmentationResult {
   groupings: number[][];
   image_urls: string[];
   vision_signals: unknown[]; // opaque, pass through
-}
-
-interface Listing extends ProductDetails {
-  id: string;
-  userId?: string;
-  imageUrl: string;
-  imageUrls?: string[];
-  postedAt: number;
-  mutualCommunityNames?: string[];
-  mutualCommunities?: { name: string; is_public: boolean }[];
-  allCommunities?: { name: string; is_public: boolean; is_mutual: boolean; is_neighborhood?: boolean }[];
-  visibility?: "public" | "private";
-  tier?: number;
-  status?: string;
-  seller_name?: string | null;
-  seller_picture?: string | null;
-  category?: CategorySlug;
-  categoryAttributes?: Record<string, string>;
-  // Server still returns a stored `title` column for legacy clients during
-  // the transition; modern UI ignores it and recomputes via formatTitle.
-  title?: string;
 }
 
 type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
@@ -3878,8 +3856,8 @@ export default function App() {
                       )}
                       {/* Community tags */}
                       {listing.allCommunities && listing.allCommunities.length > 0 && (() => {
-                        const neighborhood = listing.allCommunities!.find((c: any) => c.is_neighborhood);
-                        const others = listing.allCommunities!.filter((c: any) => !c.is_neighborhood);
+                        const neighborhood = listing.allCommunities!.find((c) => c.is_neighborhood);
+                        const others = listing.allCommunities!.filter((c) => !c.is_neighborhood);
                         return (
                           <div className="flex flex-wrap items-center gap-1.5 mt-2">
                             {neighborhood && (
@@ -3894,7 +3872,7 @@ export default function App() {
                             {neighborhood && others.length > 0 && (
                               <span className="text-white/15 text-xs">|</span>
                             )}
-                            {others.map((c: any, i: number) => (
+                            {others.map((c, i) => (
                               <span key={i} className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
                                 c.is_mutual
                                   ? "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300"
