@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
+import { supabase } from "../lib/supabase";
 
 const MANHATTAN_NEIGHBORHOODS = [
   "Battery Park City", "Carnegie Hill", "Chelsea", "Chinatown", "Civic Center",
@@ -832,6 +833,30 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchMyListings();
     fetchAllOrders();
   }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel("purchase_orders_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "purchase_orders",
+        },
+        () => {
+          fetchAllOrders();
+          fetchMyListings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, fetchAllOrders, fetchMyListings]);
 
   // Auto-open order modal when routed from notification
   useEffect(() => {
