@@ -36,18 +36,15 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
 import { supabase } from "../lib/supabase";
 import type { Listing, MyListing } from "../lib/types";
-
-const MANHATTAN_NEIGHBORHOODS = [
-  "Battery Park City", "Carnegie Hill", "Chelsea", "Chinatown", "Civic Center",
-  "Clinton (Hell's Kitchen)", "East Harlem", "East Village", "Financial District",
-  "Flatiron District", "Gramercy Park", "Greenwich Village", "Hamilton Heights",
-  "Harlem", "Hudson Heights", "Inwood", "Kips Bay", "Lenox Hill", "Lincoln Square",
-  "Little Italy", "Lower East Side", "Marble Hill", "Midtown East", "Midtown West",
-  "Morningside Heights", "Murray Hill", "NoHo", "NoMad", "Nolita", "Roosevelt Island",
-  "SoHo", "Stuyvesant Town", "Sutton Place", "Theater District", "Tribeca",
-  "Tudor City", "Turtle Bay", "Two Bridges", "Upper East Side", "Upper West Side",
-  "Washington Heights", "West Village", "Yorkville",
-];
+import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
+import { CONDITIONS } from "../lib/listings";
+import {
+  BUYER_ORDER_BADGE,
+  BUYER_ORDER_CONTAINER_CLASS,
+  SELLER_LISTING_CTA_BADGE,
+  getBuyerOrderViewState,
+  getSellerListingCtaState,
+} from "../lib/orderStatus";
 
 interface CommunityData {
   id: number;
@@ -1905,25 +1902,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
                             <span className="text-xs font-medium text-fuchsia-400">${listing.price}</span>
-                            {timeInfo.expired ? (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
-                                disabled={relistingId === listing.id}
-                                className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
-                              >
-                                {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
-                              </button>
-                            ) : isSellerWaitingForBuyer ? (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Buyer</span>
-                            ) : isSellerPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
-                            ) : sellerOrder && sellerOrder.status === "confirmed" ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
-                            ) : hasPendingOrders ? (
-                              <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Review</span>
-                            ) : (
-                              <Pencil className="size-3 text-white/20" />
-                            )}
+                            {(() => {
+                              const cta = getSellerListingCtaState({
+                                timeExpired: timeInfo.expired,
+                                isSellerWaitingForBuyer,
+                                isSellerPickupReady,
+                                sellerOrderStatus: sellerOrder?.status ?? null,
+                                hasPendingOrders,
+                              });
+                              if (cta === "expired") return (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
+                                  disabled={relistingId === listing.id}
+                                  className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
+                                >
+                                  {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
+                                </button>
+                              );
+                              if (cta === "default") return <Pencil className="size-3 text-white/20" />;
+                              const badge = SELLER_LISTING_CTA_BADGE[cta];
+                              return <span className={badge.className}>{badge.label}</span>;
+                            })()}
                           </div>
                         </div>
                       );
@@ -1960,35 +1959,21 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {myPurchases.map((order) => {
                       const countdown = getPickupCountdown(order);
-                      const hasReviewed = order.buyer_reviewed;
-                      const otherReviewed = order.seller_reviewed;
-                      const isPickupReady = order.status === "confirmed" && countdown.expired && !hasReviewed;
-                      const isWaitingForOther = order.status === "confirmed" && countdown.expired && hasReviewed && !otherReviewed;
-                      const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
-                      const isCompleted = order.status === "completed";
-                      const isDeclined = order.status === "declined";
-                      const isWithdrawn = order.status === "withdrawn";
-                      const isExpired = order.status === "expired";
+                      const viewState = getBuyerOrderViewState({
+                        status: order.status,
+                        countdownExpired: countdown.expired,
+                        hasReviewed: order.buyer_reviewed,
+                        otherReviewed: order.seller_reviewed,
+                      });
+                      const badge = BUYER_ORDER_BADGE[viewState];
 
                       return (
                         <div key={order.id}>
                         <div
-                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
-                            isDeclined
-                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isWithdrawn || isExpired
-                                ? "bg-white/[0.02] border-white/5 opacity-50"
-                                : isPickupReady
-                                  ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
-                                  : isWaitingForOther
-                                    ? "bg-amber-500/[0.05] border-amber-400/20"
-                                    : isConfirmedCountdown
-                                      ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                                      : "bg-white/[0.03] border-white/5"
-                          }`}
+                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${BUYER_ORDER_CONTAINER_CLASS[viewState]}`}
                           onClick={() => {
-                            if (isDeclined || isWithdrawn || isExpired || isWaitingForOther) return;
-                            if (isPickupReady) openRatingModal(order);
+                            if (viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "waitingForOther") return;
+                            if (viewState === "pickupReady") openRatingModal(order);
                             else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                           }}
                         >
@@ -1996,17 +1981,17 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           <div className="flex-1 min-w-0">
                             <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
                             <div className="flex items-center gap-1.5">
-                              {isDeclined ? (
+                              {viewState === "declined" ? (
                                 <span className="text-[10px] text-red-400/70">Order was declined</span>
-                              ) : isWithdrawn ? (
+                              ) : viewState === "withdrawn" ? (
                                 <span className="text-[10px] text-white/40">Order withdrawn</span>
-                              ) : isExpired ? (
+                              ) : viewState === "expired" ? (
                                 <span className="text-[10px] text-white/40">Order expired</span>
-                              ) : isWaitingForOther ? (
+                              ) : viewState === "waitingForOther" ? (
                                 <span className="text-[10px] text-amber-400">Waiting for seller to confirm pickup</span>
-                              ) : isPickupReady ? (
+                              ) : viewState === "pickupReady" ? (
                                 <span className="text-[10px] text-green-400">Confirm Pickup</span>
-                              ) : isConfirmedCountdown ? (
+                              ) : viewState === "confirmedCountdown" ? (
                                 <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
                               ) : (
                                 <p className="text-[10px] text-white/30">
@@ -2022,23 +2007,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
                             <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
-                            {isDeclined ? (
-                              <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
-                            ) : isWithdrawn ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
-                            ) : isExpired ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Expired</span>
-                            ) : isWaitingForOther ? (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Seller</span>
-                            ) : isPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
-                            ) : isConfirmedCountdown ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
-                            ) : isCompleted ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Completed</span>
-                            ) : (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Pending</span>
-                            )}
+                            <span className={badge.className}>{badge.label}</span>
                             {order.status === "pending" && (
                               <button
                                 onClick={(e) => {
@@ -3960,11 +3929,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     onChange={(e) => setEditCondition(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-fuchsia-400/40 appearance-none"
                   >
-                    <option value="New">New</option>
-                    <option value="Like New">Like New</option>
-                    <option value="Good">Good</option>
-                    <option value="Fair">Fair</option>
-                    <option value="Poor">Poor</option>
+                    {CONDITIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                 </div>
               </div>

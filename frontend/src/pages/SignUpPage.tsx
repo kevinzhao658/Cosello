@@ -3,52 +3,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
-
-const MANHATTAN_NEIGHBORHOODS = [
-  "Battery Park City",
-  "Carnegie Hill",
-  "Chelsea",
-  "Chinatown",
-  "Civic Center",
-  "Clinton (Hell's Kitchen)",
-  "East Harlem",
-  "East Village",
-  "Financial District",
-  "Flatiron District",
-  "Gramercy Park",
-  "Greenwich Village",
-  "Hamilton Heights",
-  "Harlem",
-  "Hudson Heights",
-  "Inwood",
-  "Kips Bay",
-  "Lenox Hill",
-  "Lincoln Square",
-  "Little Italy",
-  "Lower East Side",
-  "Marble Hill",
-  "Midtown East",
-  "Midtown West",
-  "Morningside Heights",
-  "Murray Hill",
-  "NoHo",
-  "NoMad",
-  "Nolita",
-  "Roosevelt Island",
-  "SoHo",
-  "Stuyvesant Town",
-  "Sutton Place",
-  "Theater District",
-  "Tribeca",
-  "Tudor City",
-  "Turtle Bay",
-  "Two Bridges",
-  "Upper East Side",
-  "Upper West Side",
-  "Washington Heights",
-  "West Village",
-  "Yorkville",
-];
+import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
 
 interface SignUpPageProps {
   pendingToken: string;

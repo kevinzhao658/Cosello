@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, XCircle, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, UserPlus, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag, Star } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
@@ -18,6 +18,8 @@ import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
 import type { CategorySlug, Listing } from "./lib/types";
+import { CONDITIONS } from "./lib/listings";
+import { getNotificationVisuals, isClickableNotification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
@@ -351,7 +353,9 @@ const NotificationItem = memo(function NotificationItem({
     return !isNaN(target.getTime()) && Date.now() >= target.getTime();
   }, [n, countdownTick]);
 
-  const isClickable = n.type === "purchase" || n.type === "order_confirmed" || n.type === "order_declined" || n.type === "review_submitted" || n.type === "address_released" || n.type === "order_withdrawn" || n.type === "order_cancelled" || n.type === "order_updated" || n.type === "order_completed" || n.type === "order_expired";
+  const isClickable = isClickableNotification(n.type);
+  const visuals = getNotificationVisuals(n.type);
+  const Icon = visuals.Icon;
 
   return (
     <div
@@ -361,22 +365,8 @@ const NotificationItem = memo(function NotificationItem({
       {n.type === "join_request" && n.related_user_picture ? (
         <img src={n.related_user_picture} alt="" className="size-7 rounded-full object-cover shrink-0 mt-0.5" />
       ) : (
-        <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-          n.type === "join_request" ? "bg-amber-500/15" :
-          n.type === "purchase" || n.type === "order_updated" ? "bg-cyan-500/15" :
-          n.type === "order_declined" || n.type === "order_cancelled" ? "bg-red-500/15" :
-          n.type === "order_withdrawn" || n.type === "order_expired" ? "bg-amber-500/15" :
-          n.type === "order_completed" || n.type === "review_submitted" ? "bg-fuchsia-500/15" :
-          "bg-green-500/15"
-        }`}>
-          {n.type === "join_request" ? <UserPlus className="size-3.5 text-amber-400" /> :
-           n.type === "purchase" || n.type === "order_updated" ? <ShoppingBag className="size-3.5 text-cyan-400" /> :
-           n.type === "order_declined" || n.type === "order_cancelled" ? <XCircle className="size-3.5 text-red-400" /> :
-           n.type === "order_withdrawn" || n.type === "order_expired" ? <XCircle className="size-3.5 text-amber-400" /> :
-           n.type === "order_completed" ? <CheckCircle className="size-3.5 text-fuchsia-400" /> :
-           n.type === "review_submitted" ? <Star className="size-3.5 text-fuchsia-400" /> :
-           n.type === "address_released" ? <MapPin className="size-3.5 text-green-400" /> :
-           <CheckCircle className="size-3.5 text-green-400" />}
+        <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${visuals.bgClass}`}>
+          <Icon className={visuals.iconClass} />
         </div>
       )}
       <div className="flex-1 min-w-0">
@@ -3288,11 +3278,9 @@ export default function App() {
                             onChange={(e) => setProductDetails({ ...productDetails, condition: e.target.value })}
                             className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9"
                           >
-                            <option value="New">New</option>
-                            <option value="Like New">Like New</option>
-                            <option value="Good">Good</option>
-                            <option value="Fair">Fair</option>
-                            <option value="Poor">Poor</option>
+                            {CONDITIONS.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
                           </select>
                         </div>
                       </div>
@@ -3538,11 +3526,9 @@ export default function App() {
                               onChange={(e) => updateBulkItem(currentCardIndex, "condition", e.target.value)}
                               className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9"
                             >
-                              <option value="New">New</option>
-                              <option value="Like New">Like New</option>
-                              <option value="Good">Good</option>
-                              <option value="Fair">Fair</option>
-                              <option value="Poor">Poor</option>
+                              {CONDITIONS.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
                             </select>
                           </div>
                         </div>
@@ -5097,11 +5083,9 @@ export default function App() {
                       onChange={(e) => setEditCondition(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-fuchsia-400/40 appearance-none"
                     >
-                      <option value="New">New</option>
-                      <option value="Like New">Like New</option>
-                      <option value="Good">Good</option>
-                      <option value="Fair">Fair</option>
-                      <option value="Poor">Poor</option>
+                      {CONDITIONS.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
