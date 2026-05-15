@@ -4886,23 +4886,30 @@ export default function App() {
                                     )}
                                   </div>
                                 ))}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPickupDaySelections((prev) => {
-                                      const updated = { ...prev[day.date] };
-                                      const lastSlot = updated.slots[updated.slots.length - 1];
-                                      const newFrom = Math.min(lastSlot.to, 20);
-                                      const newTo = Math.min(newFrom + 1, 21);
-                                      if (newFrom >= 20) return prev;
-                                      return { ...prev, [day.date]: { ...updated, slots: [...updated.slots, { from: newFrom, to: newTo }] } };
-                                    });
-                                  }}
-                                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-dashed border-fuchsia-400/40 text-xs font-medium text-fuchsia-300 hover:text-fuchsia-200 hover:border-fuchsia-400/70 hover:bg-fuchsia-500/10 transition-colors"
-                                >
-                                  <Plus className="size-3.5" />
-                                  Add another time window
-                                </button>
+                                {(() => {
+                                  const lastSlot = sel.slots[sel.slots.length - 1];
+                                  const dayIsFull = lastSlot.to >= 21;
+                                  return (
+                                    <button
+                                      type="button"
+                                      disabled={dayIsFull}
+                                      onClick={() => {
+                                        setPickupDaySelections((prev) => {
+                                          const updated = { ...prev[day.date] };
+                                          const last = updated.slots[updated.slots.length - 1];
+                                          if (last.to >= 21) return prev;
+                                          const newFrom = last.to;
+                                          const newTo = Math.min(newFrom + 1, 21);
+                                          return { ...prev, [day.date]: { ...updated, slots: [...updated.slots, { from: newFrom, to: newTo }] } };
+                                        });
+                                      }}
+                                      className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-dashed border-fuchsia-400/40 text-xs font-medium text-fuchsia-300 hover:text-fuchsia-200 hover:border-fuchsia-400/70 hover:bg-fuchsia-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-fuchsia-300 disabled:hover:border-fuchsia-400/40 disabled:hover:bg-transparent"
+                                    >
+                                      <Plus className="size-3.5" />
+                                      {dayIsFull ? "Day is full" : "Add another time window"}
+                                    </button>
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>
