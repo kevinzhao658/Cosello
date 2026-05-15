@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { PriceInput } from "../components/ui/price-input";
+import { ModalShell } from "../components/ui/ModalShell";
 import {
   User,
   Globe,
@@ -2072,11 +2073,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
       {/* Join Community Modal */}
       {showJoinModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={closeJoinModal}
-          />
+        <ModalShell
+          open
+          onClose={closeJoinModal}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={closeJoinModal}
@@ -2251,16 +2252,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               Create a Community
             </Button>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Create Community Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowCreateModal(false); resetCreateForm(); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
@@ -2427,16 +2428,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </Button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Share Community Modal */}
       {showConfirmModal && createdCommunity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={closeShareModal}
-          />
+        <ModalShell
+          open
+          onClose={closeShareModal}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={closeShareModal}
@@ -2599,15 +2600,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               Skip for now
             </Button>
           </div>
-        </div>
+        </ModalShell>
       )}
       {/* Edit Profile Modal */}
       {showEditProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowEditProfileModal(false)}
-          />
+        <ModalShell
+          open
+          onClose={() => setShowEditProfileModal(false)}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => setShowEditProfileModal(false)}
@@ -2779,16 +2780,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </Button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Add Friends Modal */}
       {showAddFriendsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={closeAddFriendsModal}
-          />
+        <ModalShell
+          open
+          onClose={closeAddFriendsModal}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={closeAddFriendsModal}
@@ -2981,15 +2982,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               )}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
       {/* Listings Modal */}
       {showListingsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowListingsModal(false)}
-          />
+        <ModalShell
+          open
+          onClose={() => setShowListingsModal(false)}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => setShowListingsModal(false)}
@@ -3274,16 +3275,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               )}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Friends List Modal */}
       {showFriendsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowFriendsModal(false)}
-          />
+        <ModalShell
+          open
+          onClose={() => setShowFriendsModal(false)}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => setShowFriendsModal(false)}
@@ -3360,16 +3361,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               )}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Community Detail Modal */}
       {showCommunityDetail && selectedCommunity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
@@ -3754,16 +3755,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </>
             )}
           </div>
-        </div>
+        </ModalShell>
       )}
       {/* User Profile Summary Modal */}
       {/* Edit Listing Modal */}
       {showEditListingModal && editListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowEditListingModal(false); setEditListing(null); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
@@ -3915,17 +3916,17 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Order Management Modal */}
       {/* Order Confirmation Summary Modal */}
       {showConfirmSummary && confirmSummaryData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
@@ -4035,15 +4036,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               );
             })()}
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {showPickupAttestation && confirmSummaryData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowPickupAttestation(false)}
-          />
+        <ModalShell
+          open
+          onClose={() => setShowPickupAttestation(false)}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
             <div className="text-center mb-5">
               <div className="size-12 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto mb-3">
@@ -4081,15 +4082,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </Button>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {showOrderModal && orderModalListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
@@ -4299,13 +4300,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
             )}
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Rating / Confirm Pickup Modal */}
       {showRatingModal && ratingOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowRatingModal(false); setRatingOrder(null); }} />
+        <ModalShell
+          open
+          onClose={() => { setShowRatingModal(false); setRatingOrder(null); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
             <button onClick={() => { setShowRatingModal(false); setRatingOrder(null); }} className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors">
               <X className="size-5" />
@@ -4362,7 +4366,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               {isSubmittingRating ? <Loader2 className="size-3.5 animate-spin" /> : "Submit & Confirm Pickup"}
             </Button>
           </div>
-        </div>
+        </ModalShell>
       )}
     </section>
   );

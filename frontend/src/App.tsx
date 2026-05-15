@@ -2,6 +2,7 @@ import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, Plus
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
+import { ModalShell } from "./components/ui/ModalShell";
 import { useSettings } from "./contexts/SettingsContext";
 import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo } from "react";
 import { createPortal } from "react-dom";
@@ -4397,12 +4398,11 @@ export default function App() {
       )}
 
       {/* Post Listing Confirmation Modal */}
-      {showPostConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowPostConfirm(false); setAcceptedTerms(false); }}
-          />
+      <ModalShell
+        open={showPostConfirm}
+        onClose={() => { setShowPostConfirm(false); setAcceptedTerms(false); }}
+        z={50}
+      >
           <div className="relative bg-zinc-900 border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
             <button
               onClick={() => { setShowPostConfirm(false); setAcceptedTerms(false); }}
@@ -4466,16 +4466,15 @@ export default function App() {
               </Button>
             </div>
           </div>
-        </div>
-      )}
+      </ModalShell>
 
       {/* Listing Detail Modal */}
       {showListingDetailModal && listingDetailData && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowListingDetailModal(false); setListingDetailData(null); setListingDetailSellerProfile(null); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowListingDetailModal(false); setListingDetailData(null); setListingDetailSellerProfile(null); }}
+          z={200}
+        >
           <div
             className="relative w-full max-w-4xl mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
@@ -4716,16 +4715,16 @@ export default function App() {
               ) : null}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Buy Confirmation Modal */}
       {showBuyModal && listingDetailData && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowBuyModal(false); setEditingOrderId(null); setPickupDaySelections({}); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowBuyModal(false); setEditingOrderId(null); setPickupDaySelections({}); }}
+          z={250}
+        >
           <div
             className="relative w-full max-w-md mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[85vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
@@ -4953,16 +4952,16 @@ export default function App() {
               </div>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Edit Listing Modal (from marketplace detail) */}
       {showEditListingModal && listingDetailData && (
-        <div className="fixed inset-0 z-[260] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowEditListingModal(false)}
-          />
+        <ModalShell
+          open
+          onClose={() => setShowEditListingModal(false)}
+          z={260}
+        >
           <div
             className="relative w-full max-w-md mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[85vh] overflow-y-auto"
             style={{ backgroundColor: "#18181b" }}
@@ -5131,7 +5130,7 @@ export default function App() {
               </div>
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* User Profile Overlay */}
