@@ -14,6 +14,8 @@ import { CategorySelector, CategoryAttributeFields } from "./components/Category
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
+import { useClickOutside } from "./hooks/useClickOutside";
+import { formatCountdown, parseAddressReleasedMessage, parseHourPeriod, PIN_WINDOW_MS } from "./lib/pickupTime";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
@@ -327,29 +329,25 @@ const NotificationItem = memo(function NotificationItem({
   onConfirmPickup: () => void;
 }) {
   const countdownContent = useMemo(() => {
-    if (n.type !== "address_released" || !n.message.includes("||")) return null;
+    if (n.type !== "address_released") return null;
+    const parts = parseAddressReleasedMessage(n.message);
+    if (!parts) return null;
     void countdownTick;
-    const parts = n.message.split("||");
-    const baseText = parts[0];
-    const pickupTimeDisplay = parts[1] || "";
-    const targetIso = parts[2] || "";
-    const target = new Date(targetIso);
+    const target = new Date(parts.targetIso);
     const diff = target.getTime() - Date.now();
     if (diff > 0) {
-      const days = Math.floor(diff / 86400000);
-      const hours = Math.floor((diff % 86400000) / 3600000);
-      const mins = Math.floor((diff % 3600000) / 60000);
-      const label = days > 0 ? `${days}d ${hours}h ${mins}m` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-      return <>{baseText} <span className="text-cyan-400 font-semibold">{label}</span> until pickup at {pickupTimeDisplay}.</>;
+      const { label } = formatCountdown(diff);
+      return <>{parts.baseText} <span className="text-cyan-400 font-semibold">{label}</span> until pickup at {parts.pickupTimeDisplay}.</>;
     }
-    return <>{baseText}</>;
+    return <>{parts.baseText}</>;
   }, [n, countdownTick]);
 
   const isPickupReady = useMemo(() => {
-    if (n.type !== "address_released" || !n.message.includes("||")) return false;
+    if (n.type !== "address_released") return false;
+    const parts = parseAddressReleasedMessage(n.message);
+    if (!parts) return false;
     void countdownTick;
-    const targetIso = n.message.split("||")[2] || "";
-    const target = new Date(targetIso);
+    const target = new Date(parts.targetIso);
     return !isNaN(target.getTime()) && Date.now() >= target.getTime();
   }, [n, countdownTick]);
 
@@ -563,12 +561,13 @@ export default function App() {
   const sortedNotifications = useMemo(() => {
     return [...notifications].sort((a, b) => {
       const isActivePickup = (n: typeof notifications[0]) => {
-        if (n.type !== "address_released" || !n.message.includes("||") || n.is_read) return false;
-        const targetIso = n.message.split("||")[2] || "";
-        const target = new Date(targetIso);
+        if (n.type !== "address_released" || n.is_read) return false;
+        const parts = parseAddressReleasedMessage(n.message);
+        if (!parts) return false;
+        const target = new Date(parts.targetIso);
         if (isNaN(target.getTime())) return false;
         const diff = target.getTime() - Date.now();
-        return diff <= 3600000;
+        return diff <= PIN_WINDOW_MS;
       };
       const aPin = isActivePickup(a);
       const bPin = isActivePickup(b);
@@ -860,16 +859,6 @@ export default function App() {
     }
   };
 
-  const parseTimeToHour = (timeStr: string): number => {
-    const match = timeStr.match(/^(\d{1,2})\s*(AM|PM)$/i);
-    if (!match) return 10;
-    let h = parseInt(match[1]);
-    const period = match[2].toUpperCase();
-    if (period === "PM" && h !== 12) h += 12;
-    if (period === "AM" && h === 12) h = 0;
-    return h;
-  };
-
   const openEditPickupSlots = (listing: Listing, orderId: number, existingSlots: { date: string; time: string }[]) => {
     setListingDetailData(listing);
     setEditingOrderId(orderId);
@@ -882,8 +871,8 @@ export default function App() {
           selections[slot.date] = { slots: [], dayLabel: slot.date };
         }
         selections[slot.date].slots.push({
-          from: parseTimeToHour(parts[0]),
-          to: parseTimeToHour(parts[1]),
+          from: parseHourPeriod(parts[0]) ?? 10,
+          to: parseHourPeriod(parts[1]) ?? 10,
         });
       }
     }
@@ -893,15 +882,7 @@ export default function App() {
   };
 
   // Close profile dropdown on outside click
-  useEffect(() => {
-    if (!profileOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (profileRef.current?.contains(e.target as Node)) return;
-      setProfileOpen(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [profileOpen]);
+  useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
 
   // Close notifications side panel on Escape — mark as read on close. Clicks
   // outside are handled by the backdrop element directly (cleaner than a
@@ -918,15 +899,7 @@ export default function App() {
   }, [notificationsOpen, unreadCount]);
 
   // Close history dropdown on outside click
-  useEffect(() => {
-    if (!historyOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (historyRef.current?.contains(e.target as Node)) return;
-      setHistoryOpen(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [historyOpen]);
+  useClickOutside(historyRef, () => setHistoryOpen(false), historyOpen);
 
   // Fetch unread notification count periodically
   const fetchUnreadCount = async () => {

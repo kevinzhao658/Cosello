@@ -35,6 +35,8 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
 import { supabase } from "../lib/supabase";
+import { useClickOutside } from "../hooks/useClickOutside";
+import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "../lib/pickupTime";
 import type { Listing, MyListing } from "../lib/types";
 import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
 import { CONDITIONS } from "../lib/listings";
@@ -357,56 +359,29 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     let targetHour = 18;
     let targetMin = 0;
     if (order.confirmed_time) {
-      const ctMatch = order.confirmed_time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-      if (ctMatch) {
-        let h = parseInt(ctMatch[1], 10);
-        const m = parseInt(ctMatch[2], 10);
-        const ampm = ctMatch[3].toUpperCase();
-        if (ampm === "PM" && h !== 12) h += 12;
-        if (ampm === "AM" && h === 12) h = 0;
-        targetHour = h;
-        targetMin = m;
+      const clock = parseClockPeriod(order.confirmed_time);
+      if (clock) {
+        targetHour = clock.hour;
+        targetMin = clock.minute;
       }
     } else {
-      const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
-      if (dashMatch) {
-        let h = parseInt(dashMatch[1], 10);
-        const ampm = dashMatch[2].toUpperCase();
-        if (ampm === "PM" && h !== 12) h += 12;
-        if (ampm === "AM" && h === 12) h = 0;
-        targetHour = h;
-      }
+      const endHour = parseSlotEndHour(slot.time);
+      if (endHour !== null) targetHour = endHour;
       const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
       if (legacyEnd[slot.time]) targetHour = legacyEnd[slot.time];
     }
 
-    const target = new Date(slot.date + "T00:00:00");
-    target.setHours(targetHour, targetMin, 0, 0);
+    const target = buildSlotTarget(slot.date, targetHour, targetMin);
     const diff = target.getTime() - Date.now();
 
     if (diff <= 0) return { expired: true, label: "Ready", diff };
-    const days = Math.floor(diff / 86400000);
-    const hours = Math.floor((diff % 86400000) / 3600000);
-    const mins = Math.floor((diff % 3600000) / 60000);
-    if (days > 0) return { expired: false, label: `${days}d ${hours}h ${mins}m`, diff };
-    if (hours > 0) return { expired: false, label: `${hours}h ${mins}m`, diff };
-    return { expired: false, label: `${mins}m`, diff };
+    return { expired: false, label: formatCountdown(diff).label, diff };
   };
 
   const isSlotExpired = (slot: { date: string; time: string }): boolean => {
-    const now = new Date();
-    let endHour = 18;
-    const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
-    if (dashMatch) {
-      let h = parseInt(dashMatch[1], 10);
-      const ampm = dashMatch[2].toUpperCase();
-      if (ampm === "PM" && h !== 12) h += 12;
-      if (ampm === "AM" && h === 12) h = 0;
-      endHour = h;
-    }
-    const slotEnd = new Date(slot.date + "T00:00:00");
-    slotEnd.setHours(endHour, 0, 0, 0);
-    return now > slotEnd;
+    const endHour = parseSlotEndHour(slot.time) ?? 18;
+    const slotEnd = buildSlotTarget(slot.date, endHour);
+    return new Date() > slotEnd;
   };
 
   // Auto-release address 1 hour before pickup for neighborhood orders
@@ -1556,43 +1531,25 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   };
 
   // Close create location suggestions on click outside
-  useEffect(() => {
-    if (!createShowLocationSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (createLocationRef.current?.contains(target)) return;
-      if (createLocationSuggestionsRef.current?.contains(target)) return;
-      setCreateShowLocationSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [createShowLocationSuggestions]);
+  useClickOutside(
+    [createLocationRef, createLocationSuggestionsRef],
+    () => setCreateShowLocationSuggestions(false),
+    createShowLocationSuggestions,
+  );
 
   // Close edit suggestions on click outside
-  useEffect(() => {
-    if (!editShowSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (editNeighborhoodRef.current?.contains(target)) return;
-      if (editSuggestionsRef.current?.contains(target)) return;
-      setEditShowSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [editShowSuggestions]);
+  useClickOutside(
+    [editNeighborhoodRef, editSuggestionsRef],
+    () => setEditShowSuggestions(false),
+    editShowSuggestions,
+  );
 
   // Close edit community neighborhood suggestions on click outside
-  useEffect(() => {
-    if (!editCommunityShowSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (editCommunityNeighborhoodRef.current?.contains(target)) return;
-      if (editCommunitySuggestionsRef.current?.contains(target)) return;
-      setEditCommunityShowSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [editCommunityShowSuggestions]);
+  useClickOutside(
+    [editCommunityNeighborhoodRef, editCommunitySuggestionsRef],
+    () => setEditCommunityShowSuggestions(false),
+    editCommunityShowSuggestions,
+  );
 
   return (
     <section className="py-10 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">

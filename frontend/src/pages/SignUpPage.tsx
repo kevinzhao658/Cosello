@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
 import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -34,17 +35,11 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
     : MANHATTAN_NEIGHBORHOODS;
 
   // Close suggestions on click outside
-  useEffect(() => {
-    if (!showSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (inputRef.current?.contains(target)) return;
-      if (suggestionsRef.current?.contains(target)) return;
-      setShowSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showSuggestions]);
+  useClickOutside(
+    [inputRef, suggestionsRef],
+    () => setShowSuggestions(false),
+    showSuggestions,
+  );
 
   const handleRegister = async () => {
     if (!firstName.trim() || !lastName.trim()) {
