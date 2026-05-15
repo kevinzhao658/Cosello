@@ -120,6 +120,8 @@ interface OrderData {
   buyer_name: string;
   buyer_picture?: string | null;
   seller_id: string;
+  seller_name: string;
+  seller_picture?: string | null;
   status: string;
   selected_pickup_slots: { date: string; time: string }[];
   confirmed_time?: string;
@@ -885,9 +887,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           postedAt: 0,
           status: "sold",
         },
-        buyerName: purchase.buyer_name,
+        // For role=buyer, the "other party" label in the modal renders as
+        // "Seller", so we populate `buyerName` with the seller's name here.
+        // (The field name is a legacy artifact from when the modal was
+        // seller-only; renaming would touch every call site.)
+        buyerName: purchase.seller_name,
         slot: slot || { date: "", time: "" },
         role: "buyer",
+        confirmedTime: purchase.confirmed_time,
+        pickupAddress: purchase.address_released ? purchase.pickup_address : null,
+        order: purchase,
       });
       setShowConfirmSummary(true);
       onClearPendingListing?.();

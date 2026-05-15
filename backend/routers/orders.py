@@ -688,13 +688,20 @@ async def get_orders(
         .all()
     )
 
-    # Collect buyer IDs for name lookup
+    # Collect buyer + seller IDs for name lookup
     buyer_ids = {o.buyer_id for o in orders}
+    seller_ids = {o.seller_id for o in orders}
     buyer_map: dict[int, dict] = {}
-    if buyer_ids:
-        buyers = db.query(User).filter(User.id.in_(buyer_ids)).all()
-        for b in buyers:
-            buyer_map[b.id] = {"name": b.display_name or "Someone", "picture": b.profile_picture}
+    seller_map: dict[int, dict] = {}
+    user_ids = buyer_ids | seller_ids
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        for u in users:
+            entry = {"name": u.display_name or "Someone", "picture": u.profile_picture}
+            if u.id in buyer_ids:
+                buyer_map[u.id] = entry
+            if u.id in seller_ids:
+                seller_map[u.id] = entry
 
     # Filter out orders whose listing no longer exists or has expired,
     # and clean up orphaned orders from the database.
@@ -733,6 +740,8 @@ async def get_orders(
             "buyer_name": buyer_map.get(o.buyer_id, {}).get("name", "Someone"),
             "buyer_picture": buyer_map.get(o.buyer_id, {}).get("picture"),
             "seller_id": o.seller_id,
+            "seller_name": seller_map.get(o.seller_id, {}).get("name", "Seller"),
+            "seller_picture": seller_map.get(o.seller_id, {}).get("picture"),
             "status": o.status,
             "selected_pickup_slots": json.loads(o.selected_pickup_slots) if o.selected_pickup_slots else [],
             "confirmed_time": o.confirmed_time,
