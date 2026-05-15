@@ -13,6 +13,7 @@ import UserProfileOverlay from "./pages/UserProfilePage";
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
+import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
@@ -450,6 +451,19 @@ export default function App() {
   const [sellLetterIndex, setSellLetterIndex] = useState(-1);
 
   const [uploadedImages, setUploadedImages] = useState<{ file: File; preview: string }[]>([]);
+  // Keep a ref of current blob previews so the unmount cleanup below can revoke
+  // any URLs that didn't already get revoked through explicit delete/clear paths.
+  const uploadedImagesRef = useRef(uploadedImages);
+  useEffect(() => {
+    uploadedImagesRef.current = uploadedImages;
+  }, [uploadedImages]);
+  useEffect(() => {
+    return () => {
+      for (const img of uploadedImagesRef.current) {
+        URL.revokeObjectURL(img.preview);
+      }
+    };
+  }, []);
   const [isGenerating, setIsGenerating] = useState(false);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
 
@@ -503,6 +517,7 @@ export default function App() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
   const [marketSearch, setMarketSearch] = useState("");
+  const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
   const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
   const [marketSort, setMarketSort] = useState("newest");
   const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
@@ -563,10 +578,37 @@ export default function App() {
 
   // Notification countdown tick (forces re-render every 60s for live pickup countdowns)
   const [notifCountdownTick, setNotifCountdownTick] = useState(0);
+  // Only schedule the tick when at least one address_released notification is
+  // pinned/active — otherwise nothing on screen depends on Date.now() recomputes.
+  const hasActivePickupNotif = notifications.some(
+    (n) => n.type === "address_released" && n.message.includes("||"),
+  );
   useEffect(() => {
+    if (!hasActivePickupNotif) return;
     const timer = setInterval(() => setNotifCountdownTick((p) => p + 1), 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [hasActivePickupNotif]);
+
+  // Sort comparator depends on Date.now() via isActivePickup, so notifCountdownTick
+  // must stay in the dep array — without it, a pickup crossing the 1-hour boundary
+  // wouldn't re-pin until the next state change.
+  const sortedNotifications = useMemo(() => {
+    return [...notifications].sort((a, b) => {
+      const isActivePickup = (n: typeof notifications[0]) => {
+        if (n.type !== "address_released" || !n.message.includes("||") || n.is_read) return false;
+        const targetIso = n.message.split("||")[2] || "";
+        const target = new Date(targetIso);
+        if (isNaN(target.getTime())) return false;
+        const diff = target.getTime() - Date.now();
+        return diff <= 3600000;
+      };
+      const aPin = isActivePickup(a);
+      const bPin = isActivePickup(b);
+      if (aPin && !bPin) return -1;
+      if (!aPin && bPin) return 1;
+      return 0;
+    });
+  }, [notifications, notifCountdownTick]);
 
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
@@ -1884,44 +1926,56 @@ export default function App() {
       const trimmedBulkDefault = bulkPickupLocation.trim();
       const fallbackPickup = trimmedBulkDefault !== "" ? trimmedBulkDefault : postPickupLocation;
 
-      for (const item of bulkItems) {
-        const formData = new FormData();
-        // Tier 2: send draft URLs returned by /api/segment-photos instead of
-        // re-uploading file bytes. Backend relocates from drafts/ to the final
-        // listing folder server-side. Fresh-files fallback (no segmentation)
-        // re-uploads the bytes via the legacy `images` field.
-        const draftUrlsForItem = segmentation
-          ? item.imageIndices
-              .map((i) => segmentation.image_urls[i])
-              .filter((url): url is string => typeof url === "string" && url.length > 0)
-          : [];
-        if (draftUrlsForItem.length > 0) {
-          formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
-        } else {
-          for (const imgIdx of item.imageIndices) {
-            if (uploadedImages[imgIdx]) {
-              formData.append("images", uploadedImages[imgIdx].file);
+      // Parallelize per-item POSTs. One failure must not block the rest —
+      // collect failures and surface a single aggregated error.
+      const results = await Promise.allSettled(
+        bulkItems.map(async (item) => {
+          const formData = new FormData();
+          // Tier 2: send draft URLs returned by /api/segment-photos instead of
+          // re-uploading file bytes. Backend relocates from drafts/ to the final
+          // listing folder server-side. Fresh-files fallback (no segmentation)
+          // re-uploads the bytes via the legacy `images` field.
+          const draftUrlsForItem = segmentation
+            ? item.imageIndices
+                .map((i) => segmentation.image_urls[i])
+                .filter((url): url is string => typeof url === "string" && url.length > 0)
+            : [];
+          if (draftUrlsForItem.length > 0) {
+            formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
+          } else {
+            for (const imgIdx of item.imageIndices) {
+              if (uploadedImages[imgIdx]) {
+                formData.append("images", uploadedImages[imgIdx].file);
+              }
             }
           }
-        }
-        const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
-        const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
-        formData.append("data", JSON.stringify(productData));
-        formData.append("communities", "");
-        formData.append("visibility", "public");
-        const itemPickup =
-          item.pickupLocation && item.pickupLocation.trim() !== ""
-            ? item.pickupLocation
-            : fallbackPickup;
-        formData.append("pickup_location", itemPickup);
+          const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
+          const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
+          formData.append("data", JSON.stringify(productData));
+          formData.append("communities", "");
+          formData.append("visibility", "public");
+          const itemPickup =
+            item.pickupLocation && item.pickupLocation.trim() !== ""
+              ? item.pickupLocation
+              : fallbackPickup;
+          formData.append("pickup_location", itemPickup);
 
-        const res = await fetch("/api/listings", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
+          const res = await fetch("/api/listings", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
 
-        if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
+          if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
+        }),
+      );
+
+      const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failures.length > 0) {
+        const messages = failures
+          .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
+          .join("\n");
+        throw new Error(messages);
       }
 
       setBulkItems([]);
@@ -2028,7 +2082,7 @@ export default function App() {
     }
 
     const params = new URLSearchParams();
-    if (marketSearch) params.set("search", marketSearch);
+    if (debouncedMarketSearch) params.set("search", debouncedMarketSearch);
     params.set("sort", marketSort);
     if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
@@ -2113,7 +2167,7 @@ export default function App() {
 
   useEffect(() => {
     if (page === "market") fetchListings();
-  }, [page, marketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
+  }, [page, debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
 
   // Keep the URL hash in sync with the current page so a browser refresh
   // preserves where the user was. The initializer above reads from the hash
@@ -2380,23 +2434,7 @@ export default function App() {
                               <p className="text-xs text-white/30">No notifications</p>
                             </div>
                           ) : (
-                          [...notifications].sort((a, b) => {
-                            // Pin address_released notifications only when within 1 hour of pickup AND unread
-                            const isActivePickup = (n: typeof notifications[0]) => {
-                              if (n.type !== "address_released" || !n.message.includes("||") || n.is_read) return false;
-                              const targetIso = n.message.split("||")[2] || "";
-                              const target = new Date(targetIso);
-                              if (isNaN(target.getTime())) return false;
-                              const diff = target.getTime() - Date.now();
-                              // Pin if within 1 hour before pickup or pickup time has passed (awaiting confirmation)
-                              return diff <= 3600000;
-                            };
-                            const aPin = isActivePickup(a);
-                            const bPin = isActivePickup(b);
-                            if (aPin && !bPin) return -1;
-                            if (!aPin && bPin) return 1;
-                            return 0; // preserve original order for ties
-                          }).map((n) => (
+                          sortedNotifications.map((n) => (
                             <NotificationItem
                               key={n.id}
                               n={n}

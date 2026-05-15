@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { supabase } from "../lib/supabase";
 
 export interface AuthUser {
@@ -98,45 +98,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [token, user, isLoading]);
 
-  const login = (newToken: string, newUser: AuthUser | null) => {
+  const login = useCallback((newToken: string, newUser: AuthUser | null) => {
     setToken(newToken);
     setUser(newUser);
     if (newUser) {
       localStorage.setItem("auth_user", JSON.stringify(newUser));
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setToken(null);
     setUser(null);
     localStorage.removeItem("auth_user");
-  };
+  }, []);
 
-  const updateUser = (updated: AuthUser) => {
+  const updateUser = useCallback((updated: AuthUser) => {
     setUser(updated);
     localStorage.setItem("auth_user", JSON.stringify(updated));
-  };
+  }, []);
 
   const needsRegistration =
     token !== null && user !== null && (!user.display_name || !user.neighborhood);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        isLoading,
-        isAuthenticated: token !== null && user !== null,
-        needsRegistration,
-        login,
-        logout,
-        updateUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      token,
+      isLoading,
+      isAuthenticated: token !== null && user !== null,
+      needsRegistration,
+      login,
+      logout,
+      updateUser,
+    }),
+    [user, token, isLoading, needsRegistration, login, logout, updateUser],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
