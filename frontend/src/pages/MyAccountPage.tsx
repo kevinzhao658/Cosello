@@ -369,6 +369,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   // Purchases (buyer's orders) and seller orders
   const [myPurchases, setMyPurchases] = useState<OrderData[]>([]);
   const [mySellerOrders, setMySellerOrders] = useState<OrderData[]>([]);
+  // Becomes true after the first /api/orders fetch completes (success OR empty).
+  // The "open modal from notification" effect waits on this to avoid clearing
+  // pendingListingId before purchases have had a chance to load.
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
 
   // Countdown tick (forces re-render every 60s for live countdowns)
   const [countdownTick, setCountdownTick] = useState(0);
@@ -535,6 +539,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       }
     } catch {
       // ignore
+    } finally {
+      setOrdersLoaded(true);
     }
   }, [token]);
 
@@ -862,10 +868,14 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       onClearPendingListing?.();
       return;
     }
-    // Data not loaded yet — wait for next render
-    if (myListings.length === 0 && myPurchases.length === 0) return;
+    // Orders haven't been fetched yet — wait for the next render after the
+    // first /api/orders call resolves. Previously this only waited when both
+    // myListings + myPurchases were empty, which mis-cleared the pending
+    // state for users who had own listings AND a brand-new confirmed purchase
+    // (myListings populated, myPurchases still loading).
+    if (!ordersLoaded) return;
     onClearPendingListing?.();
-  }, [pendingListingId, myListings, myPurchases]);
+  }, [pendingListingId, myListings, myPurchases, ordersLoaded]);
 
   const handleProfilePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

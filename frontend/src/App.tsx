@@ -4,6 +4,7 @@ import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
 import { useSettings } from "./contexts/SettingsContext";
 import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo } from "react";
+import { createPortal } from "react-dom";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
@@ -892,16 +893,18 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [profileOpen]);
 
-  // Close notifications dropdown on outside click — mark as read on close
+  // Close notifications side panel on Escape — mark as read on close. Clicks
+  // outside are handled by the backdrop element directly (cleaner than a
+  // document-wide listener now that the panel renders outside the bell ref).
   useEffect(() => {
     if (!notificationsOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (notificationsRef.current?.contains(e.target as Node)) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
       setNotificationsOpen(false);
       if (unreadCount > 0) handleMarkAllRead();
     };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
   }, [notificationsOpen, unreadCount]);
 
   // Close history dropdown on outside click
@@ -2330,26 +2333,53 @@ export default function App() {
                     )}
                   </button>
 
-                  {notificationsOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-80 rounded-md border border-white/15 shadow-xl overflow-hidden z-[100]" style={{ backgroundColor: '#18181b' }}>
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-                        <p className="text-xs font-medium">Notifications</p>
-                        {unreadCount > 0 && (
-                          <button
-                            onClick={() => handleMarkAllRead()}
-                            className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
-                          >
-                            Mark read
-                          </button>
-                        )}
-                      </div>
-                      <div className="max-h-[8.5rem] overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="py-8 text-center">
-                            <Bell className="size-5 text-white/15 mx-auto mb-2" />
-                            <p className="text-xs text-white/30">No notifications</p>
+                  {notificationsOpen && createPortal(
+                    <>
+                      {/* Backdrop — dims the rest of the UI; clicking it closes the panel.
+                          Rendered via portal so it escapes the nav's `backdrop-blur` stacking
+                          context (which otherwise traps fixed-positioned children below z-50). */}
+                      <div
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[299] animate-in fade-in duration-200"
+                        onClick={() => {
+                          setNotificationsOpen(false);
+                          if (unreadCount > 0) handleMarkAllRead();
+                        }}
+                      />
+                      {/* Side panel — full viewport height, anchored to the right edge */}
+                      <div
+                        className="fixed top-0 right-0 bottom-0 w-full max-w-md border-l border-white/15 shadow-2xl overflow-hidden flex flex-col z-[300] animate-in slide-in-from-right duration-200"
+                        style={{ backgroundColor: '#18181b' }}
+                      >
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
+                          <p className="text-sm font-medium">Notifications</p>
+                          <div className="flex items-center gap-3">
+                            {unreadCount > 0 && (
+                              <button
+                                onClick={() => handleMarkAllRead()}
+                                className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                              >
+                                Mark all read
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setNotificationsOpen(false);
+                                if (unreadCount > 0) handleMarkAllRead();
+                              }}
+                              className="text-white/40 hover:text-white/70 transition-colors"
+                              aria-label="Close notifications"
+                            >
+                              <X className="size-4" />
+                            </button>
                           </div>
-                        ) : (
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                          {notifications.length === 0 ? (
+                            <div className="py-16 text-center">
+                              <Bell className="size-6 text-white/15 mx-auto mb-3" />
+                              <p className="text-xs text-white/30">No notifications</p>
+                            </div>
+                          ) : (
                           [...notifications].sort((a, b) => {
                             // Pin address_released notifications only when within 1 hour of pickup AND unread
                             const isActivePickup = (n: typeof notifications[0]) => {
@@ -2377,9 +2407,11 @@ export default function App() {
                               onConfirmPickup={() => handleNotifConfirmPickup(n.listing_id)}
                             />
                           ))
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </>,
+                    document.body,
                   )}
                 </div>
 
