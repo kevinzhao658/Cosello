@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import random
 import time
-import uuid
 
 import pytest
+from sqlalchemy import text
 
 import main
 from models import (
@@ -45,19 +47,37 @@ from services.ranking import (
 )
 
 
-pytestmark = pytest.mark.skip(
-    reason=(
-        "Skipped pending test-infra fix: public.users.id FK to auth.users.id "
-        "prevents direct user seeding. Fix tracked in docs/COMMERCIAL_PR_CHECKLIST.md "
-        "(integration test infra item)."
-    )
-)
-
-
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
 # --------------------------------------------------------------------------- #
 # `client` and `db_session` come from conftest.py.
+
+# Lazy module-level Supabase Admin client. We seed auth.users via the Admin API
+# (the 0002_users_trigger.sql trigger auto-creates the matching public.users
+# row) so the public.users.id → auth.users.id FK is satisfied. Cached at
+# module scope to avoid re-creating per call across the 50+ `_mk_user` sites.
+_admin_client = None
+
+
+def _get_admin():
+    global _admin_client
+    if _admin_client is None:
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if not url or not key:
+            pytest.skip(
+                "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set "
+                "(load backend/.env before running tests)"
+            )
+        from supabase import create_client
+        _admin_client = create_client(url, key)
+    return _admin_client
+
+
+def _random_test_phone() -> str:
+    # FCC test range, 60000-99999 suffix to avoid colliding with the prod-seeded
+    # test users (+15555550101-103) and other concurrent test runs.
+    return f"+15555{random.randint(60000, 99999)}"
 
 
 @pytest.fixture
@@ -66,14 +86,32 @@ def now_ts():
 
 
 def _mk_user(db, *, neighborhood: str | None = None) -> User:
-    user = User(
-        id=str(uuid.uuid4()),
-        display_name="Test User",
-        neighborhood=neighborhood,
+    """Create a test user via Supabase Admin API, then patch profile fields.
+
+    The trigger auto-creates the public.users row keyed to the new auth.users
+    UUID; we then update display_name/neighborhood/zip_code via raw SQL and
+    return the SQLAlchemy User instance.
+    """
+    admin = _get_admin()
+    resp = admin.auth.admin.create_user(
+        {"phone": _random_test_phone(), "phone_confirm": True}
     )
-    db.add(user)
+    auth_user = getattr(resp, "user", None) or resp
+    user_id = auth_user.id
+
+    db.execute(
+        text("""
+            UPDATE public.users
+            SET display_name = :name,
+                neighborhood = :hood
+            WHERE id = :id
+        """),
+        {"name": "Test User", "hood": neighborhood, "id": user_id},
+    )
     db.commit()
-    db.refresh(user)
+
+    user = db.query(User).filter(User.id == user_id).first()
+    assert user is not None, f"public.users row missing for {user_id} — trigger drift?"
     return user
 
 
@@ -157,9 +195,17 @@ def cleanup(db_session):
         db_session.query(CommunityMember).filter(
             CommunityMember.user_id.in_(state["user_ids"])
         ).delete(synchronize_session=False)
-        db_session.query(User).filter(
-            User.id.in_(state["user_ids"])
-        ).delete(synchronize_session=False)
+        # Delete via Supabase Admin API instead of `query(User).delete()` —
+        # the auth.users → public.users CASCADE handles removing the public
+        # row, and this also reclaims the matching auth.users entry instead
+        # of leaving orphan auth rows accumulating across test runs.
+        db_session.commit()
+        admin = _get_admin()
+        for user_id in state["user_ids"]:
+            try:
+                admin.auth.admin.delete_user(user_id)
+            except Exception:
+                pass
     if state["community_ids"]:
         db_session.query(Community).filter(
             Community.id.in_(state["community_ids"])

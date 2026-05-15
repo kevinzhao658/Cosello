@@ -45,7 +45,9 @@ class FakeMessages:
         self._responses = list(responses)
         self.calls: list[dict] = []
 
-    def create(self, *, model, max_tokens, messages):
+    def create(self, *, model, max_tokens, messages, **kwargs):
+        # Accept (and ignore) any extra kwargs the prod call passes — e.g.
+        # `timeout` was added in main.py after this stub was first written.
         self.calls.append({"model": model, "max_tokens": max_tokens, "messages": messages})
         if not self._responses:
             raise AssertionError("FakeMessages exhausted")
@@ -79,9 +81,6 @@ def patch_vision_empty(monkeypatch):
         return [VisionResult() for _ in image_bytes_list]
 
     monkeypatch.setattr(main.vision, "analyze_images", _fake_analyze)
-    # Bypass the phash cache so each call hits the (mocked) analyze_images.
-    monkeypatch.setattr(main._phash_cache, "get", lambda _b: None)
-    monkeypatch.setattr(main._phash_cache, "set", lambda _b, _r: None)
 
 
 @pytest.fixture
@@ -101,8 +100,6 @@ def patch_vision_signaled(monkeypatch):
         ]
 
     monkeypatch.setattr(main.vision, "analyze_images", _fake_analyze)
-    monkeypatch.setattr(main._phash_cache, "get", lambda _b: None)
-    monkeypatch.setattr(main._phash_cache, "set", lambda _b, _r: None)
 
 
 def _patch_claude(monkeypatch, responses: list[str]) -> FakeAnthropicClient:
@@ -126,14 +123,9 @@ def test_segment_photos_zero_images_returns_400(client):
     assert resp.status_code in (400, 422)
 
 
-@pytest.mark.skip(
-    reason=(
-        "Skipped pending test-infra fix: public.users.id FK to auth.users.id "
-        "prevents direct user seeding. Fix tracked in docs/COMMERCIAL_PR_CHECKLIST.md "
-        "(integration test infra item)."
-    )
-)
-def test_segment_photos_single_image_returns_single_group(client, monkeypatch, patch_vision_signaled):
+def test_segment_photos_single_image_returns_single_group(
+    client, monkeypatch, patch_vision_signaled, mock_storage
+):
     # Single image: endpoint short-circuits to a single group without calling Claude.
     fake = _patch_claude(monkeypatch, responses=[])  # should NOT be called
 
@@ -147,7 +139,7 @@ def test_segment_photos_single_image_returns_single_group(client, monkeypatch, p
 
     assert body["groupings"] == [[0]]
     assert len(body["image_urls"]) == 1
-    assert body["image_urls"][0].startswith("/uploads/")
+    assert body["image_urls"][0].startswith("https://test.storage.fake/")
     assert body["image_urls"][0].endswith(".jpg")
     assert len(body["vision_signals"]) == 1
     sig = body["vision_signals"][0]
@@ -157,15 +149,8 @@ def test_segment_photos_single_image_returns_single_group(client, monkeypatch, p
     assert fake.messages.calls == []
 
 
-@pytest.mark.skip(
-    reason=(
-        "Skipped pending test-infra fix: public.users.id FK to auth.users.id "
-        "prevents direct user seeding. Fix tracked in docs/COMMERCIAL_PR_CHECKLIST.md "
-        "(integration test infra item)."
-    )
-)
 def test_segment_photos_malformed_json_falls_back_to_single_group(
-    client, monkeypatch, patch_vision_signaled
+    client, monkeypatch, patch_vision_signaled, mock_storage
 ):
     """When Claude returns invalid JSON, /api/segment-photos returns [[0,1,...,N-1]]."""
     _patch_claude(monkeypatch, responses=["not json at all {{{"])
@@ -181,15 +166,8 @@ def test_segment_photos_malformed_json_falls_back_to_single_group(
     assert len(body["vision_signals"]) == 3
 
 
-@pytest.mark.skip(
-    reason=(
-        "Skipped pending test-infra fix: public.users.id FK to auth.users.id "
-        "prevents direct user seeding. Fix tracked in docs/COMMERCIAL_PR_CHECKLIST.md "
-        "(integration test infra item)."
-    )
-)
 def test_segment_photos_returns_per_image_vision_signals(
-    client, monkeypatch, patch_vision_signaled
+    client, monkeypatch, patch_vision_signaled, mock_storage
 ):
     _patch_claude(monkeypatch, responses=["[[0, 1], [2]]"])
 
@@ -208,15 +186,8 @@ def test_segment_photos_returns_per_image_vision_signals(
     ]
 
 
-@pytest.mark.skip(
-    reason=(
-        "Skipped pending test-infra fix: public.users.id FK to auth.users.id "
-        "prevents direct user seeding. Fix tracked in docs/COMMERCIAL_PR_CHECKLIST.md "
-        "(integration test infra item)."
-    )
-)
 def test_segment_photos_invalid_groupings_fall_back(
-    client, monkeypatch, patch_vision_signaled
+    client, monkeypatch, patch_vision_signaled, mock_storage
 ):
     """Claude returns valid JSON but indices don't cover 0..N-1 exactly once."""
     _patch_claude(monkeypatch, responses=["[[0, 1]]"])  # missing index 2
@@ -235,16 +206,25 @@ def test_segment_photos_invalid_groupings_fall_back(
 # --------------------------------------------------------------------------- #
 
 
-def _seed_uploaded_images(n: int) -> list[str]:
-    """Drop n preprocessed images on disk via the helper. Returns the URLs."""
+def _seed_uploaded_images(mock_storage: dict[str, bytes], n: int) -> list[str]:
+    """Register n preprocessed PNGs in the mock Storage dict; return the URLs.
+
+    Mirrors the prod /api/segment-photos path (Pillow preprocess → Storage
+    upload) but populates the mock-storage in-memory store directly, so the
+    /api/generate-listings endpoint under test can call `download_image(url)`
+    against any of the returned URLs and get back valid image bytes.
+    """
+    import uuid as _uuid
+
     urls: list[str] = []
     for i in range(n):
         processed = main._preprocess_image_bytes(_png_bytes((i * 30, 50, 50)))
-        import uuid as _uuid
-
-        name = f"{_uuid.uuid4().hex}.jpg"
-        (main.UPLOADS_DIR / name).write_bytes(processed)
-        urls.append(f"/uploads/{name}")
+        url = (
+            "https://test.storage.fake/listings/drafts/"
+            f"{_uuid.uuid4().hex}.jpg"
+        )
+        mock_storage[url] = processed
+        urls.append(url)
     return urls
 
 
@@ -261,8 +241,8 @@ def _empty_signals(n: int) -> list[dict]:
     ]
 
 
-def test_generate_listings_brand_hints_length_mismatch(client):
-    urls = _seed_uploaded_images(2)
+def test_generate_listings_brand_hints_length_mismatch(client, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 2)
     payload = {
         "groupings": [[0, 1]],
         "image_urls": urls,
@@ -275,8 +255,8 @@ def test_generate_listings_brand_hints_length_mismatch(client):
     assert "brand_hints" in resp.json()["detail"]
 
 
-def test_generate_listings_names_length_mismatch(client):
-    urls = _seed_uploaded_images(2)
+def test_generate_listings_names_length_mismatch(client, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 2)
     payload = {
         "groupings": [[0, 1]],
         "image_urls": urls,
@@ -289,8 +269,8 @@ def test_generate_listings_names_length_mismatch(client):
     assert "names" in resp.json()["detail"]
 
 
-def test_generate_listings_invalid_rationale(client):
-    urls = _seed_uploaded_images(1)
+def test_generate_listings_invalid_rationale(client, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 1)
     payload = {
         "groupings": [[0]],
         "image_urls": urls,
@@ -304,8 +284,8 @@ def test_generate_listings_invalid_rationale(client):
     assert "rationale" in resp.json()["detail"].lower()
 
 
-def test_generate_listings_other_requires_rationale_other(client):
-    urls = _seed_uploaded_images(1)
+def test_generate_listings_other_requires_rationale_other(client, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 1)
     payload = {
         "groupings": [[0]],
         "image_urls": urls,
@@ -320,8 +300,8 @@ def test_generate_listings_other_requires_rationale_other(client):
     assert "rationale_other" in resp.json()["detail"]
 
 
-def test_generate_listings_image_urls_length_mismatch(client):
-    urls = _seed_uploaded_images(2)
+def test_generate_listings_image_urls_length_mismatch(client, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 2)
     payload = {
         "groupings": [[0, 1]],
         "image_urls": urls,
@@ -359,8 +339,8 @@ def test_generate_listings_path_traversal_blocked(client):
     assert resp.status_code == 400
 
 
-def test_generate_listings_happy_path_two_groups(client, monkeypatch):
-    urls = _seed_uploaded_images(3)
+def test_generate_listings_happy_path_two_groups(client, monkeypatch, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 3)
     # Claude now returns `name` + `brand` as top-level fields.
     listing_a = {
         "name": "Duffel",
@@ -433,9 +413,9 @@ def test_generate_listings_happy_path_two_groups(client, monkeypatch):
     assert all("retrieval_fallback" in item for item in body)
 
 
-def test_generate_listings_strips_brand_prefix_from_name(client, monkeypatch):
+def test_generate_listings_strips_brand_prefix_from_name(client, monkeypatch, mock_storage):
     """If Claude prefixes the brand into `name`, the server strips it."""
-    urls = _seed_uploaded_images(1)
+    urls = _seed_uploaded_images(mock_storage, 1)
     listing = {
         "name": "Nike Air Force 1",  # brand snuck in — server must strip
         "brand": "Nike",
@@ -465,10 +445,10 @@ def test_generate_listings_strips_brand_prefix_from_name(client, monkeypatch):
 
 
 def test_generate_listings_falls_back_to_brand_hint_when_claude_omits_brand(
-    client, monkeypatch
+    client, monkeypatch, mock_storage
 ):
     """When Claude returns brand="" but the seller confirmed a brand, use the hint."""
-    urls = _seed_uploaded_images(1)
+    urls = _seed_uploaded_images(mock_storage, 1)
     listing = {
         "name": "Better Sweater",
         "brand": "",  # empty — must fall back to brand_hint
@@ -497,15 +477,15 @@ def test_generate_listings_falls_back_to_brand_hint_when_claude_omits_brand(
     assert body[0]["name"] == "Better Sweater"
 
 
-def test_generate_listings_per_group_failure_isolated(client, monkeypatch):
-    urls = _seed_uploaded_images(2)
+def test_generate_listings_per_group_failure_isolated(client, monkeypatch, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 2)
 
     class FlakyMessages:
         def __init__(self):
             self.n = 0
             self.calls = []
 
-        def create(self, *, model, max_tokens, messages):
+        def create(self, *, model, max_tokens, messages, **kwargs):
             self.calls.append(messages)
             self.n += 1
             if self.n == 1:
@@ -555,8 +535,8 @@ def test_generate_listings_per_group_failure_isolated(client, monkeypatch):
     assert "_error" in body[1]
 
 
-def test_generate_listings_invalid_index_in_groupings(client):
-    urls = _seed_uploaded_images(2)
+def test_generate_listings_invalid_index_in_groupings(client, mock_storage):
+    urls = _seed_uploaded_images(mock_storage, 2)
     payload = {
         "groupings": [[0, 5]],  # 5 is OOB
         "image_urls": urls,
@@ -568,13 +548,15 @@ def test_generate_listings_invalid_index_in_groupings(client):
     assert resp.status_code == 400
 
 
-def test_generate_listings_brand_hint_normalization_used_in_prompt(client, monkeypatch):
+def test_generate_listings_brand_hint_normalization_used_in_prompt(
+    client, monkeypatch, mock_storage
+):
     """Long/empty/HTML brand hints get normalized BEFORE going into the Claude prompt."""
-    urls = _seed_uploaded_images(4)
+    urls = _seed_uploaded_images(mock_storage, 4)
     captured_prompts: list[str] = []
 
     class CapturingMessages:
-        def create(self, *, model, max_tokens, messages):
+        def create(self, *, model, max_tokens, messages, **kwargs):
             # The prompt is the last text block in the user message content.
             text_blocks = [b["text"] for b in messages[0]["content"] if b.get("type") == "text"]
             captured_prompts.append(text_blocks[-1])
@@ -621,13 +603,15 @@ def test_generate_listings_brand_hint_normalization_used_in_prompt(client, monke
     assert "SELLER-CONFIRMED BRAND" not in captured_prompts[3]
 
 
-def test_generate_listings_seller_name_and_rationale_in_prompt(client, monkeypatch):
+def test_generate_listings_seller_name_and_rationale_in_prompt(
+    client, monkeypatch, mock_storage
+):
     """Seller-provided name + per-batch rationale are injected into the prompt."""
-    urls = _seed_uploaded_images(2)
+    urls = _seed_uploaded_images(mock_storage, 2)
     captured_prompts: list[str] = []
 
     class CapturingMessages:
-        def create(self, *, model, max_tokens, messages):
+        def create(self, *, model, max_tokens, messages, **kwargs):
             text_blocks = [b["text"] for b in messages[0]["content"] if b.get("type") == "text"]
             captured_prompts.append(text_blocks[-1])
             return _claude_text_response(
@@ -697,13 +681,13 @@ def test_generate_listings_seller_name_and_rationale_in_prompt(client, monkeypat
 
 
 def test_generate_listings_rationale_other_passes_custom_text_to_prompt(
-    client, monkeypatch
+    client, monkeypatch, mock_storage
 ):
-    urls = _seed_uploaded_images(1)
+    urls = _seed_uploaded_images(mock_storage, 1)
     captured_prompts: list[str] = []
 
     class CapturingMessages:
-        def create(self, *, model, max_tokens, messages):
+        def create(self, *, model, max_tokens, messages, **kwargs):
             text_blocks = [b["text"] for b in messages[0]["content"] if b.get("type") == "text"]
             captured_prompts.append(text_blocks[-1])
             return _claude_text_response(
