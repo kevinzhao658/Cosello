@@ -16,6 +16,7 @@ import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { formatCountdown, parseAddressReleasedMessage, parseHourPeriod, PIN_WINDOW_MS } from "./lib/pickupTime";
+import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
@@ -677,9 +678,8 @@ export default function App() {
         category: editCategory,
         categoryAttributes: editCategoryAttributes,
       }));
-      const res = await fetch(`/api/listings/${listingDetailData.id}`, {
+      const res = await apiFetch(`/api/listings/${listingDetailData.id}`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
       if (res.ok) {
@@ -714,13 +714,9 @@ export default function App() {
       setIsLoadingListingDetail(true);
       try {
         const [profileRes, orderStatusRes] = await Promise.all([
-          fetch(`/api/friends/profile/${listing.userId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+          apiFetch(`/api/friends/profile/${listing.userId}`),
           listing.userId !== user?.id
-            ? fetch(`/api/orders/status/${listing.id}`, {
-                headers: { Authorization: `Bearer ${token}` },
-              })
+            ? apiFetch(`/api/orders/status/${listing.id}`)
             : Promise.resolve(null),
         ]);
         if (profileRes.ok) setListingDetailSellerProfile(await profileRes.json());
@@ -799,9 +795,9 @@ export default function App() {
           time: `${formatHour(from)} – ${formatHour(to)}`,
         }))
       );
-      const res = await fetch("/api/orders", {
+      const res = await apiFetch("/api/orders", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           listing_id: listingDetailData.id,
           selected_pickup_slots: slots,
@@ -840,9 +836,9 @@ export default function App() {
           time: `${formatHour(from)} – ${formatHour(to)}`,
         }))
       );
-      const res = await fetch(`/api/orders/${editingOrderId}/update-slots`, {
+      const res = await apiFetch(`/api/orders/${editingOrderId}/update-slots`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selected_pickup_slots: slots }),
       });
       if (!res.ok) {
@@ -905,9 +901,7 @@ export default function App() {
   const fetchUnreadCount = async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/notifications/unread-count", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/notifications/unread-count");
       if (res.ok) {
         const data = await res.json();
         setUnreadCount(data.count);
@@ -918,9 +912,7 @@ export default function App() {
   const fetchNotifications = async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/notifications", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/notifications");
       if (res.ok) {
         setNotifications(await res.json());
       }
@@ -930,9 +922,8 @@ export default function App() {
   const handleMarkAllRead = async () => {
     if (!token) return;
     try {
-      await fetch("/api/notifications/mark-read", {
+      await apiFetch("/api/notifications/mark-read", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
       setUnreadCount(0);
@@ -942,9 +933,8 @@ export default function App() {
   const handleNotificationAction = async (notificationId: number, action: "accept" | "reject") => {
     if (!token) return;
     try {
-      const res = await fetch(`/api/notifications/${notificationId}/${action}`, {
+      const res = await apiFetch(`/api/notifications/${notificationId}/${action}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setNotifications((prev) =>
@@ -1436,9 +1426,8 @@ export default function App() {
     const urls = await uploadToStorage(files, token);
     const formData = new FormData();
     formData.append("image_urls", JSON.stringify(urls));
-    const res = await fetch("/api/segment-photos", {
+    const res = await apiFetch("/api/segment-photos", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
       body: formData,
       signal,
     });
@@ -1485,11 +1474,10 @@ export default function App() {
     if (!token) {
       throw new Error("Sign in to upload");
     }
-    const res = await fetch("/api/generate-listings", {
+    const res = await apiFetch("/api/generate-listings", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
     });
@@ -1788,9 +1776,8 @@ export default function App() {
       formData.append("visibility", "public");
       formData.append("pickup_location", postPickupLocation);
 
-      const res = await fetch("/api/listings", {
+      const res = await apiFetch("/api/listings", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -1901,9 +1888,8 @@ export default function App() {
               : fallbackPickup;
           formData.append("pickup_location", itemPickup);
 
-          const res = await fetch("/api/listings", {
+          const res = await apiFetch("/api/listings", {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
             body: formData,
           });
 
@@ -1946,9 +1932,8 @@ export default function App() {
   const handleLogout = async () => {
     setProfileOpen(false);
     try {
-      await fetch("/api/auth/logout", {
+      await apiFetch("/api/auth/logout", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
     } catch {
       // ignore
@@ -1985,9 +1970,7 @@ export default function App() {
   const fetchFilterCommunities = async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/communities/mine-with-neighborhood", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/communities/mine-with-neighborhood");
       if (res.ok) {
         const data = await res.json();
         setPublicCommunities(data.public || []);
@@ -2003,7 +1986,7 @@ export default function App() {
   }, [isAuthenticated, page]);
 
   useEffect(() => {
-    fetch("/api/categories")
+    apiFetch("/api/categories")
       .then((res) => res.json())
       .then((data) => setCategorySchemas(data))
       .catch((err) => console.error("Failed to fetch category schemas:", err));
@@ -2012,9 +1995,7 @@ export default function App() {
   const fetchListings = async () => {
     if (showMyListings && isAuthenticated && token) {
       try {
-        const res = await fetch(`/api/listings/mine`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch(`/api/listings/mine`);
         if (res.ok) setListings(await res.json());
       } catch (err) {
         console.error("Failed to fetch my listings:", err);
@@ -2038,16 +2019,14 @@ export default function App() {
         if (user?.neighborhood) params.set("neighborhood", user.neighborhood);
       }
       try {
-        const res = await fetch(`/api/listings?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch(`/api/listings?${params}`);
         if (res.ok) setListings(await res.json());
       } catch (err) {
         console.error("Failed to fetch listings:", err);
       }
     } else {
       try {
-        const res = await fetch(`/api/listings/public?${params}`);
+        const res = await apiFetch(`/api/listings/public?${params}`);
         if (res.ok) setListings(await res.json());
       } catch (err) {
         console.error("Failed to fetch public listings:", err);
@@ -2058,7 +2037,7 @@ export default function App() {
   const fetchWishlist = async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/wishlist", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch("/api/wishlist");
       if (res.ok) {
         const ids: string[] = await res.json();
         setWishlist(new Set(ids));
@@ -2071,7 +2050,7 @@ export default function App() {
   const fetchWishlistItems = async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/wishlist/listings", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch("/api/wishlist/listings");
       if (res.ok) {
         const data: Listing[] = await res.json();
         setWishlistItems(data);
@@ -2084,9 +2063,8 @@ export default function App() {
   const toggleWishlist = async (listingId: string) => {
     if (!token) return;
     try {
-      const res = await fetch(`/api/wishlist/${listingId}`, {
+      const res = await apiFetch(`/api/wishlist/${listingId}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const { wishlisted } = await res.json();
@@ -2133,7 +2111,7 @@ export default function App() {
   const fetchMyOrderStatuses = async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/orders", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const orders: { id: number; listing_id: string; status: string; role: string; selected_pickup_slots: { date: string; time: string }[] }[] = await res.json();
         const statuses: Record<string, { status: string; orderId: number }> = {};
@@ -3856,7 +3834,7 @@ export default function App() {
                                 // Fetch existing slots then open edit modal
                                 (async () => {
                                   try {
-                                    const res = await fetch(`/api/orders/status/${listing.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                    const res = await apiFetch(`/api/orders/status/${listing.id}`);
                                     if (res.ok) {
                                       const data = await res.json();
                                       openEditPickupSlots(listing, data.order_id, data.selected_pickup_slots || []);
@@ -4705,7 +4683,7 @@ export default function App() {
                       if (buyerOrderStatus?.order_id && listingDetailData) {
                         (async () => {
                           try {
-                            const res = await fetch(`/api/orders/status/${listingDetailData.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                            const res = await apiFetch(`/api/orders/status/${listingDetailData.id}`);
                             if (res.ok) {
                               const data = await res.json();
                               openEditPickupSlots(listingDetailData, data.order_id, data.selected_pickup_slots || []);

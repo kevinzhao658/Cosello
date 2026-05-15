@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { supabase } from "../lib/supabase";
+import { setApiToken, setOnUnauthorized } from "../lib/api";
 
 export interface AuthUser {
   id: string;
@@ -116,6 +117,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateUser = useCallback((updated: AuthUser) => {
     setUser(updated);
     localStorage.setItem("auth_user", JSON.stringify(updated));
+  }, []);
+
+  // Keep the apiFetch token registry in sync with auth state.
+  useEffect(() => {
+    setApiToken(token);
+  }, [token]);
+
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      void supabase.auth.signOut();
+    });
+    return () => setOnUnauthorized(null);
   }, []);
 
   const needsRegistration =

@@ -37,6 +37,7 @@ import { formatTitle } from "../lib/format";
 import { supabase } from "../lib/supabase";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "../lib/pickupTime";
+import { apiFetch } from "../lib/api";
 import type { Listing, MyListing } from "../lib/types";
 import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
 import { CONDITIONS } from "../lib/listings";
@@ -291,9 +292,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         location: editLocation,
         tags: editTags,
       }));
-      const res = await fetch(`/api/listings/${editListing.id}`, {
+      const res = await apiFetch(`/api/listings/${editListing.id}`, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
       if (res.ok) {
@@ -397,9 +397,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         const countdown = getPickupCountdown(order);
         // Trigger when 1 hour or less until pickup (diff <= 3600000ms)
         if (countdown.diff <= 3600000) {
-          fetch(`/api/orders/${order.id}/release-address`, {
+          apiFetch(`/api/orders/${order.id}/release-address`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
           }).then((res) => {
             if (res.ok) fetchAllOrders();
           }).catch(() => {});
@@ -416,9 +415,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (order.status === "pending" && order.selected_pickup_slots.length > 0) {
         const allExpired = order.selected_pickup_slots.every((slot) => isSlotExpired(slot));
         if (allExpired) {
-          fetch(`/api/orders/${order.id}/expire`, {
+          apiFetch(`/api/orders/${order.id}/expire`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
           }).then((res) => {
             if (res.ok) fetchAllOrders();
           }).catch(() => {});
@@ -447,9 +445,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token || !ratingOrder || ratingValue === 0) return;
     setIsSubmittingRating(true);
     try {
-      const res = await fetch(`/api/orders/${ratingOrder.id}/complete`, {
+      const res = await apiFetch(`/api/orders/${ratingOrder.id}/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating: ratingValue, comment: ratingComment }),
       });
       if (!res.ok) {
@@ -470,9 +468,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchAllOrders = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         setMyPurchases(allOrders.filter((o) => o.role === "buyer"));
@@ -490,9 +486,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowOrderModal(true);
     setIsLoadingOrders(true);
     try {
-      const res = await fetch("/api/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         setListingOrders(
@@ -509,9 +503,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const openConfirmedOrderSummary = async (listingId: string) => {
     if (!token) return;
     try {
-      const res = await fetch("/api/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         const order = allOrders.find((o) => o.listing_id === listingId && o.status === "confirmed");
@@ -549,9 +541,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setConfirmingOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/confirm`, {
+      const res = await apiFetch(`/api/orders/${orderId}/confirm`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmed_slot: slot, confirmed_time: confirmedTime }),
       });
       if (res.ok) {
@@ -591,9 +583,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setDecliningOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/decline`, {
+      const res = await apiFetch(`/api/orders/${orderId}/decline`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setListingOrders((prev) => prev.filter((o) => o.id !== orderId));
@@ -612,9 +603,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setWithdrawingOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/withdraw`, {
+      const res = await apiFetch(`/api/orders/${orderId}/withdraw`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setShowWithdrawConfirm(null);
@@ -630,9 +620,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchStats = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/friends/stats", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends/stats");
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -645,9 +633,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchMyListings = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/listings/mine", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/listings/mine");
       if (res.ok) {
         const data = await res.json();
         setMyListings(data);
@@ -677,9 +663,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRelistingId(listingId);
     try {
-      const res = await fetch(`/api/listings/${listingId}/relist`, {
+      const res = await apiFetch(`/api/listings/${listingId}/relist`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         fetchMyListings();
@@ -695,9 +680,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setIsLoadingRecommended(true);
     try {
-      const res = await fetch("/api/friends/recommended", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends/recommended");
       if (res.ok) {
         const data = await res.json();
         setRecommendedFriends(data);
@@ -713,9 +696,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setIsLoadingFriends(true);
     try {
-      const res = await fetch("/api/friends", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends");
       if (res.ok) {
         const data = await res.json();
         setFriendsList(data);
@@ -731,9 +712,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRemovingFriendId(friendId);
     try {
-      const res = await fetch(`/api/friends/${friendId}`, {
+      const res = await apiFetch(`/api/friends/${friendId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setFriendsList((prev) => prev.filter((f) => f.id !== friendId));
@@ -755,9 +735,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchCommunities = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/communities/mine", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/communities/mine");
       if (res.ok) {
         const data = await res.json();
         setCommunities(data);
@@ -858,9 +836,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const formData = new FormData();
       formData.append("image", file);
 
-      const res = await fetch("/api/auth/profile-picture", {
+      const res = await apiFetch("/api/auth/profile-picture", {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -881,11 +858,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setIsJoining(true);
     setJoinError("");
     try {
-      const res = await fetch("/api/communities/join", {
+      const res = await apiFetch("/api/communities/join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ invite_code: joinCode.trim() }),
       });
@@ -918,8 +894,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (!token) return;
       setIsSearchingCommunities(true);
       try {
-        const res = await fetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await apiFetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`, {
         });
         if (res.ok) {
           const data = await res.json();
@@ -937,11 +912,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setJoiningCommunityId(communityId);
     try {
-      const res = await fetch("/api/communities/join", {
+      const res = await apiFetch("/api/communities/join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ invite_code: inviteCode }),
       });
@@ -964,11 +938,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRequestingCommunityId(communityId);
     try {
-      const res = await fetch("/api/communities/request-join", {
+      const res = await apiFetch("/api/communities/request-join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ community_id: communityId }),
       });
@@ -988,11 +961,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRequestingCommunityId(communityId);
     try {
-      const res = await fetch("/api/communities/cancel-request", {
+      const res = await apiFetch("/api/communities/cancel-request", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ community_id: communityId }),
       });
@@ -1038,9 +1010,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       formData.append("is_public", String(createIsPublic));
       if (createImage) formData.append("image", createImage);
 
-      const res = await fetch("/api/communities", {
+      const res = await apiFetch("/api/communities", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -1119,9 +1090,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setPendingRequests([]);
     setIsLoadingMembers(true);
     try {
-      const res = await fetch(`/api/communities/${community.id}/members`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/communities/${community.id}/members`);
       if (res.ok) {
         const data = await res.json();
         setCommunityMembers(data);
@@ -1135,9 +1104,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!community.is_public && community.created_by === user?.id) {
       setIsLoadingRequests(true);
       try {
-        const res = await fetch(`/api/communities/${community.id}/requests`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch(`/api/communities/${community.id}/requests`);
         if (res.ok) {
           setPendingRequests(await res.json());
         }
@@ -1153,16 +1120,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setAcceptingRequestId(requestId);
     try {
-      const res = await fetch(`/api/communities/${communityId}/requests/${requestId}/accept`, {
+      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/accept`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
         // Refresh members list
-        const membersRes = await fetch(`/api/communities/${communityId}/members`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const membersRes = await apiFetch(`/api/communities/${communityId}/members`);
         if (membersRes.ok) {
           setCommunityMembers(await membersRes.json());
         }
@@ -1180,9 +1144,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRejectingRequestId(requestId);
     try {
-      const res = await fetch(`/api/communities/${communityId}/requests/${requestId}/reject`, {
+      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/reject`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
@@ -1198,9 +1161,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setKickingMemberId(memberId);
     try {
-      const res = await fetch(`/api/communities/${communityId}/members/${memberId}`, {
+      const res = await apiFetch(`/api/communities/${communityId}/members/${memberId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setCommunityMembers((prev) => prev.filter((m) => m.id !== memberId));
@@ -1236,11 +1198,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsSavingCommunity(true);
     try {
-      const res = await fetch(`/api/communities/${selectedCommunity.id}`, {
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: editCommunityName.trim(),
@@ -1269,9 +1230,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsDeletingCommunity(true);
     try {
-      const res = await fetch(`/api/communities/${selectedCommunity.id}`, {
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
@@ -1290,9 +1250,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsLeavingCommunity(true);
     try {
-      const res = await fetch(`/api/communities/${selectedCommunity.id}/leave`, {
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}/leave`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
@@ -1312,9 +1271,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchFriendsForInvite = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/friends", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends");
       if (res.ok) {
         const data = await res.json();
         setAllFriends(data);
@@ -1354,11 +1311,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!createdCommunity || selectedFriends.length === 0 || !token) return;
     setIsInviting(true);
     try {
-      await fetch("/api/communities/invite", {
+      await apiFetch("/api/communities/invite", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           community_id: createdCommunity.id,
@@ -1408,8 +1364,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (!token) return;
       setIsAddFriendsSearching(true);
       try {
-        const res = await fetch(`/api/friends/search?q=${encodeURIComponent(query.trim())}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await apiFetch(`/api/friends/search?q=${encodeURIComponent(query.trim())}`, {
         });
         if (res.ok) {
           const data = await res.json();
@@ -1427,11 +1382,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setAddingFriendId(userId);
     try {
-      const res = await fetch("/api/friends/add", {
+      const res = await apiFetch("/api/friends/add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ user_id: userId }),
       });
@@ -1501,11 +1455,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setEditProfileError("");
 
     try {
-      const res = await fetch("/api/auth/profile", {
+      const res = await apiFetch("/api/auth/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           display_name: `${editFirstName.trim()} ${editLastName.trim()}`,

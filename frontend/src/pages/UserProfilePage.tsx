@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
+import { apiFetch } from "../lib/api";
 import type { Listing } from "../lib/types";
 
 interface ProfileData {
@@ -49,9 +50,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
     if (!token) return;
     setIsLoading(true);
     setData(null);
-    fetch(`/api/friends/profile/${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch(`/api/friends/profile/${userId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((d) => setData(d))
       .catch(() => {})
@@ -63,15 +62,14 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
     setIsTogglingFriend(true);
     try {
       if (data.is_friend) {
-        await fetch(`/api/friends/${data.id}`, {
+        await apiFetch(`/api/friends/${data.id}`, {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
         });
         setData({ ...data, is_friend: false });
       } else {
-        const res = await fetch("/api/friends/add", {
+        const res = await apiFetch("/api/friends/add", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: data.id }),
         });
         if (res.ok) setData({ ...data, is_friend: true });
