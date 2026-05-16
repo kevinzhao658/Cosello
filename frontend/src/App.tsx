@@ -1,11 +1,10 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, CheckCircle, Check, Lock, Pencil, Clock, Package, ShoppingBag } from "lucide-react";
+import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, Upload, X, Plus, Loader2, MapPin, Globe, Settings, ChevronRight, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Check, Lock, Pencil, Clock, Package, ShoppingBag } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
 import { ModalShell } from "./components/ui/ModalShell";
 import { useSettings } from "./contexts/SettingsContext";
 import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo, lazy, Suspense } from "react";
-import { createPortal } from "react-dom";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
@@ -14,17 +13,18 @@ const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
 import { EditListingModal } from "./components/EditListingModal";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
+import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { useClickOutside } from "./hooks/useClickOutside";
-import { formatCountdown, parseAddressReleasedMessage, parseHourPeriod, PIN_WINDOW_MS } from "./lib/pickupTime";
+import { parseHourPeriod } from "./lib/pickupTime";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
 import type { CategorySlug, Listing, ListingUpdatePatch } from "./lib/types";
 import { CONDITIONS } from "./lib/listings";
-import { getNotificationVisuals, isClickableNotification } from "./lib/notifications";
+import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
@@ -317,89 +317,6 @@ const GroupCard = memo(function GroupCard({
   );
 });
 
-// ─── NotificationItem ─────────────────────────────────────────────────────────
-// Memoized so unrelated state changes in App don't re-render the notification
-// list. countdownTick is only passed as non-zero for address_released items so
-// the 60s timer only re-renders those rows.
-const NotificationItem = memo(function NotificationItem({
-  n, countdownTick, onOpenUserDashboard, onAction, onClick, onConfirmPickup,
-}: {
-  n: { id: number; type: string; message: string; is_read: boolean; related_user_id: string | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null };
-  countdownTick: number;
-  onOpenUserDashboard: (userId: string) => void;
-  onAction: (id: number, action: "accept" | "reject") => void;
-  onClick: () => void;
-  onConfirmPickup: () => void;
-}) {
-  const countdownContent = useMemo(() => {
-    if (n.type !== "address_released") return null;
-    const parts = parseAddressReleasedMessage(n.message);
-    if (!parts) return null;
-    void countdownTick;
-    const target = new Date(parts.targetIso);
-    const diff = target.getTime() - Date.now();
-    if (diff > 0) {
-      const { label } = formatCountdown(diff);
-      return <>{parts.baseText} <span className="text-cyan-400 font-semibold">{label}</span> until pickup at {parts.pickupTimeDisplay}.</>;
-    }
-    return <>{parts.baseText}</>;
-  }, [n, countdownTick]);
-
-  const isPickupReady = useMemo(() => {
-    if (n.type !== "address_released") return false;
-    const parts = parseAddressReleasedMessage(n.message);
-    if (!parts) return false;
-    void countdownTick;
-    const target = new Date(parts.targetIso);
-    return !isNaN(target.getTime()) && Date.now() >= target.getTime();
-  }, [n, countdownTick]);
-
-  const isClickable = isClickableNotification(n.type);
-  const visuals = getNotificationVisuals(n.type);
-  const Icon = visuals.Icon;
-
-  return (
-    <div
-      className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${n.is_read ? "opacity-40" : ""} ${isClickable && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
-      onClick={onClick}
-    >
-      {n.type === "join_request" && n.related_user_picture ? (
-        <img src={n.related_user_picture} alt="" className="size-7 rounded-full object-cover shrink-0 mt-0.5" />
-      ) : (
-        <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${visuals.bgClass}`}>
-          <Icon className={visuals.iconClass} />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className={`text-xs leading-relaxed ${n.is_read ? "text-white/60" : "text-white font-medium"}`}>
-          {n.type === "join_request" && n.related_user_name ? (
-            <>
-              <button onClick={(e) => { e.stopPropagation(); n.related_user_id && onOpenUserDashboard(n.related_user_id); }} className="font-medium text-white hover:underline">
-                {n.related_user_name}
-              </button>
-              {" "}{n.message.replace(n.related_user_name, "").trimStart()}
-            </>
-          ) : countdownContent ?? n.message}
-        </p>
-        {n.type === "join_request" && n.join_request_status === "pending" && (
-          <div className="flex items-center gap-1.5 mt-1.5">
-            <button onClick={() => onAction(n.id, "accept")} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors"><Check className="size-3" />Accept</button>
-            <button onClick={() => onAction(n.id, "reject")} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"><X className="size-3" />Deny</button>
-          </div>
-        )}
-        {n.type === "join_request" && n.join_request_status === "accepted" && <p className="text-[10px] text-green-400 mt-1">Accepted</p>}
-        {n.type === "join_request" && n.join_request_status === "rejected" && <p className="text-[10px] text-red-400 mt-1">Denied</p>}
-        {isPickupReady && (
-          <button onClick={(e) => { e.stopPropagation(); onConfirmPickup(); }} className="flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
-            <CheckCircle className="size-3" />Confirm Pickup
-          </button>
-        )}
-        {n.created_at && <p className="text-[10px] text-white/25 mt-0.5">{new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>}
-      </div>
-    </div>
-  );
-});
-
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
@@ -541,44 +458,8 @@ export default function App() {
 
   // Notifications state
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const notificationsRef = useRef<HTMLDivElement>(null);
-  const [notifications, setNotifications] = useState<{ id: number; type: string; title: string; message: string; is_read: boolean; community_id: number | null; related_user_id: string | null; related_user_name: string | null; related_user_picture: string | null; join_request_status: string | null; listing_id: string | null; created_at: string | null }[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-
-  // Notification countdown tick (forces re-render every 60s for live pickup countdowns)
-  const [notifCountdownTick, setNotifCountdownTick] = useState(0);
-  // Only schedule the tick when at least one address_released notification is
-  // pinned/active — otherwise nothing on screen depends on Date.now() recomputes.
-  const hasActivePickupNotif = notifications.some(
-    (n) => n.type === "address_released" && n.message.includes("||"),
-  );
-  useEffect(() => {
-    if (!hasActivePickupNotif) return;
-    const timer = setInterval(() => setNotifCountdownTick((p) => p + 1), 60000);
-    return () => clearInterval(timer);
-  }, [hasActivePickupNotif]);
-
-  // Sort comparator depends on Date.now() via isActivePickup, so notifCountdownTick
-  // must stay in the dep array — without it, a pickup crossing the 1-hour boundary
-  // wouldn't re-pin until the next state change.
-  const sortedNotifications = useMemo(() => {
-    return [...notifications].sort((a, b) => {
-      const isActivePickup = (n: typeof notifications[0]) => {
-        if (n.type !== "address_released" || n.is_read) return false;
-        const parts = parseAddressReleasedMessage(n.message);
-        if (!parts) return false;
-        const target = new Date(parts.targetIso);
-        if (isNaN(target.getTime())) return false;
-        const diff = target.getTime() - Date.now();
-        return diff <= PIN_WINDOW_MS;
-      };
-      const aPin = isActivePickup(a);
-      const bPin = isActivePickup(b);
-      if (aPin && !bPin) return -1;
-      if (!aPin && bPin) return 1;
-      return 0;
-    });
-  }, [notifications, notifCountdownTick]);
 
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
@@ -831,20 +712,6 @@ export default function App() {
 
   // Close profile dropdown on outside click
   useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
-
-  // Close notifications side panel on Escape — mark as read on close. Clicks
-  // outside are handled by the backdrop element directly (cleaner than a
-  // document-wide listener now that the panel renders outside the bell ref).
-  useEffect(() => {
-    if (!notificationsOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      setNotificationsOpen(false);
-      if (unreadCount > 0) handleMarkAllRead();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [notificationsOpen, unreadCount]);
 
   // Close history dropdown on outside click
   useClickOutside(historyRef, () => setHistoryOpen(false), historyOpen);
@@ -2236,7 +2103,7 @@ export default function App() {
                 </div>
 
                 {/* Notifications Bell */}
-                <div className="relative" ref={notificationsRef}>
+                <div className="relative">
                   <button
                     onClick={() => {
                       setNotificationsOpen((prev) => {
@@ -2258,70 +2125,20 @@ export default function App() {
                     )}
                   </button>
 
-                  {notificationsOpen && createPortal(
-                    <>
-                      {/* Backdrop — dims the rest of the UI; clicking it closes the panel.
-                          Rendered via portal so it escapes the nav's `backdrop-blur` stacking
-                          context (which otherwise traps fixed-positioned children below z-50). */}
-                      <div
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[299] animate-in fade-in duration-200"
-                        onClick={() => {
-                          setNotificationsOpen(false);
-                          if (unreadCount > 0) handleMarkAllRead();
-                        }}
-                      />
-                      {/* Side panel — full viewport height, anchored to the right edge */}
-                      <div
-                        className="fixed top-0 right-0 bottom-0 w-full max-w-md border-l border-white/15 shadow-2xl overflow-hidden flex flex-col z-[300] animate-in slide-in-from-right duration-200"
-                        style={{ backgroundColor: '#18181b' }}
-                      >
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
-                          <p className="text-sm font-medium">Notifications</p>
-                          <div className="flex items-center gap-3">
-                            {unreadCount > 0 && (
-                              <button
-                                onClick={() => handleMarkAllRead()}
-                                className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
-                              >
-                                Mark all read
-                              </button>
-                            )}
-                            <button
-                              onClick={() => {
-                                setNotificationsOpen(false);
-                                if (unreadCount > 0) handleMarkAllRead();
-                              }}
-                              className="text-white/40 hover:text-white/70 transition-colors"
-                              aria-label="Close notifications"
-                            >
-                              <X className="size-4" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto">
-                          {notifications.length === 0 ? (
-                            <div className="py-16 text-center">
-                              <Bell className="size-6 text-white/15 mx-auto mb-3" />
-                              <p className="text-xs text-white/30">No notifications</p>
-                            </div>
-                          ) : (
-                          sortedNotifications.map((n) => (
-                            <NotificationItem
-                              key={n.id}
-                              n={n}
-                              countdownTick={n.type === "address_released" ? notifCountdownTick : 0}
-                              onOpenUserDashboard={openUserDashboard}
-                              onAction={handleNotificationAction}
-                              onClick={() => handleNotifClick(n.type, n.listing_id)}
-                              onConfirmPickup={() => handleNotifConfirmPickup(n.listing_id)}
-                            />
-                          ))
-                          )}
-                        </div>
-                      </div>
-                    </>,
-                    document.body,
-                  )}
+                  <NotificationsPanel
+                    open={notificationsOpen}
+                    onClose={() => {
+                      setNotificationsOpen(false);
+                      if (unreadCount > 0) handleMarkAllRead();
+                    }}
+                    notifications={notifications}
+                    unreadCount={unreadCount}
+                    onMarkAllRead={handleMarkAllRead}
+                    onAction={handleNotificationAction}
+                    onNotifClick={handleNotifClick}
+                    onConfirmPickup={handleNotifConfirmPickup}
+                    onOpenUserDashboard={openUserDashboard}
+                  />
                 </div>
 
                 <div className="relative" ref={profileRef}>

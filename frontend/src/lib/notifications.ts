@@ -21,6 +21,21 @@ export type NotificationType =
   | "review_submitted"
   | "address_released";
 
+export type Notification = {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  community_id: number | null;
+  related_user_id: string | null;
+  related_user_name: string | null;
+  related_user_picture: string | null;
+  join_request_status: string | null;
+  listing_id: string | null;
+  created_at: string | null;
+};
+
 type NotificationVisuals = {
   bgClass: string;
   Icon: LucideIcon;
