@@ -12,6 +12,7 @@ import SignUpPage from "./pages/SignUpPage";
 import MyAccountPage from "./pages/MyAccountPage";
 import UserProfileOverlay from "./pages/UserProfilePage";
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
+import { EditListingModal } from "./components/EditListingModal";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
@@ -21,7 +22,7 @@ import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
 import { uploadToStorage } from "./lib/uploadToStorage";
-import type { CategorySlug, Listing } from "./lib/types";
+import type { CategorySlug, Listing, ListingUpdatePatch } from "./lib/types";
 import { CONDITIONS } from "./lib/listings";
 import { getNotificationVisuals, isClickableNotification } from "./lib/notifications";
 
@@ -626,73 +627,23 @@ export default function App() {
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const formatHour = (h: number) => h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`;
 
-  // Edit listing modal state (from marketplace detail).
-  // Brand + name replace the old single Title input — title is computed via
-  // formatTitle on render, never stored as an editable field.
+  // Edit listing modal trigger. All field state lives inside EditListingModal;
+  // App.tsx only owns the open flag and the save handler.
   const [showEditListingModal, setShowEditListingModal] = useState(false);
-  const [editBrand, setEditBrand] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editCondition, setEditCondition] = useState("");
-  const [editLocation, setEditLocation] = useState("");
-  const [editTags, setEditTags] = useState<string[]>([]);
-  const [editNewTag, setEditNewTag] = useState("");
-  const [editCategory, setEditCategory] = useState<CategorySlug>("other");
-  const [editCategoryAttributes, setEditCategoryAttributes] = useState<Record<string, string>>({});
-  const [isSavingListing, setIsSavingListing] = useState(false);
 
-  const openEditFromDetail = () => {
-    if (!listingDetailData) return;
-    setEditBrand(listingDetailData.brand || "");
-    setEditName(listingDetailData.name || "");
-    setEditDescription(listingDetailData.description || "");
-    setEditPrice(listingDetailData.price);
-    setEditCondition(listingDetailData.condition);
-    setEditLocation(user?.neighborhood || listingDetailData.location || "");
-    setEditTags(listingDetailData.tags || []);
-    setEditNewTag("");
-    setEditCategory(listingDetailData.category || "other");
-    // Strip legacy brand/model keys when loading: they're now top-level
-    // fields, and we don't want them resurrected in the saved attributes
-    // payload after the edit is submitted.
-    const sanitizedAttrs = { ...(listingDetailData.categoryAttributes || {}) };
-    delete sanitizedAttrs.brand;
-    delete sanitizedAttrs.model;
-    setEditCategoryAttributes(sanitizedAttrs);
-    setShowEditListingModal(true);
-  };
-
-  const handleSaveListingFromMarket = async () => {
+  const handleSaveListingFromMarket = async (patch: ListingUpdatePatch) => {
     if (!listingDetailData || !token) return;
-    setIsSavingListing(true);
-    try {
-      const formData = new FormData();
-      formData.append("data", JSON.stringify({
-        brand: editBrand,
-        name: editName,
-        description: editDescription,
-        price: editPrice,
-        condition: editCondition,
-        location: editLocation,
-        tags: editTags,
-        category: editCategory,
-        categoryAttributes: editCategoryAttributes,
-      }));
-      const res = await apiFetch(`/api/listings/${listingDetailData.id}`, {
-        method: "PUT",
-        body: formData,
-      });
-      if (res.ok) {
-        setShowEditListingModal(false);
-        setShowListingDetailModal(false);
-        setListingDetailData(null);
-        fetchListings();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsSavingListing(false);
+    const formData = new FormData();
+    formData.append("data", JSON.stringify(patch));
+    const res = await apiFetch(`/api/listings/${listingDetailData.id}`, {
+      method: "PUT",
+      body: formData,
+    });
+    if (res.ok) {
+      setShowEditListingModal(false);
+      setShowListingDetailModal(false);
+      setListingDetailData(null);
+      fetchListings();
     }
   };
 
@@ -3882,7 +3833,7 @@ export default function App() {
                       })()}
                       {isAuthenticated && listing.userId === user?.id && listing.status !== "sold" && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(openEditFromDetail, 100); }}
+                          onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(() => setShowEditListingModal(true), 100); }}
                           className="inline-flex items-center gap-1 text-xs text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 border border-fuchsia-400/30 rounded-full px-4 py-1 transition-colors"
                         >
                           <Pencil className="size-2.5" />
@@ -4664,7 +4615,7 @@ export default function App() {
                   <div className="mt-5 text-center py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/40 text-sm">Sold</div>
                 ) : (
                   <Button
-                    onClick={openEditFromDetail}
+                    onClick={() => setShowEditListingModal(true)}
                     className="w-full bg-white/10 hover:bg-white/15 text-white border border-white/10 mt-5 gap-2"
                   >
                     <Pencil className="size-4" />
@@ -4957,180 +4908,15 @@ export default function App() {
 
       {/* Edit Listing Modal (from marketplace detail) */}
       {showEditListingModal && listingDetailData && (
-        <ModalShell
+        <EditListingModal
           open
           onClose={() => setShowEditListingModal(false)}
+          listing={listingDetailData}
+          location={user?.neighborhood || listingDetailData.location || ""}
+          onSave={handleSaveListingFromMarket}
+          categorySchemas={categorySchemas}
           z={260}
-        >
-          <div
-            className="relative w-full max-w-md mx-4 rounded-lg border border-white/15 shadow-xl overflow-hidden max-h-[85vh] overflow-y-auto"
-            style={{ backgroundColor: "#18181b" }}
-          >
-            <button
-              onClick={() => setShowEditListingModal(false)}
-              className="absolute top-3 right-3 z-10 size-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-            >
-              <X className="size-3.5 text-white/60" />
-            </button>
-
-            <div className="p-5">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                  <Pencil className="size-5 text-fuchsia-400" />
-                </div>
-                <h3 className="text-lg font-medium">Edit Listing</h3>
-              </div>
-
-              <div className="space-y-4">
-                {/*
-                  Brand + Name replace the old single Title input. The
-                  buyer-facing title is computed via formatTitle on render
-                  and never stored as an editable field.
-                */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Brand</label>
-                    <Input
-                      value={editBrand}
-                      onChange={(e) => setEditBrand(e.target.value)}
-                      className="bg-white/5 border-white/10 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Name</label>
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="bg-white/5 border-white/10 text-white text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Description</label>
-                  <textarea
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    rows={3}
-                    className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-fuchsia-400/40"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Price</label>
-                    <PriceInput
-                      value={editPrice}
-                      onChange={setEditPrice}
-                      className="bg-white/5 border-white/10 text-white text-sm"
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Condition</label>
-                    <select
-                      value={editCondition}
-                      onChange={(e) => setEditCondition(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-fuchsia-400/40 appearance-none"
-                    >
-                      {CONDITIONS.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Location</label>
-                  <Input
-                    value={editLocation}
-                    readOnly
-                    disabled
-                    className="bg-white/5 border-white/10 text-white/50 text-sm cursor-not-allowed"
-                  />
-                  <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
-                </div>
-
-                {/* Category */}
-                {Object.keys(categorySchemas).length > 0 && (
-                  <>
-                    <CategorySelector
-                      category={editCategory}
-                      schemas={categorySchemas}
-                      onChange={(slug) => setEditCategory(slug)}
-                    />
-                    <CategoryAttributeFields
-                      category={editCategory}
-                      schemas={categorySchemas}
-                      attributes={editCategoryAttributes}
-                      onChange={(key, value) => setEditCategoryAttributes({
-                        ...editCategoryAttributes,
-                        [key]: value,
-                      })}
-                    />
-                  </>
-                )}
-
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Tags</label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {editTags.map((tag, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
-                        {tag}
-                        <button onClick={() => setEditTags(editTags.filter((_, j) => j !== i))} className="hover:text-white">
-                          <X className="size-2.5" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      value={editNewTag}
-                      onChange={(e) => setEditNewTag(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && editNewTag.trim()) {
-                          e.preventDefault();
-                          setEditTags([...editTags, editNewTag.trim()]);
-                          setEditNewTag("");
-                        }
-                      }}
-                      placeholder="Add tag..."
-                      className="bg-white/5 border-white/10 text-white text-sm flex-1"
-                    />
-                    <Button
-                      onClick={() => {
-                        if (editNewTag.trim()) {
-                          setEditTags([...editTags, editNewTag.trim()]);
-                          setEditNewTag("");
-                        }
-                      }}
-                      size="sm"
-                      className="bg-white/10 hover:bg-white/15 text-white/60 border-0"
-                    >
-                      <Plus className="size-3.5" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    onClick={() => setShowEditListingModal(false)}
-                    className="flex-1 bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleSaveListingFromMarket}
-                    disabled={isSavingListing || (!editBrand.trim() && !editName.trim()) || !editPrice.trim()}
-                    className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
-                  >
-                    {isSavingListing ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </ModalShell>
+        />
       )}
 
       {/* User Profile Overlay */}

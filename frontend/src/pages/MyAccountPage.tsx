@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { PriceInput } from "../components/ui/price-input";
 import { ModalShell } from "../components/ui/ModalShell";
 import {
   User,
@@ -39,9 +38,9 @@ import { supabase } from "../lib/supabase";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "../lib/pickupTime";
 import { apiFetch } from "../lib/api";
-import type { Listing, MyListing } from "../lib/types";
+import type { Listing, ListingUpdatePatch, MyListing } from "../lib/types";
+import { EditListingModal } from "../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
-import { CONDITIONS } from "../lib/listings";
 import {
   BUYER_ORDER_BADGE,
   BUYER_ORDER_CONTAINER_CLASS,
@@ -252,60 +251,25 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [myListings, setMyListings] = useState<MyListing[]>([]);
   const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
-  // Edit listing modal state. Brand + name replace the old single Title input;
-  // the buyer-facing title is composed via formatTitle on render.
-  const [showEditListingModal, setShowEditListingModal] = useState(false);
+  // Edit listing modal — field state lives inside EditListingModal; this
+  // page only tracks which listing is being edited.
   const [editListing, setEditListing] = useState<MyListing | null>(null);
-  const [editBrand, setEditBrand] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editCondition, setEditCondition] = useState("");
-  const [editLocation, setEditLocation] = useState("");
-  const [editTags, setEditTags] = useState<string[]>([]);
-  const [editNewTag, setEditNewTag] = useState("");
-  const [isSavingListing, setIsSavingListing] = useState(false);
 
   const openEditListing = (listing: MyListing) => {
     setEditListing(listing);
-    setEditBrand(listing.brand || "");
-    setEditName(listing.name || "");
-    setEditDescription(listing.description || "");
-    setEditPrice(listing.price);
-    setEditCondition(listing.condition);
-    setEditLocation(user?.neighborhood || listing.location || "");
-    setEditTags(listing.tags || []);
-    setEditNewTag("");
-    setShowEditListingModal(true);
   };
 
-  const handleSaveListing = async () => {
+  const handleSaveListing = async (patch: ListingUpdatePatch) => {
     if (!token || !editListing) return;
-    setIsSavingListing(true);
-    try {
-      const formData = new FormData();
-      formData.append("data", JSON.stringify({
-        brand: editBrand,
-        name: editName,
-        description: editDescription,
-        price: editPrice,
-        condition: editCondition,
-        location: editLocation,
-        tags: editTags,
-      }));
-      const res = await apiFetch(`/api/listings/${editListing.id}`, {
-        method: "PUT",
-        body: formData,
-      });
-      if (res.ok) {
-        setShowEditListingModal(false);
-        setEditListing(null);
-        fetchMyListings();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsSavingListing(false);
+    const formData = new FormData();
+    formData.append("data", JSON.stringify(patch));
+    const res = await apiFetch(`/api/listings/${editListing.id}`, {
+      method: "PUT",
+      body: formData,
+    });
+    if (res.ok) {
+      setEditListing(null);
+      fetchMyListings();
     }
   };
 
@@ -3759,164 +3723,14 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       )}
       {/* User Profile Summary Modal */}
       {/* Edit Listing Modal */}
-      {showEditListingModal && editListing && (
-        <ModalShell
+      {editListing && (
+        <EditListingModal
           open
-          onClose={() => { setShowEditListingModal(false); setEditListing(null); }}
-          z={50}
-        >
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                <Pencil className="size-5 text-fuchsia-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium">Edit Listing</h3>
-              </div>
-            </div>
-
-            {/* Image preview */}
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-              {(editListing.imageUrls || [editListing.imageUrl]).map((url, i) => (
-                <img key={i} src={url} alt="" className="size-16 rounded-lg object-cover border border-white/10 shrink-0" />
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              {/*
-                Brand + Name replace the old single Title input. The
-                buyer-facing title is computed via formatTitle on render.
-              */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Brand</label>
-                  <Input
-                    value={editBrand}
-                    onChange={(e) => setEditBrand(e.target.value)}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Name</label>
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Description</label>
-                <textarea
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-fuchsia-400/40"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Price</label>
-                  <PriceInput
-                    value={editPrice}
-                    onChange={setEditPrice}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Condition</label>
-                  <select
-                    value={editCondition}
-                    onChange={(e) => setEditCondition(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-fuchsia-400/40 appearance-none"
-                  >
-                    {CONDITIONS.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Location</label>
-                <Input
-                  value={editLocation}
-                  readOnly
-                  disabled
-                  className="bg-white/5 border-white/10 text-white/50 text-sm cursor-not-allowed"
-                />
-                <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
-              </div>
-
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Tags</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {editTags.map((tag, i) => (
-                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
-                      {tag}
-                      <button onClick={() => setEditTags(editTags.filter((_, j) => j !== i))} className="hover:text-white">
-                        <X className="size-2.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={editNewTag}
-                    onChange={(e) => setEditNewTag(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && editNewTag.trim()) {
-                        e.preventDefault();
-                        setEditTags([...editTags, editNewTag.trim()]);
-                        setEditNewTag("");
-                      }
-                    }}
-                    placeholder="Add tag..."
-                    className="bg-white/5 border-white/10 text-white text-sm flex-1"
-                  />
-                  <Button
-                    onClick={() => {
-                      if (editNewTag.trim()) {
-                        setEditTags([...editTags, editNewTag.trim()]);
-                        setEditNewTag("");
-                      }
-                    }}
-                    size="sm"
-                    className="bg-white/10 hover:bg-white/15 text-white/60 border-0"
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <Button
-                  onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
-                  className="flex-1 bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSaveListing}
-                  disabled={isSavingListing || (!editBrand.trim() && !editName.trim()) || !editPrice.trim()}
-                  className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
-                >
-                  {isSavingListing ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </ModalShell>
+          onClose={() => setEditListing(null)}
+          listing={editListing}
+          location={user?.neighborhood || editListing.location || ""}
+          onSave={handleSaveListing}
+        />
       )}
 
       {/* Order Management Modal */}

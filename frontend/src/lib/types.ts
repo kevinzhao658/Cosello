@@ -60,3 +60,33 @@ export type WishlistListing = Pick<
   Listing,
   "id" | "brand" | "name" | "title" | "price" | "imageUrl" | "imageUrls" | "status"
 >;
+
+export interface CategoryField {
+  key: string;
+  label: string;
+  type: "text" | "select";
+  required: boolean;
+  options?: string[];
+  tooltip?: string;
+}
+
+export interface CategorySchema {
+  label: string;
+  fields: CategoryField[];
+}
+
+// Payload shape for PUT /api/listings/:id. Category fields are optional so
+// the MyAccountPage call site (which doesn't surface category editing) can
+// omit them; both keys are sent together when present so the backend never
+// sees a half-updated category.
+export interface ListingUpdatePatch {
+  brand: string;
+  name: string;
+  description: string;
+  price: string;
+  condition: string;
+  location: string;
+  tags: string[];
+  category?: CategorySlug;
+  categoryAttributes?: Record<string, string>;
+}
