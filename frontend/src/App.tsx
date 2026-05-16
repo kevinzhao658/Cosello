@@ -4,13 +4,13 @@ import { Input } from "./components/ui/input";
 import { PriceInput } from "./components/ui/price-input";
 import { ModalShell } from "./components/ui/ModalShell";
 import { useSettings } from "./contexts/SettingsContext";
-import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo } from "react";
+import React, { useState, useEffect, useRef, Fragment, startTransition, useCallback, useMemo, memo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
-import SignInPage from "./pages/SignInPage";
-import SignUpPage from "./pages/SignUpPage";
-import MyAccountPage from "./pages/MyAccountPage";
-import UserProfileOverlay from "./pages/UserProfilePage";
+const SignInPage = lazy(() => import("./pages/SignInPage"));
+const SignUpPage = lazy(() => import("./pages/SignUpPage"));
+const MyAccountPage = lazy(() => import("./pages/MyAccountPage"));
+const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { CategorySelector, CategoryAttributeFields } from "./components/CategoryFields";
 import { EditListingModal } from "./components/EditListingModal";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
@@ -2403,38 +2403,42 @@ export default function App() {
 
       {/* Sign In Page */}
       {page === "signin" && (
-        <SignInPage
-          onSuccess={(newToken, userExists, newUser) => {
-            if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
-              // Don't log in yet — hold token until profile is completed
-              setPendingSignupToken(newToken);
-              setPendingSignupUser(newUser);
-              setPage("signup");
-            } else {
-              login(newToken, newUser);
-              setPage("home");
-            }
-          }}
-          onCancel={() => setPage("home")}
-        />
+        <Suspense fallback={null}>
+          <SignInPage
+            onSuccess={(newToken, userExists, newUser) => {
+              if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
+                // Don't log in yet — hold token until profile is completed
+                setPendingSignupToken(newToken);
+                setPendingSignupUser(newUser);
+                setPage("signup");
+              } else {
+                login(newToken, newUser);
+                setPage("home");
+              }
+            }}
+            onCancel={() => setPage("home")}
+          />
+        </Suspense>
       )}
 
       {/* Sign Up Page */}
       {page === "signup" && pendingSignupToken && (
-        <SignUpPage
-          pendingToken={pendingSignupToken}
-          onComplete={(completedUser) => {
-            login(pendingSignupToken, completedUser);
-            setPendingSignupToken(null);
-            setPendingSignupUser(null);
-            setPage("account");
-          }}
-          onCancel={() => {
-            setPendingSignupToken(null);
-            setPendingSignupUser(null);
-            setPage("home");
-          }}
-        />
+        <Suspense fallback={null}>
+          <SignUpPage
+            pendingToken={pendingSignupToken}
+            onComplete={(completedUser) => {
+              login(pendingSignupToken, completedUser);
+              setPendingSignupToken(null);
+              setPendingSignupUser(null);
+              setPage("account");
+            }}
+            onCancel={() => {
+              setPendingSignupToken(null);
+              setPendingSignupUser(null);
+              setPage("home");
+            }}
+          />
+        </Suspense>
       )}
 
       {page === "home" && (
@@ -4345,7 +4349,9 @@ export default function App() {
 
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
-        <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} />
+        <Suspense fallback={null}>
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} />
+        </Suspense>
       )}
 
       {/* Post Listing Confirmation Modal */}
@@ -4921,12 +4927,14 @@ export default function App() {
 
       {/* User Profile Overlay */}
       {viewingUserId && (
-        <UserProfileOverlay
-          userId={viewingUserId}
-          onClose={() => setViewingUserId(null)}
-          onViewUser={(id) => setViewingUserId(id)}
-          openListingDetail={openListingDetail}
-        />
+        <Suspense fallback={null}>
+          <UserProfileOverlay
+            userId={viewingUserId}
+            onClose={() => setViewingUserId(null)}
+            onViewUser={(id) => setViewingUserId(id)}
+            openListingDetail={openListingDetail}
+          />
+        </Suspense>
       )}
     </div>
   );
