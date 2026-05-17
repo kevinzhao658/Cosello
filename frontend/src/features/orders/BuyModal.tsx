@@ -183,7 +183,7 @@ export function BuyModal({
             <img
               src={listing.imageUrl}
               alt={formatTitle(listing.brand, listing.name)}
-              className="size-14 rounded-lg object-cover border border-white/10"
+              className="size-20 max-w-[400px] max-h-[40vh] rounded-lg object-contain border border-white/10 bg-black/30 shrink-0"
             />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{formatTitle(listing.brand, listing.name)}</p>

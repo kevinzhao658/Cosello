@@ -123,15 +123,24 @@ export function EditListingModal({
         </div>
 
         {previewUrls.length > 0 && (
-          <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-            {previewUrls.map((url, i) => (
-              <img
-                key={i}
-                src={url}
-                alt=""
-                className="size-16 rounded-lg object-cover border border-white/10 shrink-0"
-              />
-            ))}
+          <div className="mb-4">
+            <img
+              src={previewUrls[0]}
+              alt=""
+              className="block mx-auto w-full max-w-[400px] max-h-[40vh] object-contain rounded-lg border border-white/10"
+            />
+            {previewUrls.length > 1 && (
+              <div className="flex gap-2 mt-2 overflow-x-auto pb-1 justify-center">
+                {previewUrls.slice(1).map((url, i) => (
+                  <img
+                    key={i}
+                    src={url}
+                    alt=""
+                    className="size-14 rounded-lg object-cover border border-white/10 shrink-0"
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
