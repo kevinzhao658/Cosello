@@ -38,7 +38,7 @@ import { supabase } from "../../lib/supabase";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "../../lib/pickupTime";
 import { apiFetch } from "../../lib/api";
-import type { Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
+import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
 import { EditListingModal } from "../../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
@@ -134,9 +134,10 @@ interface MyAccountPageProps {
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
   openListingDetail?: (listing: Listing) => void;
   onViewUser?: (userId: string) => void;
+  categorySchemas?: Record<string, CategorySchema>;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser }: MyAccountPageProps) {
+export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas }: MyAccountPageProps) {
   const { user, token, updateUser } = useAuth();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -2858,6 +2859,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           listing={editListing}
           location={user?.neighborhood || editListing.location || ""}
           onSave={handleSaveListing}
+          categorySchemas={categorySchemas}
         />
       )}
 

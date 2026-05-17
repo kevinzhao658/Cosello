@@ -37,8 +37,8 @@ export type EditListingModalProps = {
   // relying on whatever stale value lives on the listing.
   location: string;
   onSave: (patch: ListingUpdatePatch) => Promise<void>;
-  // When omitted, the category section is hidden — the MyAccountPage edit
-  // surface doesn't expose category editing.
+  // When omitted (or empty), the category section is hidden. Both Marketplace
+  // and MyAccount call sites pass this so the modal looks identical.
   categorySchemas?: Record<string, CategorySchema>;
   // Z-index override (App.tsx uses z=260 to stack above listing detail).
   z?: number;
