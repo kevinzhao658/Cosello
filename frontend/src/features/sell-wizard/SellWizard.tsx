@@ -102,26 +102,28 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive]);
 
-  if (!isActive) return null;
-
   // Smooth-scroll the wizard subheader into view ONLY when entering Step 5.
+  // Gated on isActive inside the effect — the hook itself must run every render
+  // to satisfy Rules of Hooks (cannot sit after an `if (!isActive) return null`).
   useEffect(() => {
+    if (!isActive) return;
     if (bulkReviewPhase === "pickup") {
       const id = requestAnimationFrame(() => {
         wizardAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       });
       return () => cancelAnimationFrame(id);
     }
-  }, [bulkReviewPhase]);
+  }, [bulkReviewPhase, isActive]);
 
   // Step 5 prefill: when entering "pickup" phase, default the input to the
   // seller's saved pickup_address — but ONLY if the user hasn't already typed something.
   useEffect(() => {
+    if (!isActive) return;
     if (bulkReviewPhase === "pickup" && bulkPickupLocation === "") {
       actions.setBulkPickupLocation(user?.pickup_address || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulkReviewPhase]);
+  }, [bulkReviewPhase, isActive]);
 
   // ─── Network calls ──────────────────────────────────────────────────────
   const segmentationAbortRef = useRef<AbortController | null>(null);
@@ -609,6 +611,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     () => bulkReviewPhase === "review" || bulkReviewPhase === "reason" || bulkReviewPhase === "cards" || bulkReviewPhase === "pickup",
     [bulkReviewPhase],
   );
+
+  if (!isActive) return null;
 
   return (
     <>
