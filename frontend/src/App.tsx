@@ -7,7 +7,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } fro
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
-const MyAccountPage = lazy(() => import("./pages/MyAccountPage"));
+const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
 const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { EditListingModal } from "./components/EditListingModal";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
