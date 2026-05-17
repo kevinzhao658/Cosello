@@ -1,0 +1,1060 @@
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, startTransition, forwardRef } from "react";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { PriceInput } from "../../components/ui/price-input";
+import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
+import { Loader2, X, Plus, AlertTriangle, MapPin } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
+import { apiFetch } from "../../lib/api";
+import { uploadToStorage } from "../../lib/uploadToStorage";
+import { formatTitle } from "../../lib/format";
+import { CONDITIONS } from "../../lib/listings";
+import type { CategorySchema, CategorySlug } from "../../lib/types";
+import {
+  useSellWizard,
+  type BulkItemDetails,
+  type ProductDetails,
+  type SegmentationResult,
+} from "./useSellWizard";
+import { UploadStep } from "./steps/UploadStep";
+import { GroupsStep } from "./steps/GroupsStep";
+import { AIReviewStep } from "./steps/AIReviewStep";
+import { PickupStep } from "./steps/PickupStep";
+
+export interface SellWizardHandle {
+  postSingleListing: () => Promise<void>;
+  resetForLogout: () => void;
+}
+
+export interface SellWizardProps {
+  categorySchemas: Record<string, CategorySchema>;
+  isActive: boolean;
+  onRequestSignIn: () => void;
+  onPosted: () => void;
+  onRequestSinglePostConfirm: () => void;
+  onSwitchToBuy: () => void;
+  onPhaseChange?: (phase: "review" | "reason" | "cards" | "pickup" | null) => void;
+}
+
+const priceStringToCents = (raw: string): number | null => {
+  const cleaned = raw.replace(/^\$/, "").trim();
+  if (cleaned === "") return null;
+  const dollars = Number.parseFloat(cleaned);
+  if (!Number.isFinite(dollars) || dollars < 0) return null;
+  return Math.round(dollars * 100);
+};
+
+export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function SellWizard({
+  categorySchemas,
+  isActive,
+  onRequestSignIn,
+  onPosted,
+  onRequestSinglePostConfirm,
+  onSwitchToBuy,
+  onPhaseChange,
+}, ref) {
+  const { isAuthenticated, user, token } = useAuth();
+  const [state, actions] = useSellWizard();
+
+  const {
+    uploadedImages, bulkReviewPhase, segmentation, brandHints, names, rationale, rationaleOther,
+    productDetails, bulkItems, currentCardIndex, bulkPickupLocation, postPickupLocation,
+    isGenerating, isPostingBulk, segmentationError, dragImageState, dragOverGroup, dragOverGap,
+    newTag, editingTitle, instructionExiting,
+  } = state;
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const wizardAnchorRef = useRef<HTMLDivElement>(null);
+
+  // Revoke blob URLs on unmount; revoke happens via state.uploadedImages ref so
+  // any leftover URLs are released even if the wizard is torn down without
+  // hitting CLEAR/DELETE paths.
+  const uploadedImagesRef = useRef(uploadedImages);
+  useEffect(() => {
+    uploadedImagesRef.current = uploadedImages;
+  }, [uploadedImages]);
+  useEffect(() => {
+    return () => {
+      for (const img of uploadedImagesRef.current) {
+        URL.revokeObjectURL(img.preview);
+      }
+    };
+  }, []);
+
+  // Reset editingTitle whenever the current card changes (Step 4).
+  useEffect(() => {
+    actions.setEditingTitle(null);
+  }, [currentCardIndex, actions]);
+
+  // Notify parent on phase changes (used by App.tsx to hide/show the homepage
+  // hero + nav logo while the wizard is in a deep step).
+  useEffect(() => {
+    onPhaseChange?.(bulkReviewPhase);
+  }, [bulkReviewPhase, onPhaseChange]);
+
+  // When App.tsx switches away from sell mode, partial-reset bulk state
+  // (matches the original effect's behavior): bulkItems + phase + cardIndex
+  // clear, but uploadedImages and segmentation survive.
+  useEffect(() => {
+    if (!isActive) {
+      actions.partialResetFromBuySwitch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive]);
+
+  if (!isActive) return null;
+
+  // Smooth-scroll the wizard subheader into view ONLY when entering Step 5.
+  useEffect(() => {
+    if (bulkReviewPhase === "pickup") {
+      const id = requestAnimationFrame(() => {
+        wizardAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [bulkReviewPhase]);
+
+  // Step 5 prefill: when entering "pickup" phase, default the input to the
+  // seller's saved pickup_address — but ONLY if the user hasn't already typed something.
+  useEffect(() => {
+    if (bulkReviewPhase === "pickup" && bulkPickupLocation === "") {
+      actions.setBulkPickupLocation(user?.pickup_address || "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkReviewPhase]);
+
+  // ─── Network calls ──────────────────────────────────────────────────────
+  const segmentationAbortRef = useRef<AbortController | null>(null);
+
+  const segmentPhotos = useCallback(async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
+    if (files.length > 20) throw new Error("Maximum 20 photos per upload");
+    if (!token) throw new Error("Sign in to upload");
+    const urls = await uploadToStorage(files, token);
+    const formData = new FormData();
+    formData.append("image_urls", JSON.stringify(urls));
+    const res = await apiFetch("/api/segment-photos", {
+      method: "POST",
+      body: formData,
+      signal,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Server error" }));
+      throw new Error(err.detail || "Failed to segment photos");
+    }
+    return (await res.json()) as SegmentationResult;
+  }, [token]);
+
+  const generateListings = useCallback(async (payload: {
+    groupings: number[][];
+    image_urls: string[];
+    vision_signals: unknown[];
+    brand_hints: string[];
+    names: string[];
+    rationale: string;
+    rationale_other: string;
+  }): Promise<BulkItemDetails[]> => {
+    if (!token) throw new Error("Sign in to upload");
+    const res = await apiFetch("/api/generate-listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Server error" }));
+      throw new Error(err.detail || "Failed to generate listings");
+    }
+    return (await res.json()) as BulkItemDetails[];
+  }, [token]);
+
+  // ─── Handlers ───────────────────────────────────────────────────────────
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const incoming = Array.from(files);
+    e.target.value = "";
+
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    if (incoming.length > remaining) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const newImages = incoming.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+
+    // Step 2 (review): re-run segmentation in place with the combined photo set.
+    if (bulkReviewPhase === "review") {
+      const updatedImages = [...uploadedImages, ...newImages];
+      actions.setImages(updatedImages);
+      actions.setSegmentationError(null);
+      actions.setGenerating(true);
+      segmentationAbortRef.current?.abort();
+      const controller = new AbortController();
+      segmentationAbortRef.current = controller;
+      try {
+        const result = await segmentPhotos(updatedImages.map((img) => img.file), controller.signal);
+        if (controller.signal.aborted) return;
+        if (!Array.isArray(result.groupings) || result.groupings.length === 0) {
+          throw new Error("Segmentation returned no groupings");
+        }
+        actions.reSegmentSuccess(result);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        console.error("Re-segment after +Add failed:", err);
+        actions.setSegmentationError(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        if (segmentationAbortRef.current === controller) {
+          segmentationAbortRef.current = null;
+          actions.setGenerating(false);
+        }
+      }
+      return;
+    }
+
+    // Step 1 (null) — flat upload state. Just append.
+    actions.appendImages(newImages);
+  };
+
+  const handleDeletePhotoMouseDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const deletePhoto = useCallback((originalIndex: number) => {
+    const removed = uploadedImages[originalIndex];
+    if (!removed) return;
+    actions.deletePhoto(originalIndex);
+    URL.revokeObjectURL(removed.preview);
+  }, [uploadedImages, actions]);
+
+  const handleDeletePhotoClick = (originalIndex: number) =>
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deletePhoto(originalIndex);
+    };
+
+  const addPhotoToBulkItem = (index: number, files: FileList) => {
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const incoming = Array.from(files);
+    if (incoming.length > remaining) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const newImages = incoming.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    actions.addPhotosToBulkItem(index, newImages);
+  };
+
+  const clearAllUploads = useCallback(() => {
+    segmentationAbortRef.current?.abort();
+    segmentationAbortRef.current = null;
+    for (const img of uploadedImages) {
+      URL.revokeObjectURL(img.preview);
+    }
+    actions.clearAll();
+  }, [uploadedImages, actions]);
+
+  const handleSellSubmit = async () => {
+    if (uploadedImages.length === 0) return;
+    if (uploadedImages.length > 20) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    if (!token) {
+      actions.setSegmentationError("Sign in to upload");
+      return;
+    }
+    actions.segmentationStart();
+    segmentationAbortRef.current?.abort();
+    const controller = new AbortController();
+    segmentationAbortRef.current = controller;
+    try {
+      const result = await segmentPhotos(uploadedImages.map((img) => img.file), controller.signal);
+      if (controller.signal.aborted) return;
+      if (!Array.isArray(result.groupings) || result.groupings.length === 0) {
+        throw new Error("Segmentation returned no groupings");
+      }
+      actions.segmentationSuccess({
+        result,
+        resetRationale: true,
+        postPickupLocation: user?.pickup_address || "",
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.error("Segment photos failed:", err);
+      actions.segmentationFailure(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      if (segmentationAbortRef.current === controller) {
+        segmentationAbortRef.current = null;
+      }
+    }
+  };
+
+  const handleGenerateListings = async () => {
+    if (!segmentation) return;
+    if (segmentation.groupings.some((g) => g.length === 0)) return;
+    if (rationale === "Other" && rationaleOther.trim() === "") return;
+    actions.generateStart();
+    try {
+      const items = await generateListings({
+        groupings: segmentation.groupings,
+        image_urls: segmentation.image_urls,
+        vision_signals: segmentation.vision_signals,
+        brand_hints: brandHints,
+        names: names,
+        rationale: rationale,
+        rationale_other: rationaleOther,
+      });
+      const sellerNeighborhood = user?.neighborhood;
+      items.forEach((item, i) => {
+        if (!item.imageIndices || item.imageIndices.length === 0) {
+          item.imageIndices = segmentation.groupings[i] || [];
+        }
+        if (sellerNeighborhood) item.location = sellerNeighborhood;
+        if (!item.category) item.category = "other";
+        if (!item.categoryAttributes) item.categoryAttributes = {};
+        if (!item.identifierConfidence) item.identifierConfidence = "low";
+        if (item.retrieval_fallback === undefined) item.retrieval_fallback = false;
+        if (item.brand === undefined || item.brand === null) item.brand = "";
+        if (item.name === undefined || item.name === null) item.name = "";
+      });
+
+      if (items.length === 1) {
+        const single: ProductDetails = {
+          brand: items[0].brand || "",
+          name: items[0].name || "",
+          description: items[0].description,
+          price: items[0].price,
+          condition: items[0].condition,
+          location: user?.neighborhood || items[0].location,
+          tags: items[0].tags,
+          category: items[0].category || "other",
+          categoryAttributes: items[0].categoryAttributes || {},
+          identifierConfidence: items[0].identifierConfidence || "low",
+          retrieval_fallback: items[0].retrieval_fallback === true,
+        };
+        actions.generateSingle(single);
+      } else {
+        actions.generateBulk(items);
+      }
+    } catch (err) {
+      console.error("Generate listings failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+      actions.generateEnd();
+    }
+  };
+
+  const regenerateBulkItem = async (groupIdx: number) => {
+    if (!segmentation || !segmentation.groupings[groupIdx]) return;
+    actions.generateStart();
+    try {
+      const items = await generateListings({
+        groupings: [segmentation.groupings[groupIdx]],
+        image_urls: segmentation.image_urls,
+        vision_signals: segmentation.vision_signals,
+        brand_hints: [brandHints[groupIdx] || ""],
+        names: [names[groupIdx] || ""],
+        rationale: rationale,
+        rationale_other: rationaleOther,
+      });
+      if (items.length === 0) throw new Error("No listing returned");
+      const fresh = items[0];
+      if (!fresh.imageIndices || fresh.imageIndices.length === 0) {
+        fresh.imageIndices = segmentation.groupings[groupIdx];
+      }
+      if (user?.neighborhood) fresh.location = user.neighborhood;
+      if (!fresh.category) fresh.category = "other";
+      if (!fresh.categoryAttributes) fresh.categoryAttributes = {};
+      if (!fresh.identifierConfidence) fresh.identifierConfidence = "low";
+      if (fresh.retrieval_fallback === undefined) fresh.retrieval_fallback = false;
+      if (fresh.brand === undefined || fresh.brand === null) fresh.brand = "";
+      if (fresh.name === undefined || fresh.name === null) fresh.name = "";
+      actions.regenerateBulkItem(groupIdx, fresh);
+    } catch (err) {
+      console.error("Regenerate item failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+      actions.generateEnd();
+    }
+  };
+
+  const handleGroupDragOver = useCallback((e: React.DragEvent, groupIndex: number) => {
+    e.preventDefault();
+    actions.dragOverGroup(groupIndex);
+  }, [actions]);
+  const handleGroupDragLeave = useCallback(() => actions.dragOverGroup(null), [actions]);
+  const handleDragStart = useCallback((imageIndex: number, sourceGroup: number) => {
+    actions.dragStart(imageIndex, sourceGroup);
+  }, [actions]);
+  const handleDragEnd = useCallback(() => actions.dragEnd(), [actions]);
+  const handleCardSelect = useCallback((idx: number) => actions.setCurrentCardIndex(idx), [actions]);
+
+  const handleDrop = (targetGroup: number) => {
+    if (!dragImageState) {
+      actions.dragOverGroup(null);
+      return;
+    }
+    const { imageIndex, sourceGroup } = dragImageState;
+    if (bulkReviewPhase === "review") {
+      actions.reviewReassignImage(imageIndex, sourceGroup, targetGroup);
+      return;
+    }
+    actions.cardsReassignImage(imageIndex, sourceGroup, targetGroup);
+  };
+
+  const handleDropNewGroup = (gapIndex: number) => {
+    if (!dragImageState) {
+      actions.dragOverGap(null);
+      actions.dragOverGroup(null);
+      return;
+    }
+    const { imageIndex, sourceGroup } = dragImageState;
+    if (bulkReviewPhase === "review") {
+      actions.reviewSplitImage(imageIndex, sourceGroup, gapIndex);
+      return;
+    }
+    actions.cardsSplitImage(imageIndex, sourceGroup, gapIndex);
+  };
+
+  const updateBrandHint = useCallback((groupIdx: number, value: string) => {
+    actions.setBrandHint(groupIdx, value);
+  }, [actions]);
+  const updateName = useCallback((groupIdx: number, value: string) => {
+    actions.setName(groupIdx, value);
+  }, [actions]);
+
+  const updateBulkItemField = useCallback((index: number, field: string, value: unknown) => {
+    actions.updateBulkItemField(index, field, value);
+  }, [actions]);
+
+  const handlePostListing = useCallback(async () => {
+    if (!productDetails || uploadedImages.length === 0) return;
+    if (!isAuthenticated) { onRequestSignIn(); return; }
+
+    const priceCents = priceStringToCents(productDetails.price);
+    if (priceCents === null) { alert("Enter a valid price before posting."); return; }
+
+    try {
+      const formData = new FormData();
+      const draftUrls = segmentation
+        ? segmentation.image_urls.filter(
+            (url): url is string => typeof url === "string" && url.length > 0,
+          )
+        : [];
+      if (draftUrls.length > 0) {
+        formData.append("draft_urls", JSON.stringify(draftUrls));
+      } else {
+        uploadedImages.forEach((img) => formData.append("images", img.file));
+      }
+      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = productDetails;
+      void _; void _rf;
+      const postData = { ...rest, priceCents };
+      formData.append("data", JSON.stringify(postData));
+      formData.append("communities", "");
+      formData.append("visibility", "public");
+      formData.append("pickup_location", postPickupLocation);
+
+      const res = await apiFetch("/api/listings", { method: "POST", body: formData });
+      if (!res.ok) throw new Error("Failed to post listing");
+      await res.json();
+
+      // Cleanup: revoke blob URLs before resetting state.
+      for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
+      actions.postListingReset();
+      onPosted();
+    } catch (err) {
+      console.error("Post listing failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    }
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, actions, onPosted, onRequestSignIn]);
+
+  const resetForLogout = useCallback(() => {
+    segmentationAbortRef.current?.abort();
+    segmentationAbortRef.current = null;
+    for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
+    actions.resetToUpload();
+  }, [uploadedImages, actions]);
+
+  useImperativeHandle(ref, () => ({
+    postSingleListing: handlePostListing,
+    resetForLogout,
+  }), [handlePostListing, resetForLogout]);
+
+  const handleBulkPostListing = async () => {
+    if (bulkItems.length === 0 || uploadedImages.length === 0) return;
+    if (!isAuthenticated) { onRequestSignIn(); return; }
+
+    const invalidIdx = bulkItems.findIndex((item) => priceStringToCents(item.price) === null);
+    if (invalidIdx !== -1) {
+      const offender = bulkItems[invalidIdx];
+      alert(`Enter a valid price for "${formatTitle(offender.brand, offender.name)}" before posting.`);
+      return;
+    }
+
+    actions.setPostingBulk(true);
+
+    try {
+      const trimmedBulkDefault = bulkPickupLocation.trim();
+      const fallbackPickup = trimmedBulkDefault !== "" ? trimmedBulkDefault : postPickupLocation;
+
+      const results = await Promise.allSettled(
+        bulkItems.map(async (item) => {
+          const formData = new FormData();
+          const draftUrlsForItem = segmentation
+            ? item.imageIndices
+                .map((i) => segmentation.image_urls[i])
+                .filter((url): url is string => typeof url === "string" && url.length > 0)
+            : [];
+          if (draftUrlsForItem.length > 0) {
+            formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
+          } else {
+            for (const imgIdx of item.imageIndices) {
+              if (uploadedImages[imgIdx]) {
+                formData.append("images", uploadedImages[imgIdx].file);
+              }
+            }
+          }
+          const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
+          void _indices; void _conf; void _rf; void _itemPickup;
+          const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
+          formData.append("data", JSON.stringify(productData));
+          formData.append("communities", "");
+          formData.append("visibility", "public");
+          const itemPickup =
+            item.pickupLocation && item.pickupLocation.trim() !== ""
+              ? item.pickupLocation
+              : fallbackPickup;
+          formData.append("pickup_location", itemPickup);
+
+          const res = await apiFetch("/api/listings", { method: "POST", body: formData });
+          if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
+        }),
+      );
+
+      const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failures.length > 0) {
+        const messages = failures
+          .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
+          .join("\n");
+        throw new Error(messages);
+      }
+
+      for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
+      actions.postListingReset();
+      onPosted();
+    } catch (err) {
+      console.error("Bulk post failed:", err);
+      alert(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      actions.setPostingBulk(false);
+    }
+  };
+
+  const handleBulkPostFromPickupStep = async () => {
+    const trimmedDefault = bulkPickupLocation.trim();
+    if (trimmedDefault !== "") {
+      actions.setBulkItems(
+        bulkItems.map((item) => ({
+          ...item,
+          pickupLocation:
+            item.pickupLocation && item.pickupLocation.trim() !== ""
+              ? item.pickupLocation
+              : trimmedDefault,
+        })),
+      );
+    }
+    await handleBulkPostListing();
+  };
+
+  const transitionToPhase = (next: "review" | "reason" | "cards" | "pickup") => {
+    actions.setInstructionExiting(true);
+    setTimeout(() => {
+      startTransition(() => {
+        actions.setInstructionExiting(false);
+        actions.setPhase(next);
+      });
+    }, 300);
+  };
+
+  const handleBackArrow = () => {
+    if (bulkReviewPhase === "pickup") transitionToPhase("cards");
+    else if (bulkReviewPhase === "cards") transitionToPhase("reason");
+    else if (bulkReviewPhase === "reason") transitionToPhase("review");
+    else if (bulkReviewPhase === "review") actions.backFromReview();
+  };
+
+  // Memoize the category type for select onChange
+  const setSingleCategory = (slug: CategorySlug) => {
+    if (!productDetails) return;
+    actions.setProductDetails({
+      ...productDetails,
+      category: slug,
+      categoryAttributes: productDetails.categoryAttributes || {},
+    });
+  };
+
+  const inWizardPhase = useMemo(
+    () => bulkReviewPhase === "review" || bulkReviewPhase === "reason" || bulkReviewPhase === "cards" || bulkReviewPhase === "pickup",
+    [bulkReviewPhase],
+  );
+
+  return (
+    <>
+      <UploadStep
+        uploadedImagesCount={uploadedImages.length}
+        isGenerating={isGenerating}
+        collapsed={inWizardPhase}
+        fileInputRef={fileInputRef}
+        onUpload={handleImageUpload}
+        onSubmit={handleSellSubmit}
+        onSwitchToBuy={onSwitchToBuy}
+      />
+
+      {uploadedImages.length > 0 && (
+        <>
+          {inWizardPhase && segmentation ? (
+            <GroupsStep
+              bulkReviewPhase={bulkReviewPhase}
+              segmentation={segmentation}
+              uploadedImages={uploadedImages}
+              bulkItems={bulkItems}
+              brandHints={brandHints}
+              names={names}
+              rationale={rationale}
+              rationaleOther={rationaleOther}
+              isGenerating={isGenerating}
+              instructionExiting={instructionExiting}
+              currentCardIndex={currentCardIndex}
+              dragImageState={dragImageState}
+              dragOverGroup={dragOverGroup}
+              dragOverGap={dragOverGap}
+              wizardAnchorRef={wizardAnchorRef}
+              onBackArrow={handleBackArrow}
+              onAdvanceToReason={() => transitionToPhase("reason")}
+              onGenerate={handleGenerateListings}
+              setRationale={actions.setRationale}
+              setRationaleOther={actions.setRationaleOther}
+              setDragOverGap={actions.dragOverGap}
+              setDragOverGroup={actions.dragOverGroup}
+              onDropNewGroup={handleDropNewGroup}
+              onDragOver={handleGroupDragOver}
+              onDragLeave={handleGroupDragLeave}
+              onDrop={handleDrop}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDeleteMouseDown={handleDeletePhotoMouseDown}
+              onDeleteClick={deletePhoto}
+              onBrandChange={updateBrandHint}
+              onNameChange={updateName}
+              onCardSelect={handleCardSelect}
+              fileInputRef={fileInputRef}
+              onClearAll={clearAllUploads}
+            />
+          ) : bulkReviewPhase && bulkItems.length > 0 ? (
+            <div className="flex items-center mt-3 mb-2 overflow-x-auto pb-2 pt-3 pl-2 scrollbar-thin">
+              {bulkItems.map((item, groupIdx) => {
+                const isDropTarget = dragOverGroup === groupIdx;
+                const isActive = bulkReviewPhase === "cards" && currentCardIndex === groupIdx;
+                return (
+                  <React.Fragment key={groupIdx}>
+                    <div
+                      className={`shrink-0 transition-all self-stretch flex items-center ${
+                        dragImageState ? "w-4 mx-0.5" : "w-3"
+                      } ${dragOverGap === groupIdx ? "w-6 mx-0.5" : ""}`}
+                      onDragOver={(e) => { e.preventDefault(); actions.dragOverGap(groupIdx); actions.dragOverGroup(null); }}
+                      onDragLeave={() => actions.dragOverGap(null)}
+                      onDrop={() => handleDropNewGroup(groupIdx)}
+                    >
+                      {dragImageState && (
+                        <div className={`w-0.5 h-full mx-auto rounded-full transition-all ${
+                          dragOverGap === groupIdx ? "bg-fuchsia-400 w-1" : "bg-white/15"
+                        }`} />
+                      )}
+                    </div>
+                    <div
+                      className={`relative flex items-center gap-1.5 rounded-lg px-1.5 py-1 border shrink-0 transition-all cursor-pointer ${
+                        isDropTarget ? "bg-white/10 ring-1 ring-white/40 border-white/30" :
+                        isActive ? "border-fuchsia-400/60 bg-fuchsia-500/5" : "border-white/30"
+                      }`}
+                      onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
+                      onDragLeave={() => actions.dragOverGroup(null)}
+                      onDrop={() => handleDrop(groupIdx)}
+                      onClick={() => {
+                        actions.setCurrentCardIndex(groupIdx);
+                        actions.setPhase("cards");
+                      }}
+                    >
+                      <span className="absolute -top-1.5 -left-1.5 size-4 rounded-full bg-white/90 flex items-center justify-center text-[8px] font-bold text-black z-10">
+                        {groupIdx + 1}
+                      </span>
+                      {item.imageIndices.map((imgIdx) => {
+                        const img = uploadedImages[imgIdx];
+                        if (!img) return null;
+                        const isDragging = dragImageState?.imageIndex === imgIdx;
+                        return (
+                          <div
+                            key={imgIdx}
+                            draggable
+                            onDragStart={() => handleDragStart(imgIdx, groupIdx)}
+                            onDragEnd={handleDragEnd}
+                            className={`relative size-16 rounded-lg border border-white/20 cursor-grab active:cursor-grabbing transition-opacity ${
+                              isDragging ? "opacity-40" : "opacity-100"
+                            }`}
+                          >
+                            <img
+                              src={img.preview}
+                              alt={`Upload ${imgIdx + 1}`}
+                              className="size-full object-cover rounded-lg"
+                              draggable={false}
+                            />
+                            <button
+                              type="button"
+                              aria-label={`Delete photo ${imgIdx + 1}`}
+                              onMouseDown={handleDeletePhotoMouseDown}
+                              onClick={handleDeletePhotoClick(imgIdx)}
+                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+              <div
+                className={`shrink-0 transition-all self-stretch flex items-center ${
+                  dragImageState ? "w-4 mx-0.5" : "w-3"
+                } ${dragOverGap === bulkItems.length ? "w-6 mx-0.5" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); actions.dragOverGap(bulkItems.length); actions.dragOverGroup(null); }}
+                onDragLeave={() => actions.dragOverGap(null)}
+                onDrop={() => handleDropNewGroup(bulkItems.length)}
+              >
+                {dragImageState && (
+                  <div className={`w-0.5 h-full mx-auto rounded-full transition-all ${
+                    dragOverGap === bulkItems.length ? "bg-fuchsia-400 w-1" : "bg-white/15"
+                  }`} />
+                )}
+              </div>
+              <div className="shrink-0 ml-auto flex flex-col gap-1">
+                <button
+                  onClick={clearAllUploads}
+                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 mt-3 mb-2">
+              {uploadedImages.map((img, index) => (
+                <div key={index} className="relative">
+                  <img
+                    src={img.preview}
+                    alt={`Upload ${index + 1}`}
+                    className="size-16 object-cover rounded-lg border border-white/20"
+                  />
+                  <button
+                    type="button"
+                    aria-label={`Delete photo ${index + 1}`}
+                    onMouseDown={handleDeletePhotoMouseDown}
+                    onClick={handleDeletePhotoClick(index)}
+                    className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="size-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
+              >
+                <Plus className="size-5" />
+              </button>
+              <div className="ml-auto shrink-0 flex flex-col gap-1">
+                <button
+                  onClick={clearAllUploads}
+                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                >
+                  Clear all
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {segmentationError && !isGenerating && (
+        <div className="mt-3 flex items-start gap-3 p-3 rounded-lg border border-red-400/40 bg-red-500/10 text-red-200">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-red-300" />
+          <div className="flex-1 text-xs">
+            <div className="font-medium text-red-100">Couldn't analyze your photos</div>
+            <div className="mt-1 text-red-200/90">{segmentationError}</div>
+          </div>
+          <button
+            onClick={() => { actions.setSegmentationError(null); handleSellSubmit(); }}
+            className="shrink-0 text-[11px] text-red-100 hover:text-white px-2 py-1 rounded border border-red-300/30 hover:bg-red-500/20"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {isGenerating && (
+        <div className="mt-6 p-6 bg-white/5 rounded-lg border border-white/10 text-center">
+          <Loader2 className="size-6 text-fuchsia-400 animate-spin mx-auto mb-3" />
+          <p className="text-white/60 text-sm">Analyzing your images...</p>
+        </div>
+      )}
+
+      {bulkReviewPhase === "pickup" && !isGenerating && segmentation && (
+        <div
+          key="pickup"
+          className="mt-4 wizard-step-enter"
+          style={{ animation: "wizardStepIn 300ms ease-out both" }}
+        >
+          <PickupStep
+            bulkPickupLocation={bulkPickupLocation}
+            bulkItemsCount={bulkItems.length}
+            isPostingBulk={isPostingBulk}
+            isAuthenticated={isAuthenticated}
+            onChange={actions.setBulkPickupLocation}
+            onPost={() => {
+              if (!isAuthenticated) { onRequestSignIn(); return; }
+              handleBulkPostFromPickupStep();
+            }}
+          />
+        </div>
+      )}
+
+      {productDetails && !isGenerating && (
+        <SingleListingForm
+          productDetails={productDetails}
+          setProductDetails={actions.setProductDetails}
+          categorySchemas={categorySchemas}
+          setSingleCategory={setSingleCategory}
+          postPickupLocation={postPickupLocation}
+          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+          newTag={newTag}
+          setNewTag={(v) => actions.setNewTag(v)}
+          onPost={() => {
+            if (!isAuthenticated) { onRequestSignIn(); return; }
+            onRequestSinglePostConfirm();
+          }}
+          isAuthenticated={isAuthenticated}
+        />
+      )}
+
+      {bulkReviewPhase === "cards" && !isGenerating && bulkItems.length > 0 && (
+        <AIReviewStep
+          bulkItems={bulkItems}
+          currentCardIndex={currentCardIndex}
+          uploadedImages={uploadedImages}
+          categorySchemas={categorySchemas}
+          editingTitle={editingTitle}
+          newTag={newTag}
+          isGenerating={isGenerating}
+          setEditingTitle={actions.setEditingTitle}
+          setNewTag={actions.setNewTag}
+          setCurrentCardIndex={actions.setCurrentCardIndex}
+          deleteBulkItem={actions.deleteBulkItem}
+          updateBulkItem={actions.updateBulkItem}
+          updateBulkItemField={updateBulkItemField}
+          regenerateBulkItem={regenerateBulkItem}
+          addPhotoToBulkItem={addPhotoToBulkItem}
+          onAdvance={() => transitionToPhase("pickup")}
+        />
+      )}
+
+      {!productDetails && !isGenerating && !bulkReviewPhase && (
+        <p className="text-sm text-white/60 text-center mt-2">
+          {uploadedImages.length > 0
+            ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate listing`
+            : "Selling • Click above to upload photos"}
+        </p>
+      )}
+    </>
+  );
+});
+
+// ─── Single Listing Form (extracted from inline JSX) ────────────────────────
+interface SingleListingFormProps {
+  productDetails: ProductDetails;
+  setProductDetails: (details: ProductDetails | null) => void;
+  categorySchemas: Record<string, CategorySchema>;
+  setSingleCategory: (slug: CategorySlug) => void;
+  postPickupLocation: string;
+  setPostPickupLocation: (v: string) => void;
+  newTag: string;
+  setNewTag: (v: string) => void;
+  onPost: () => void;
+  isAuthenticated: boolean;
+}
+
+function SingleListingForm({
+  productDetails, setProductDetails, categorySchemas, setSingleCategory,
+  postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
+}: SingleListingFormProps) {
+  return (
+    <div className="mt-6 p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
+      {productDetails.retrieval_fallback === true && (
+        <div className="flex gap-3 p-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-200">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-yellow-300" />
+          <div className="text-xs">
+            <div className="font-medium text-yellow-100">Listing created with limited enrichment</div>
+            <div className="mt-1 text-yellow-200/90">We couldn't reach our product lookup service, so this listing was generated from the photo alone. Double-check the brand, model, and price before posting.</div>
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-white/40 uppercase tracking-wider">Brand</label>
+          <Input
+            value={productDetails.brand}
+            onChange={(e) => setProductDetails({ ...productDetails, brand: e.target.value })}
+            className="mt-1 bg-white/5 border-white/20 text-white"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 uppercase tracking-wider">Name</label>
+          <Input
+            value={productDetails.name}
+            onChange={(e) => setProductDetails({ ...productDetails, name: e.target.value })}
+            className="mt-1 bg-white/5 border-white/20 text-white"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs text-white/40 uppercase tracking-wider">Description</label>
+        <textarea
+          value={productDetails.description}
+          onChange={(e) => setProductDetails({ ...productDetails, description: e.target.value })}
+          rows={3}
+          className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 resize-none"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-xs text-white/40 uppercase tracking-wider">Price ($)</label>
+          <PriceInput
+            value={productDetails.price}
+            onChange={(next) => setProductDetails({ ...productDetails, price: next })}
+            className="mt-1 bg-white/5 border-white/20 text-white"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-white/40 uppercase tracking-wider">Condition</label>
+          <select
+            value={productDetails.condition}
+            onChange={(e) => setProductDetails({ ...productDetails, condition: e.target.value })}
+            className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9"
+          >
+            {CONDITIONS.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {Object.keys(categorySchemas).length > 0 && (
+        <>
+          <CategorySelector
+            category={productDetails.category || "other"}
+            schemas={categorySchemas}
+            onChange={setSingleCategory}
+          />
+          <CategoryAttributeFields
+            category={productDetails.category || "other"}
+            schemas={categorySchemas}
+            attributes={productDetails.categoryAttributes || {}}
+            identifierConfidence={productDetails.identifierConfidence}
+            onChange={(key, value) => setProductDetails({
+              ...productDetails,
+              categoryAttributes: { ...(productDetails.categoryAttributes || {}), [key]: value },
+            })}
+          />
+        </>
+      )}
+      <div>
+        <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {productDetails.tags.map((tag, index) => (
+            <span
+              key={index}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-fuchsia-500/15 border border-fuchsia-400/30 text-fuchsia-300"
+            >
+              {tag}
+              <button
+                onClick={() =>
+                  setProductDetails({
+                    ...productDetails,
+                    tags: productDetails.tags.filter((_, i) => i !== index),
+                  })
+                }
+                className="hover:text-white transition-colors"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = newTag.trim();
+              if (trimmed && !productDetails.tags.includes(trimmed)) {
+                setProductDetails({
+                  ...productDetails,
+                  tags: [...productDetails.tags, trimmed],
+                });
+                setNewTag("");
+              }
+            }}
+            className="inline-flex"
+          >
+            <input
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              placeholder="Add tag..."
+              className="w-20 px-2 py-1 rounded-full text-xs bg-white/5 border border-white/20 text-white placeholder:text-white/30 focus:outline-none focus:border-fuchsia-400 transition-colors"
+            />
+          </form>
+        </div>
+      </div>
+      <div className="mt-3">
+        <label className="text-xs text-white/40 uppercase tracking-wider">Pickup Location</label>
+        <div className="mt-1.5 flex items-center gap-2">
+          <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
+          <input
+            type="text"
+            value={postPickupLocation}
+            onChange={(e) => setPostPickupLocation(e.target.value)}
+            placeholder="Enter pickup location"
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20"
+          />
+        </div>
+        <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+          Your address will not be shared until pickup is confirmed.
+        </p>
+      </div>
+
+      <Button
+        onClick={onPost}
+        className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2"
+      >
+        {isAuthenticated ? "Post Listing" : "Sign in to Post"}
+      </Button>
+    </div>
+  );
+}
