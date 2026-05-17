@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { supabase } from "../lib/supabase";
-import { setApiToken } from "../lib/api";
 
 export interface AuthUser {
   id: string;
@@ -119,11 +118,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(updated);
     localStorage.setItem("auth_user", JSON.stringify(updated));
   }, []);
-
-  // Keep the apiFetch token registry in sync with auth state.
-  useEffect(() => {
-    setApiToken(token);
-  }, [token]);
 
   const needsRegistration =
     token !== null && user !== null && (!user.display_name || !user.neighborhood);

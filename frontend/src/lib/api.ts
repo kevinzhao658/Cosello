@@ -1,18 +1,9 @@
-// Shared fetch wrapper. The token is registered from AuthContext via
-// `setApiToken` whenever the auth state changes, so call sites do not have to
-// thread `token` through every request manually.
-//
-// Behavior:
-//   - Auto-injects `Authorization: Bearer <token>` when a token is registered
-//     (and the caller did not already set one).
-//   - Returns the raw Response so call sites can check `res.ok` themselves
-//     and parse the body however they need (text, json, blob, etc.).
+import { supabase } from "./supabase";
 
-let currentToken: string | null = null;
-
-export function setApiToken(token: string | null) {
-  currentToken = token;
-}
+// Shared fetch wrapper. Reads the bearer token from Supabase directly on each
+// call, which avoids a race where a module-level token registry lags React's
+// render cycle. supabase.auth.getSession() is memoized internally, so the cost
+// is negligible after the first call.
 
 function hasAuthHeader(init?: RequestInit): boolean {
   const headers = init?.headers;
@@ -24,8 +15,12 @@ function hasAuthHeader(init?: RequestInit): boolean {
 
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (currentToken && !hasAuthHeader(init)) {
-    headers.set("Authorization", `Bearer ${currentToken}`);
+  if (!hasAuthHeader(init)) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
   }
   return fetch(input, { ...init, headers });
 }
