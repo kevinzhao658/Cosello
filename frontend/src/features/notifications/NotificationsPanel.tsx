@@ -11,11 +11,13 @@ import {
   parseAddressReleasedMessage,
   PIN_WINDOW_MS,
 } from "../../lib/pickupTime";
+import { NotificationItemSkeleton } from "../../components/NotificationItemSkeleton";
 
 type NotificationsPanelProps = {
   open: boolean;
   onClose: () => void;
   notifications: Notification[];
+  notificationsLoaded: boolean;
   unreadCount: number;
   onMarkAllRead: () => void;
   onAction: (id: number, action: "accept" | "reject") => void;
@@ -110,6 +112,7 @@ export function NotificationsPanel({
   open,
   onClose,
   notifications,
+  notificationsLoaded,
   unreadCount,
   onMarkAllRead,
   onAction,
@@ -201,7 +204,13 @@ export function NotificationsPanel({
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {notifications.length === 0 ? (
+          {!notificationsLoaded && notifications.length === 0 ? (
+            <>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <NotificationItemSkeleton key={i} />
+              ))}
+            </>
+          ) : notifications.length === 0 ? (
             <div className="py-16 text-center">
               <Bell className="size-6 text-white/15 mx-auto mb-3" />
               <p className="text-xs text-white/30">No notifications</p>

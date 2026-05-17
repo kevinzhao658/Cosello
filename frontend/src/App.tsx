@@ -10,6 +10,7 @@ const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
 const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { EditListingModal } from "./components/EditListingModal";
+import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
 import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
@@ -102,6 +103,7 @@ export default function App() {
   const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
+  const [listingsLoaded, setListingsLoaded] = useState(false);
   const [marketSearch, setMarketSearch] = useState("");
   const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
   const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
@@ -159,6 +161,7 @@ export default function App() {
   // Notifications state
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Pending listing ID for routing to order management from notification
@@ -332,7 +335,9 @@ export default function App() {
       if (res.ok) {
         setNotifications(await res.json());
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore */ } finally {
+      setNotificationsLoaded(true);
+    }
   };
 
   const handleMarkAllRead = async () => {
@@ -421,7 +426,9 @@ export default function App() {
     }
     await logout();
     setListings([]);
+    setListingsLoaded(false);
     setNotifications([]);
+    setNotificationsLoaded(false);
     setUnreadCount(0);
     setWishlist(new Set());
     setWishlistItems([]);
@@ -471,6 +478,8 @@ export default function App() {
         if (res.ok) setListings(await res.json());
       } catch (err) {
         console.error("Failed to fetch my listings:", err);
+      } finally {
+        setListingsLoaded(true);
       }
       return;
     }
@@ -495,6 +504,8 @@ export default function App() {
         if (res.ok) setListings(await res.json());
       } catch (err) {
         console.error("Failed to fetch listings:", err);
+      } finally {
+        setListingsLoaded(true);
       }
     } else {
       try {
@@ -502,6 +513,8 @@ export default function App() {
         if (res.ok) setListings(await res.json());
       } catch (err) {
         console.error("Failed to fetch public listings:", err);
+      } finally {
+        setListingsLoaded(true);
       }
     }
   };
@@ -763,6 +776,7 @@ export default function App() {
                       if (unreadCount > 0) handleMarkAllRead();
                     }}
                     notifications={notifications}
+                    notificationsLoaded={notificationsLoaded}
                     unreadCount={unreadCount}
                     onMarkAllRead={handleMarkAllRead}
                     onAction={handleNotificationAction}
@@ -1131,7 +1145,13 @@ export default function App() {
             <div className="max-w-4xl mx-auto">
 
             {/* Listings */}
-            {listings.length === 0 ? (
+            {!listingsLoaded && listings.length === 0 ? (
+              <div className="space-y-4">
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <ListingCardSkeleton key={i} />
+                ))}
+              </div>
+            ) : listings.length === 0 ? (
               <div className="text-center py-20">
                 <p className="text-white/40 text-lg">{marketSearch || selectedMarketCommunities.length > 0 ? "No matching listings" : "No listings yet"}</p>
                 {!marketSearch && selectedMarketCommunities.length === 0 && (

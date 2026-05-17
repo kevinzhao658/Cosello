@@ -40,6 +40,8 @@ import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } 
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
 import { EditListingModal } from "../../components/EditListingModal";
+import { CommunityCardSkeleton } from "../../components/CommunityCardSkeleton";
+import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
   BUYER_ORDER_BADGE,
@@ -150,6 +152,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
+  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -259,6 +262,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   // Profile stats
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0, avg_seller_rating: 5.0, avg_buyer_rating: 5.0 });
   const [myListings, setMyListings] = useState<MyListing[]>([]);
+  const [myListingsLoaded, setMyListingsLoaded] = useState(false);
   const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
   // Edit listing modal — field state lives inside EditListingModal; this
@@ -615,6 +619,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       }
     } catch (err) {
       console.error("Failed to fetch my listings:", err);
+    } finally {
+      setMyListingsLoaded(true);
     }
   }, [token]);
 
@@ -717,6 +723,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
+    } finally {
+      setCommunitiesLoaded(true);
     }
   }, [token]);
 
@@ -1610,7 +1618,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
             )}
 
-            {/* Community Tiles */}
+            {/* Community Tiles (skeletons on initial cold load) */}
+            {!communitiesLoaded && communities.length === 0 &&
+              Array.from({ length: 6 }).map((_, i) => (
+                <CommunityCardSkeleton key={`community-skeleton-${i}`} />
+              ))}
             {communities.map((community) => (
               <div
                 key={community.id}
@@ -1704,7 +1716,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
             {listingsTab === "selling" ? (
               <>
-                {myListings.length === 0 ? (
+                {!myListingsLoaded && myListings.length === 0 ? (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <ListingCardSkeleton key={i} />
+                    ))}
+                  </div>
+                ) : myListings.length === 0 ? (
                   <div className="text-center py-6">
                     <Package className="size-8 text-white/15 mx-auto mb-2" />
                     <p className="text-xs text-white/30 mb-3">No listings yet</p>
