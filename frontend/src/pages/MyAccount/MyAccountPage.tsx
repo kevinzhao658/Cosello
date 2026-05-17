@@ -754,9 +754,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   // Auto-open order modal when routed from notification
   useEffect(() => {
     if (!pendingListingId) return;
-    // Seller: open pending order modal
+    // Seller: open pending order modal. Check mySellerOrders directly rather
+    // than relying solely on the cached pendingOrderCount on the listing,
+    // since the count can lag behind the realtime order insert that triggered
+    // the notification the user just clicked.
     const listing = myListings.find((l) => l.id === pendingListingId);
-    if (listing && (listing.pendingOrderCount ?? 0) > 0) {
+    const hasPendingSellerOrder = mySellerOrders.some(
+      (o) => o.listing_id === pendingListingId && o.status === "pending",
+    );
+    if (listing && (hasPendingSellerOrder || (listing.pendingOrderCount ?? 0) > 0)) {
       openOrderModal(listing);
       onClearPendingListing?.();
       return;
@@ -800,7 +806,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     // (myListings populated, myPurchases still loading).
     if (!ordersLoaded) return;
     onClearPendingListing?.();
-  }, [pendingListingId, myListings, myPurchases, ordersLoaded]);
+  }, [pendingListingId, myListings, myPurchases, mySellerOrders, ordersLoaded]);
 
   const handleProfilePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

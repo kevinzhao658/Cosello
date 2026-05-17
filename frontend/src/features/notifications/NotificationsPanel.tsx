@@ -19,7 +19,7 @@ type NotificationsPanelProps = {
   unreadCount: number;
   onMarkAllRead: () => void;
   onAction: (id: number, action: "accept" | "reject") => void;
-  onNotifClick: (type: string, listingId: string | null) => void;
+  onNotifClick: (notificationId: number, type: string, listingId: string | null) => void;
   onConfirmPickup: (listingId: string | null) => void;
   onOpenUserDashboard: (userId: string) => void;
 };
@@ -214,7 +214,7 @@ export function NotificationsPanel({
                 countdownTick={n.type === "address_released" ? notifCountdownTick : 0}
                 onOpenUserDashboard={onOpenUserDashboard}
                 onAction={onAction}
-                onClick={() => onNotifClick(n.type, n.listing_id)}
+                onClick={() => onNotifClick(n.id, n.type, n.listing_id)}
                 onConfirmPickup={() => onConfirmPickup(n.listing_id)}
               />
             ))

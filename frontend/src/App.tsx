@@ -366,9 +366,26 @@ export default function App() {
     }
   };
 
-  const handleNotifClick = useCallback((type: string, listingId: string | null) => {
+  const notificationsRef = useRef(notifications);
+  useEffect(() => { notificationsRef.current = notifications; }, [notifications]);
+
+  const markNotificationRead = useCallback((notificationId: number) => {
+    const target = notificationsRef.current.find((n) => n.id === notificationId);
+    if (!target || target.is_read) return;
+    setNotifications((prev) => prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n)));
+    setUnreadCount((u) => Math.max(0, u - 1));
+    // Server endpoint is idempotent — fire-and-forget; UI is already optimistic.
+    apiFetch(`/api/notifications/${notificationId}/read`, { method: "POST" }).catch(() => {});
+  }, []);
+
+  const handleNotifClick = useCallback((notificationId: number, type: string, listingId: string | null) => {
     const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","review_submitted","address_released","order_completed"].includes(type);
     const noListing = ["order_declined","order_cancelled","order_expired"].includes(type);
+    // Order-related notifs clear themselves on click — join_request/etc. require
+    // explicit accept/reject action so we leave them unread.
+    if (withListing || noListing) {
+      markNotificationRead(notificationId);
+    }
     if (withListing && listingId) {
       setNotificationsOpen(false);
       setPendingListingId(listingId);
@@ -377,7 +394,7 @@ export default function App() {
       setNotificationsOpen(false);
       setPage("account");
     }
-  }, []);
+  }, [markNotificationRead]);
 
   const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
     setNotificationsOpen(false);
