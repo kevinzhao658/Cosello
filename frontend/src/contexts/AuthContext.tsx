@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { supabase } from "../lib/supabase";
-import { setApiToken, setOnUnauthorized } from "../lib/api";
+import { setApiToken } from "../lib/api";
 
 export interface AuthUser {
   id: string;
@@ -85,10 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const data = (await res.json()) as AuthUser;
           setUser(data);
           localStorage.setItem("auth_user", JSON.stringify(data));
-        } else {
+        } else if (res.status === 401 || res.status === 403) {
           // Token rejected by backend — sign out of Supabase to clear state.
           await supabase.auth.signOut();
         }
+        // 404, 5xx, etc. — leave user=null and the effect will retry if state changes
       } catch {
         // network error — keep token, user will retry
       }
@@ -123,13 +124,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setApiToken(token);
   }, [token]);
-
-  useEffect(() => {
-    setOnUnauthorized(() => {
-      void supabase.auth.signOut();
-    });
-    return () => setOnUnauthorized(null);
-  }, []);
 
   const needsRegistration =
     token !== null && user !== null && (!user.display_name || !user.neighborhood);

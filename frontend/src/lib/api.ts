@@ -7,18 +7,11 @@
 //     (and the caller did not already set one).
 //   - Returns the raw Response so call sites can check `res.ok` themselves
 //     and parse the body however they need (text, json, blob, etc.).
-//   - If a 401 is observed, dispatches the registered onUnauthorized callback
-//     (AuthContext can subscribe to log the user out). Does not retry.
 
 let currentToken: string | null = null;
-let onUnauthorized: (() => void) | null = null;
 
 export function setApiToken(token: string | null) {
   currentToken = token;
-}
-
-export function setOnUnauthorized(handler: (() => void) | null) {
-  onUnauthorized = handler;
 }
 
 function hasAuthHeader(init?: RequestInit): boolean {
@@ -34,9 +27,5 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
   if (currentToken && !hasAuthHeader(init)) {
     headers.set("Authorization", `Bearer ${currentToken}`);
   }
-  const res = await fetch(input, { ...init, headers });
-  if (res.status === 401 && onUnauthorized) {
-    onUnauthorized();
-  }
-  return res;
+  return fetch(input, { ...init, headers });
 }
