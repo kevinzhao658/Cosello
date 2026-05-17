@@ -933,15 +933,7 @@ export default function App() {
                       <Input
                         type="text"
                         value={homeSearch}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setHomeSearch(next);
-                          // Mirror to marketSearch + jump to market so the debounced
-                          // /api/listings?search=... fetch fires as the user types,
-                          // matching the market sidebar's behavior.
-                          setMarketSearch(next);
-                          if (next.length > 0) setPage("market");
-                        }}
+                        onChange={(e) => setHomeSearch(e.target.value)}
                         placeholder="Search for items..."
                         className="w-full pl-12 pr-4 py-6 text-lg bg-white/5 border-white/20 text-white placeholder:text-white/40 focus:border-cyan-400"
                       />
