@@ -42,7 +42,7 @@ export function ModalShell({
   return (
     <div className={`fixed inset-0 ${alignment}`} style={{ zIndex: z }}>
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
         onClick={dismissOnBackdrop ? onClose : undefined}
       />
       {children}
