@@ -9,3 +9,12 @@ backend/uploads/*
 .vite/
 backend/.secrets/
 *.serviceaccount.json
+
+# macOS noise
+.DS_Store
+
+# Design handoff (local-only — do not commit)
+Cosello.zip
+DESIGN.md
+styleguide.html
+design_handoff_cosello/
