@@ -256,6 +256,16 @@
   }
 }
 
+/* Faint grid pattern for the ListingDetail location-tab map placeholder.
+   Two perpendicular hairline gradients tiled at 24px. */
+.ld-map-grid {
+  background-image:
+    linear-gradient(to right, var(--hairline) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--hairline) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.55;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
