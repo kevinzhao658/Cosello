@@ -2,6 +2,13 @@ import { Search, Menu, User, X, Globe, Settings, ExternalLink, FileText, Shield,
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "./components/ui/dropdown-menu";
 import { useSettings } from "./contexts/SettingsContext";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
@@ -643,10 +650,7 @@ export default function App() {
             {/* Left: Wordmark */}
             <button
               onClick={() => setPage("home")}
-              className={`bg-transparent border-none cursor-pointer text-primary text-2xl font-extrabold tracking-tight transition-opacity duration-500 ${
-                (wizardPhase === "review" || wizardPhase === "reason") ? "opacity-0 pointer-events-none" : "opacity-100"
-              }`}
-              style={{ letterSpacing: "-0.5px" }}
+              className="bg-transparent border-none cursor-pointer text-primary text-2xl font-extrabold tracking-wordmark"
             >
               Cosello
             </button>
@@ -671,8 +675,9 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => { /* Communities: deferred. No route yet. */ }}
-                className={navLinkClass(false)}
+                disabled
+                title="Coming soon"
+                className={`${navLinkClass(false)} opacity-50 cursor-not-allowed`}
               >
                 Communities
               </button>
@@ -824,9 +829,100 @@ export default function App() {
                 </Button>
               )}
 
-              <Button variant="ghost" size="icon" className="md:hidden">
-                <Menu className="size-5" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="md:hidden"
+                    aria-label="Open menu"
+                  >
+                    <Menu className="size-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={8}
+                  className="w-56 bg-canvas border border-hairline shadow-overlay rounded-md p-1"
+                >
+                  <DropdownMenuItem
+                    onSelect={() => setPage("home")}
+                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                  >
+                    Home
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setPage("market")}
+                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                  >
+                    Marketplace
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled
+                    title="Coming soon"
+                    className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink"
+                  >
+                    Communities
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      if (!isAuthenticated) { setPage("signin"); return; }
+                      setPage("account");
+                    }}
+                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                  >
+                    My account
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => { setTradeMode("sell"); setPage("home"); }}
+                    className="text-primary font-semibold hover:bg-surface-soft focus:bg-surface-soft focus:text-primary"
+                  >
+                    Sell
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {isAuthenticated ? (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={() => setPage("account")}
+                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                      >
+                        <User className="size-3.5" />
+                        Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => setPage("settings")}
+                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                      >
+                        <Settings className="size-3.5" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => setPage("help")}
+                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                      >
+                        <HelpCircle className="size-3.5" />
+                        Help & Support
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => { void handleLogout(); }}
+                        className="text-error hover:bg-surface-soft focus:bg-surface-soft focus:text-error"
+                      >
+                        <LogOut className="size-3.5" />
+                        Log Out
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <DropdownMenuItem
+                      onSelect={() => setPage("signin")}
+                      className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                    >
+                      Sign in
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -884,7 +980,7 @@ export default function App() {
                   return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`.toUpperCase();
                 })()}
               </p>
-              <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight text-ink leading-[1.05] mb-5" style={{ letterSpacing: "-1.5px" }}>
+              <h1 className="text-5xl sm:text-6xl font-extrabold tracking-display text-ink leading-[1.05] mb-5">
                 Hey, {user?.display_name?.split(" ")[0] ?? "there"}.
               </h1>
               <p className="text-body text-base sm:text-lg leading-relaxed max-w-[56ch] mb-8">

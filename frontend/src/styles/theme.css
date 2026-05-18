@@ -145,6 +145,11 @@
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-display: 'Inter', system-ui, sans-serif;
 
+  /* Letter-spacing tokens — Tailwind v4 exposes these as `tracking-wordmark`
+     / `tracking-display` utility classes. */
+  --tracking-wordmark: -0.5px;
+  --tracking-display: -1.5px;
+
   /* ── Legacy shadcn aliases exposed to Tailwind ──────────────────────── */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
