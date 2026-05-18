@@ -84,23 +84,23 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
   };
 
   return (
-    <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4">
+    <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 bg-canvas">
       <div className="w-full max-w-sm">
-        <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
+        <div className="bg-canvas border border-hairline rounded-md p-8 shadow-card">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center size-14 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-full mb-4">
-              <UserCircle className="size-7 text-fuchsia-400" />
+            <div className="inline-flex items-center justify-center size-14 bg-primary-soft rounded-full mb-4">
+              <UserCircle className="size-7 text-primary" />
             </div>
-            <h2 className="text-2xl font-light tracking-wider mb-1">
+            <h2 className="text-2xl font-extrabold tracking-tight text-ink mb-1" style={{ letterSpacing: "-0.5px" }}>
               Complete Your Profile
             </h2>
-            <p className="text-white/50 text-sm">Tell us a bit about yourself</p>
+            <p className="text-muted text-sm">Tell us a bit about yourself</p>
           </div>
 
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                   First Name
                 </label>
                 <Input
@@ -108,11 +108,10 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                   placeholder="First"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
                 />
               </div>
               <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                   Last Name
                 </label>
                 <Input
@@ -120,13 +119,12 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                   placeholder="Last"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                 Default Pickup Address
               </label>
               <Input
@@ -134,15 +132,14 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                 placeholder="Street address"
                 value={pickupAddress}
                 onChange={(e) => setPickupAddress(e.target.value)}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
               />
-              <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+              <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
                 Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
               </p>
             </div>
 
             <div className="relative">
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                 Neighborhood
               </label>
               <Input
@@ -158,14 +155,12 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && isValidNeighborhood) handleRegister();
                 }}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
               />
 
               {showSuggestions && filtered.length > 0 && (
                 <div
                   ref={suggestionsRef}
-                  className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-white/20 shadow-lg"
-                  style={{ backgroundColor: "#18181b" }}
+                  className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-border-strong bg-canvas shadow-overlay"
                 >
                   {filtered.map((n) => (
                     <button
@@ -175,10 +170,10 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                         setNeighborhood(n);
                         setShowSuggestions(false);
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors ${
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
                         n.toLowerCase() === neighborhood.trim().toLowerCase()
-                          ? "text-fuchsia-400"
-                          : "text-white"
+                          ? "text-primary"
+                          : "text-ink"
                       }`}
                     >
                       {n}
@@ -188,10 +183,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
               )}
 
               {showSuggestions && filtered.length === 0 && neighborhood.trim() && (
-                <div
-                  className="absolute z-50 mt-1 w-full rounded-md border border-white/20 shadow-lg px-3 py-2 text-sm text-white/40"
-                  style={{ backgroundColor: "#18181b" }}
-                >
+                <div className="absolute z-50 mt-1 w-full rounded-md border border-border-strong bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
                   No matching neighborhoods
                 </div>
               )}
@@ -199,31 +191,31 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                   City
                 </label>
                 <Input
                   type="text"
                   value="New York"
                   disabled
-                  className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                  className="cursor-not-allowed"
                 />
               </div>
               <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                   State
                 </label>
                 <Input
                   type="text"
                   value="NY"
                   disabled
-                  className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
+                  className="cursor-not-allowed"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                 Zip Code
               </label>
               <Input
@@ -234,16 +226,15 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                   const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
                   setZipCode(val);
                 }}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
               />
             </div>
 
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-error">{error}</p>}
 
             <Button
               onClick={handleRegister}
               disabled={isLoading || !isValidNeighborhood || !firstName.trim() || !lastName.trim()}
-              className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -254,7 +245,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <button
               onClick={onCancel}
-              className="w-full text-sm text-white/40 hover:text-white/60 transition-colors mt-2"
+              className="w-full text-sm text-muted hover:text-ink transition-colors mt-2"
             >
               Cancel
             </button>

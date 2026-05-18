@@ -1,4 +1,4 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, X, Globe, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Check, Lock, Pencil, Clock, Package, ShoppingBag, MapPin, ChevronRight } from "lucide-react";
+import { Search, Menu, User, X, Globe, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Lock, Pencil, MapPin, ChevronRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
@@ -82,10 +82,6 @@ export default function App() {
   const [pendingSignupUser, setPendingSignupUser] = useState<AuthUser | null>(null);
 
   const [homeSearch, setHomeSearch] = useState("");
-  const [displayText, setDisplayText] = useState("");
-  const fullText = "COSELLO";
-  const [isTypingComplete, setIsTypingComplete] = useState(false);
-  const [currentLetterIndex, setCurrentLetterIndex] = useState(-1);
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
 
   // Sell wizard — all of its state lives inside <SellWizard>. App.tsx holds a
@@ -167,10 +163,9 @@ export default function App() {
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
 
-  // History state
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
-  const [historyItems, setHistoryItems] = useState<{ id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold"; timestamp: number }[]>(() => {
+  // Recent-activity log persisted to localStorage. Consumed by MyAccountPage
+  // (via onAddToHistory) — the in-nav dropdown was retired in R-2.
+  const [, setHistoryItems] = useState<{ id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold"; timestamp: number }[]>(() => {
     try {
       const stored = localStorage.getItem("ge_history");
       return stored ? JSON.parse(stored) : [];
@@ -312,9 +307,6 @@ export default function App() {
 
   // Close profile dropdown on outside click
   useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
-
-  // Close history dropdown on outside click
-  useClickOutside(historyRef, () => setHistoryOpen(false), historyOpen);
 
   // Fetch unread notification count periodically
   const fetchUnreadCount = async () => {
@@ -622,23 +614,6 @@ export default function App() {
     }
   }, [isAuthenticated, page, pendingSignupToken]);
 
-  useEffect(() => {
-    let currentIndex = 0;
-    const typingInterval = setInterval(() => {
-      if (currentIndex <= fullText.length) {
-        setDisplayText(fullText.slice(0, currentIndex));
-        setCurrentLetterIndex(currentIndex - 1);
-        currentIndex++;
-      } else {
-        clearInterval(typingInterval);
-        setIsTypingComplete(true);
-        setCurrentLetterIndex(-1);
-      }
-    }, 80);
-
-    return () => clearInterval(typingInterval);
-  }, []);
-
   // If user needs registration and we have a pending token, redirect to signup
   useEffect(() => {
     if (needsRegistration && pendingSignupToken && page !== "signup") {
@@ -646,109 +621,91 @@ export default function App() {
     }
   }, [needsRegistration, pendingSignupToken]);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white">
-      {/* Navigation */}
-      <nav className="sticky top-0 border-b border-white/10 bg-black/60 backdrop-blur-md z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-8">
-              <button onClick={() => setPage("home")} className={`flex items-center gap-2 bg-transparent border-none cursor-pointer transition-opacity duration-500 ${(wizardPhase === "review" || wizardPhase === "reason") ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
-                <div className="relative">
-                  <DollarSign className="size-8 text-fuchsia-400 absolute top-0 left-0" />
-                  <DollarSign className="size-8 text-cyan-400 relative" style={{ transform: 'translate(8px, 0)' }} />
-                </div>
-              </button>
+  const userInitials = (() => {
+    const name = user?.display_name?.trim();
+    if (!name) return "";
+    const parts = name.split(/\s+/);
+    const letters = parts.slice(0, 2).map((p) => p.charAt(0).toUpperCase());
+    return letters.join("");
+  })();
 
-              {/* Desktop Navigation */}
-              <div className="hidden md:flex gap-6">
-                <button onClick={() => setPage("home")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "home" ? "text-white" : "text-white/60"}`}>
-                  Search
-                </button>
-                <button onClick={() => setPage("market")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "market" ? "text-white" : "text-white/60"}`}>
-                  Market
-                </button>
-              </div>
+  const navLinkClass = (active: boolean) =>
+    `relative bg-transparent border-none cursor-pointer text-sm transition-colors px-1 ${
+      active ? "text-primary font-semibold" : "text-muted hover:text-ink"
+    }`;
+
+  return (
+    <div className="min-h-screen bg-canvas text-ink">
+      {/* Navigation */}
+      <nav className="sticky top-0 border-b border-hairline bg-canvas z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-6 h-16">
+            {/* Left: Wordmark */}
+            <button
+              onClick={() => setPage("home")}
+              className={`bg-transparent border-none cursor-pointer text-primary text-2xl font-extrabold tracking-tight transition-opacity duration-500 ${
+                (wizardPhase === "review" || wizardPhase === "reason") ? "opacity-0 pointer-events-none" : "opacity-100"
+              }`}
+              style={{ letterSpacing: "-0.5px" }}
+            >
+              Cosello
+            </button>
+
+            {/* Center: Route-aware nav */}
+            <div className="hidden md:flex items-center justify-center gap-6">
+              <button
+                type="button"
+                onClick={() => setPage("home")}
+                aria-current={page === "home" ? "page" : undefined}
+                className={navLinkClass(page === "home")}
+              >
+                Home
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage("market")}
+                aria-current={page === "market" ? "page" : undefined}
+                className={navLinkClass(page === "market")}
+              >
+                Marketplace
+              </button>
+              <button
+                type="button"
+                onClick={() => { /* Communities: deferred. No route yet. */ }}
+                className={navLinkClass(false)}
+              >
+                Communities
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isAuthenticated) { setPage("signin"); return; }
+                  setPage("account");
+                }}
+                aria-current={page === "account" ? "page" : undefined}
+                className={navLinkClass(page === "account")}
+              >
+                My account
+              </button>
             </div>
 
             {/* Right Side */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {isAuthenticated ? (
                 <>
-                {/* History */}
-                <div className="relative" ref={historyRef}>
-                  <button
-                    onClick={() => setHistoryOpen((prev) => !prev)}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10"
-                  >
-                    <Clock className="size-4 text-white/80" />
-                  </button>
-
-                  {historyOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-80 rounded-md border border-white/15 shadow-xl overflow-hidden z-[100]" style={{ backgroundColor: '#18181b' }}>
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-                        <p className="text-xs font-medium">Recent Activity</p>
-                        {historyItems.length > 0 && (
-                          <button
-                            onClick={() => { setHistoryItems([]); localStorage.removeItem("ge_history"); }}
-                            className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                      <div className="max-h-[8.5rem] overflow-y-auto">
-                        {historyItems.length === 0 ? (
-                          <div className="py-8 text-center">
-                            <Clock className="size-5 text-white/15 mx-auto mb-2" />
-                            <p className="text-xs text-white/30">No recent activity</p>
-                          </div>
-                        ) : (
-                          historyItems.map((item, i) => (
-                            <button
-                              key={`${item.id}-${item.type}-${i}`}
-                              onClick={() => {
-                                setHistoryOpen(false);
-                                const listing = listings.find((l) => l.id === item.id);
-                                if (listing) openListingDetail(listing);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 border-b border-white/5 hover:bg-white/5 transition-colors text-left"
-                            >
-                              <img src={item.imageUrl} alt="" className="size-9 rounded-md object-cover border border-white/10 shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs text-white/80 truncate">{item.title}</p>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  {item.type === "viewed" && <Eye className="size-2.5 text-white/25" />}
-                                  {item.type === "purchased" && <ShoppingBag className="size-2.5 text-green-400/60" />}
-                                  {item.type === "listed" && <Package className="size-2.5 text-fuchsia-400/60" />}
-                                  {item.type === "sold" && <DollarSign className="size-2.5 text-cyan-400/60" />}
-                                  <span className="text-[10px] text-white/25 capitalize">{item.type}</span>
-                                  <span className="text-[10px] text-white/15">
-                                    {(() => {
-                                      const diff = Date.now() - item.timestamp;
-                                      const mins = Math.floor(diff / 60000);
-                                      if (mins < 1) return "just now";
-                                      if (mins < 60) return `${mins}m ago`;
-                                      const hrs = Math.floor(mins / 60);
-                                      if (hrs < 24) return `${hrs}h ago`;
-                                      return `${Math.floor(hrs / 24)}d ago`;
-                                    })()}
-                                  </span>
-                                </div>
-                              </div>
-                              <span className="text-xs text-fuchsia-400 shrink-0">${item.price}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {/* Message (placeholder — no route) */}
+                <button
+                  type="button"
+                  aria-label="Messages"
+                  className="inline-flex items-center justify-center size-9 rounded-full bg-transparent text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+                >
+                  <MessageCircle className="size-[18px]" />
+                </button>
 
                 {/* Notifications Bell */}
                 <div className="relative">
                   <button
+                    aria-label="Notifications"
                     onClick={() => {
                       setNotificationsOpen((prev) => {
                         if (!prev) {
@@ -759,13 +716,14 @@ export default function App() {
                         return !prev;
                       });
                     }}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10 relative"
+                    className="relative inline-flex items-center justify-center size-9 rounded-full bg-transparent text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
                   >
-                    <Bell className="size-4 text-white/80" />
+                    <Bell className="size-[18px]" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 size-4 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                        {unreadCount > 9 ? "9+" : unreadCount}
-                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="absolute top-1.5 right-2 size-2 rounded-full bg-primary ring-2 ring-canvas"
+                      />
                     )}
                   </button>
 
@@ -786,55 +744,67 @@ export default function App() {
                   />
                 </div>
 
+                {/* Sell pill */}
+                <button
+                  type="button"
+                  onClick={() => { setTradeMode("sell"); setPage("home"); }}
+                  className="inline-flex items-center justify-center bg-primary text-on-primary rounded-full px-4 h-9 text-sm font-semibold hover:bg-primary-hover transition-colors cursor-pointer"
+                >
+                  Sell
+                </button>
+
                 <div className="relative" ref={profileRef}>
                   <button
                     onClick={() => setProfileOpen((prev) => !prev)}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10 overflow-hidden"
+                    aria-label="Account menu"
+                    className="inline-flex items-center justify-center size-9 rounded-full bg-canvas border border-primary text-ink text-xs font-semibold hover:bg-primary-soft transition-colors cursor-pointer overflow-hidden"
                   >
                     {user?.profile_picture ? (
                       <img src={user.profile_picture} alt="" className="size-full object-cover" />
+                    ) : userInitials ? (
+                      <span>{userInitials}</span>
                     ) : (
-                      <User className="size-4 text-white/80" />
+                      <User className="size-4 text-muted" />
                     )}
                   </button>
 
                   {profileOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-44 rounded-md border border-white/15 shadow-xl overflow-hidden z-50" style={{ backgroundColor: '#18181b' }}>
+                    <div className="absolute right-0 top-full mt-1.5 w-48 rounded-md border border-hairline bg-canvas shadow-overlay overflow-hidden z-50">
                       {user?.display_name && (
-                        <div className="px-3 py-2 border-b border-white/10">
-                          <p className="text-xs font-medium truncate">{user.display_name}</p>
-                          <p className="text-[11px] text-white/40 truncate">{user.neighborhood}</p>
+                        <div className="px-3 py-2 border-b border-hairline">
+                          <p className="text-xs font-semibold text-ink truncate">{user.display_name}</p>
+                          <p className="text-[11px] text-muted truncate">{user.neighborhood}</p>
                         </div>
                       )}
 
-                      <div className="py-0.5">
+                      <div className="py-1">
                         <button
                           onClick={() => { setProfileOpen(false); setPage("account"); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <User className="size-3.5" />
                           My Account
                         </button>
                         <button
                           onClick={() => { setProfileOpen(false); setPage("settings"); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <Settings className="size-3.5" />
                           Settings
                         </button>
                         <button
                           onClick={() => { setProfileOpen(false); setPage("help"); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <HelpCircle className="size-3.5" />
                           Help & Support
                         </button>
                       </div>
 
-                      <div className="border-t border-white/10 py-0.5">
+                      <div className="border-t border-hairline py-1">
                         <button
                           onClick={handleLogout}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-error hover:bg-surface-soft transition-colors text-left"
                         >
                           <LogOut className="size-3.5" />
                           Log Out
@@ -849,13 +819,12 @@ export default function App() {
                   onClick={() => setPage("signin")}
                   variant="outline"
                   size="sm"
-                  className="bg-white/5 border-white/20 text-white hover:bg-white/10 text-sm"
                 >
                   Log In
                 </Button>
               )}
 
-              <Button variant="ghost" size="icon" className="md:hidden text-white/60 hover:text-white">
+              <Button variant="ghost" size="icon" className="md:hidden">
                 <Menu className="size-5" />
               </Button>
             </div>
@@ -904,26 +873,47 @@ export default function App() {
       )}
 
       {page === "home" && (
-        <>
-      {/* Hero Section */}
-      <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
-        <div className="max-w-7xl mx-auto w-full">
-          <div className={`text-center transition-all duration-300 overflow-hidden ${(wizardPhase === "review" || wizardPhase === "reason" || wizardPhase === "cards" || wizardPhase === "pickup") ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
-            <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
-              {displayText.split('').map((letter, index) => (
-                <span
-                  key={index}
-                  className={`${index === currentLetterIndex ? 'animate-letter-flash' : ''}${letter === ' ' ? ' inline-block w-4 sm:w-6' : ''}`}
-                >
-                  {letter === ' ' ? '\u00A0' : letter}
-                </span>
-              ))}
-              <span className={`inline-block w-1 h-16 sm:h-20 ml-2 ${isTypingComplete ? 'animate-cursor' : 'opacity-100 bg-cyan-400'}`}></span>
-            </h2>
-          </div>
+        <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-16">
+          <div className="w-full max-w-[760px]">
+            <div className={`transition-all duration-300 overflow-hidden ${(wizardPhase === "review" || wizardPhase === "reason" || wizardPhase === "cards" || wizardPhase === "pickup") ? "max-h-0 mb-0 opacity-0" : "max-h-[600px] mb-8 opacity-100"}`}>
+              <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
+                {(() => {
+                  const d = new Date();
+                  const wk = d.toLocaleDateString("en-US", { weekday: "long" });
+                  const mo = d.toLocaleDateString("en-US", { month: "long" });
+                  return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`.toUpperCase();
+                })()}
+              </p>
+              <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight text-ink leading-[1.05] mb-5" style={{ letterSpacing: "-1.5px" }}>
+                Hey, {user?.display_name?.split(" ")[0] ?? "there"}.
+              </h1>
+              <p className="text-body text-base sm:text-lg leading-relaxed max-w-[56ch] mb-8">
+                Tell us what you're looking for, or drop a few photos and we'll write the listing for you.
+              </p>
 
-          {/* Search Bar / Sell Upload */}
-          <div className="max-w-4xl mx-auto">
+              <div role="tablist" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full mb-6">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tradeMode === "buy"}
+                  onClick={() => setTradeMode("buy")}
+                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors ${tradeMode === "buy" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
+                >
+                  Buy
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tradeMode === "sell"}
+                  onClick={() => setTradeMode("sell")}
+                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors ${tradeMode === "sell" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
+                >
+                  Sell
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full max-w-[720px]">
               {tradeMode === "buy" ? (
                 <>
                   <form
@@ -940,94 +930,37 @@ export default function App() {
                         logSearch({ query, filters });
                       }
                     }}
-                    className="relative flex items-center gap-2 mb-2"
+                    className="flex items-center gap-2 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card"
                   >
-                    <div className="relative flex-1">
-                      <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-white/40 size-5" />
-                      <Input
-                        type="text"
-                        value={homeSearch}
-                        onChange={(e) => setHomeSearch(e.target.value)}
-                        placeholder="Search for items..."
-                        className="w-full pl-12 pr-4 py-6 text-lg bg-white/5 border-white/20 text-white placeholder:text-white/40 focus:border-cyan-400"
-                      />
-                    </div>
-
-                    {/* Buy/Sell Toggle */}
-                    <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setTradeMode("buy")}
-                        className="h-[52px] px-4 rounded-none text-sm bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
-                      >
-                        Buy
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setTradeMode("sell")}
-                        className="h-[52px] px-4 rounded-none text-sm text-white/60 hover:text-white hover:bg-white/5"
-                      >
-                        Sell
-                      </Button>
-                    </div>
-
-                    {/* Submit Button */}
-                    <Button
+                    <Search className="size-[18px] text-muted shrink-0" />
+                    <input
+                      type="text"
+                      value={homeSearch}
+                      onChange={(e) => setHomeSearch(e.target.value)}
+                      placeholder="Search for vintage furniture, books, anything..."
+                      className="flex-1 bg-transparent border-0 outline-none text-base text-ink placeholder:text-muted-soft min-w-0"
+                    />
+                    <button
                       type="submit"
-                      size="icon"
-                      className="h-[52px] w-[52px] bg-cyan-500 hover:bg-cyan-600 text-white border-0"
+                      className="h-12 px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0"
                     >
-                      <ArrowRight className="size-5" />
-                    </Button>
+                      Search
+                    </button>
                   </form>
 
-                  {/* Community Filter Chips — mirrors market page */}
-                  {isAuthenticated && filterCommunities.length > 0 && (
-                    <div className="flex items-center justify-center gap-2 flex-wrap mb-2">
-                      {filterCommunities.map((community) => {
-                        const cid = String(community.id);
-                        const isSelected = selectedMarketCommunities.includes(cid);
-                        return (
-                          <button
-                            key={cid}
-                            onClick={() =>
-                              setSelectedMarketCommunities((prev) =>
-                                isSelected ? prev.filter((x) => x !== cid) : [...prev, cid]
-                              )
-                            }
-                            className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all ${
-                              isSelected
-                                ? "bg-fuchsia-500/15 border-fuchsia-400/30 text-fuchsia-300"
-                                : "bg-white/5 border-white/15 text-white/50 hover:bg-white/10"
-                            }`}
-                          >
-                            {community.is_public !== false ? <Globe className="size-3" /> : <Lock className="size-3" />}
-                            {community.name}
-                          </button>
-                        );
-                      })}
-                      {selectedMarketCommunities.length > 0 && (
-                        <button
-                          onClick={() => setSelectedMarketCommunities([])}
-                          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border border-white/10 text-white/30 hover:text-white/50 hover:bg-white/5 transition-all"
-                        >
-                          <X className="size-3" />
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <p className="text-sm text-white/60 text-center">
-                    Buying • {selectedMarketCommunities.length === 0
-                      ? "All"
-                      : filterCommunities
-                          .filter((c) => selectedMarketCommunities.includes(String(c.id)))
-                          .map((c) => c.name)
-                          .join(", ")}
-                  </p>
+                  <div className="flex flex-wrap gap-2 mt-5 items-center">
+                    <span className="text-sm text-muted mr-1">Try</span>
+                    {["Walnut sideboard", "Le Creuset", "Mid-century lamp", "Wool rug", "Vintage Levi's"].map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setHomeSearch(q)}
+                        className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
                 </>
               ) : null}
               {/*
@@ -1047,73 +980,10 @@ export default function App() {
                 onPhaseChange={setWizardPhase}
               />
             </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-black/20 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="text-4xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent mb-2">1.2M+</div>
-              <div className="text-white/60">Active Traders</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent mb-2">5.8M+</div>
-              <div className="text-white/60">Items Listed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent mb-2">$2.4B+</div>
-              <div className="text-white/60">Total Trading Volume</div>
-            </div>
           </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <h3 className="text-3xl text-center mb-12">Why Choose Cosello?</h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
-              <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
-                <TrendingUp className="size-6 text-cyan-400" />
-              </div>
-              <h4 className="text-xl mb-3">Instant Trading</h4>
-              <p className="text-white/60">
-                Buy and sell items instantly with our automated matching system. No waiting required.
-              </p>
-            </div>
-
-            <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
-              <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="size-6 text-fuchsia-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
-              <h4 className="text-xl mb-3">Secure Transactions</h4>
-              <p className="text-white/60">
-                Your items and payments are protected with bank-level security and escrow services.
-              </p>
-            </div>
-
-            <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
-              <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="size-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <h4 className="text-xl mb-3">Real-Time Prices</h4>
-              <p className="text-white/60">
-                Get accurate market data and price history to make informed trading decisions.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-        </>
+        </section>
       )}
+
 
       {page === "market" && (
         <section

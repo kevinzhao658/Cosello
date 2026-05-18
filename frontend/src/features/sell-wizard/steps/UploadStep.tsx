@@ -1,8 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Upload, ArrowRight, Loader2 } from "lucide-react";
-import { Button } from "../../../components/ui/button";
-
-const SELL_PROMPT = "Upload single or multiple items, and we'll do the rest";
+import React from "react";
+import { ImagePlus } from "lucide-react";
 
 export interface UploadStepProps {
   uploadedImagesCount: number;
@@ -15,74 +12,36 @@ export interface UploadStepProps {
 }
 
 export function UploadStep({
-  uploadedImagesCount, isGenerating, collapsed, fileInputRef, onUpload, onSubmit, onSwitchToBuy,
+  uploadedImagesCount, collapsed, fileInputRef, onUpload,
 }: UploadStepProps) {
-  const [sellDisplayText, setSellDisplayText] = useState("");
-  const [sellLetterIndex, setSellLetterIndex] = useState(-1);
-  useEffect(() => {
-    let currentIndex = 0;
-    const typingInterval = setInterval(() => {
-      if (currentIndex <= SELL_PROMPT.length) {
-        setSellDisplayText(SELL_PROMPT.slice(0, currentIndex));
-        setSellLetterIndex(currentIndex - 1);
-        currentIndex++;
-      } else {
-        clearInterval(typingInterval);
-        setSellLetterIndex(-1);
-      }
-    }, 25);
-    return () => clearInterval(typingInterval);
-  }, []);
+  // When images are loaded the filled-state composer (rendered in SellWizard)
+  // takes over the visual — UploadStep keeps the hidden <input> mounted so
+  // the wizard's fileInputRef stays valid.
+  const hasPhotos = uploadedImagesCount > 0;
 
   return (
-    <div className={`relative flex items-center gap-2 transition-all duration-300 overflow-hidden ${collapsed ? "max-h-0 mb-0 opacity-0 pointer-events-none" : "max-h-32 mb-2 opacity-100"}`}>
-      <label className="flex-1 flex items-center gap-3 px-4 py-3 bg-white/5 border border-dashed border-fuchsia-400/40 rounded-lg cursor-pointer hover:bg-white/10 hover:border-fuchsia-400/60 transition-all">
-        <Upload className="size-5 text-fuchsia-400 shrink-0" />
-        <p className="text-sm inline-flex items-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
-          {sellDisplayText.split('').map((letter, index) => (
-            <span
-              key={index}
-              className={`${index === sellLetterIndex ? 'animate-letter-flash' : 'text-white/70'}${letter === ' ' ? ' inline-block w-1.5' : ''}`}
-            >
-              {letter === ' ' ? ' ' : letter}
-            </span>
-          ))}
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={onUpload}
-        />
-      </label>
+    <div
+      className={`relative transition-all duration-300 overflow-hidden ${
+        collapsed ? "max-h-0 mb-0 opacity-0 pointer-events-none" : (hasPhotos ? "max-h-0 mb-0 opacity-0" : "max-h-[260px] mb-2 opacity-100")
+      }`}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={onUpload}
+      />
 
-      <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
-        <Button
-          variant="ghost"
-          onClick={onSwitchToBuy}
-          className="h-[52px] px-4 rounded-none text-sm text-white/60 hover:text-white hover:bg-white/5"
-        >
-          Buy
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => { /* already in sell */ }}
-          className="h-[52px] px-4 rounded-none text-sm bg-fuchsia-500/20 text-fuchsia-400 hover:bg-fuchsia-500/30"
-        >
-          Sell
-        </Button>
-      </div>
-
-      <Button
-        size="icon"
-        disabled={uploadedImagesCount === 0 || isGenerating}
-        onClick={onSubmit}
-        className={`h-[52px] w-[52px] bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 ${uploadedImagesCount === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        className="w-full flex flex-col items-center justify-center gap-3 px-4 py-12 bg-surface-soft border-2 border-dashed border-border-strong rounded-lg cursor-pointer hover:border-primary hover:bg-primary-soft/40 transition-all text-center"
       >
-        {isGenerating ? <Loader2 className="size-5 animate-spin" /> : <ArrowRight className="size-5" />}
-      </Button>
+        <ImagePlus className="size-6 text-primary" />
+        <span className="text-sm font-medium text-body">Drop or click to upload photos</span>
+      </button>
     </div>
   );
 }
