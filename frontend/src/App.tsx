@@ -1,4 +1,4 @@
-import { Search, Menu, User, X, Globe, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Lock, Pencil, MapPin, ChevronRight } from "lucide-react";
+import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
@@ -28,57 +28,13 @@ import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
-import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
+import { logView, logSearch, type ViewSource } from "./lib/events";
 import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema } from "./lib/types";
 import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
 type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
-
-function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }) {
-  const [current, setCurrent] = useState(0);
-
-  useEffect(() => {
-    if (images.length <= 1) return;
-    const timer = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % images.length);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [images.length]);
-
-  if (images.length <= 1) {
-    return (
-      <img
-        src={images[0]}
-        alt={alt}
-        className="w-28 h-28 object-cover rounded-lg border border-white/10 shrink-0"
-      />
-    );
-  }
-
-  return (
-    <div className="relative w-28 h-28 rounded-lg border border-white/10 shrink-0 overflow-hidden">
-      {images.map((url, i) => (
-        <img
-          key={url}
-          src={url}
-          alt={`${alt} ${i + 1}`}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out"
-          style={{ opacity: i === current ? 1 : 0 }}
-        />
-      ))}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1">
-        {images.map((_, i) => (
-          <span
-            key={i}
-            className={`block size-1.5 rounded-full transition-colors ${i === current ? "bg-white" : "bg-white/40"}`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
@@ -110,7 +66,18 @@ export default function App() {
   const [marketSearch, setMarketSearch] = useState("");
   const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
   const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
-  const [marketSort, setMarketSort] = useState("newest");
+  // R-3.1: new tri-mode sort. `recommended` and `trending` both fall through
+  // to backend `sort=newest` (FYP path kicks in when no community is selected
+  // and no search is active) until dedicated backend sort modes ship.
+  type MarketSort = "recommended" | "trending" | "newest";
+  const [marketSort, setMarketSort] = useState<MarketSort>("recommended");
+  // Distance is purely a visual placeholder for now — no backend filter, no
+  // distance data on the listing payload. Hooked to local state so the slider
+  // is interactive; will start filtering once Listing carries lat/long.
+  const [distanceMiles, setDistanceMiles] = useState<number>(5);
+  // Client-side pagination: backend returns the full feed, we reveal in
+  // chunks (24 initial, +18 per IO trigger).
+  const [visibleCount, setVisibleCount] = useState<number>(24);
   const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
@@ -144,13 +111,11 @@ export default function App() {
       prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
     );
   }, []);
-  const handleClearMarketCommunities = useCallback(() => setSelectedMarketCommunities([]), []);
   const handleToggleCategory = useCallback((slug: CategorySlug) => {
     setSelectedCategories((prev) =>
       prev.includes(slug) ? prev.filter((c) => c !== slug) : [...prev, slug]
     );
   }, []);
-  const handleClearCategories = useCallback(() => setSelectedCategories([]), []);
   const handleToggleMyListings = useCallback(() => setShowMyListings((v) => !v), []);
 
   // Wishlist state
@@ -229,6 +194,24 @@ export default function App() {
   };
 
   const listingViewSourceRef = useRef<ViewSource>("direct");
+
+  // Infinite-scroll sentinel for the marketplace grid.
+  const marketSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (page !== "market") return;
+    const el = marketSentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((v) => Math.min(v + 18, listings.length));
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [page, listings.length, visibleCount]);
 
   const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
     listingViewSourceRef.current = source;
@@ -485,7 +468,13 @@ export default function App() {
 
     const params = new URLSearchParams();
     if (debouncedMarketSearch) params.set("search", debouncedMarketSearch);
-    params.set("sort", marketSort);
+    // Map the new UI sort labels onto backend modes. `recommended` and
+    // `trending` both ride the existing `sort=newest` request — when no
+    // community is selected and no search is active, the backend falls into
+    // its FYP scoring path, which is the current proxy for "recommended".
+    // TODO: add a real `trending` sort backend-side (view count window).
+    const backendSort = marketSort === "newest" ? "newest" : "newest";
+    params.set("sort", backendSort);
     if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
     if (isAuthenticated && token) {
@@ -563,14 +552,15 @@ export default function App() {
     }
   };
 
-  const handleNotForMe = (listingId: string) => {
-    setListings((prev) => prev.filter((l) => l.id !== listingId));
-    logInteraction({ listing_id: listingId, action: "not_interested" });
-  };
-
   useEffect(() => {
     if (page === "market") fetchListings();
   }, [page, debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
+
+  // Reset the visible window whenever the underlying feed changes so the user
+  // doesn't land deep into a now-shorter list.
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, showMyListings]);
 
   // Keep the URL hash in sync with the current page so a browser refresh
   // preserves where the user was. The initializer above reads from the hash
@@ -1082,231 +1072,170 @@ export default function App() {
 
 
       {page === "market" && (
-        <section
-          className={`relative min-h-[calc(100vh-64px)] transition-[padding] duration-300 ease-out ${
-            isDesktop && !marketSidebarCollapsed ? "lg:pl-72" : ""
-          }`}
-        >
+        <section className="relative min-h-[calc(100vh-64px)] flex">
           <MarketplaceSidebar
             collapsed={marketSidebarCollapsed}
             onToggleCollapsed={toggleMarketSidebar}
             isMobile={!isDesktop}
             marketSearch={marketSearch}
             onMarketSearchChange={setMarketSearch}
-            marketSort={marketSort}
-            onMarketSortChange={setMarketSort}
             isAuthenticated={isAuthenticated}
             filterCommunities={filterCommunities}
             selectedMarketCommunities={selectedMarketCommunities}
             onToggleCommunity={handleToggleMarketCommunity}
-            onClearCommunities={handleClearMarketCommunities}
             categorySchemas={categorySchemas}
             selectedCategories={selectedCategories}
             onToggleCategory={handleToggleCategory}
-            onClearCategories={handleClearCategories}
+            distanceMiles={distanceMiles}
+            onDistanceChange={setDistanceMiles}
             showMyListings={showMyListings}
             onToggleMyListings={handleToggleMyListings}
           />
-          <div className="py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-4xl mx-auto">
+          <main className="flex-1 min-w-0 px-6 lg:px-8 pt-8 pb-20">
+            {/* Header: neighborhood + sort */}
+            <header className="flex flex-wrap items-end justify-between gap-4 mb-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-4xl font-extrabold text-ink tracking-display leading-[1.05] truncate">
+                    {user?.neighborhood ?? "Marketplace"}
+                  </h1>
+                  <button
+                    type="button"
+                    aria-label="Change location"
+                    title="Change location"
+                    className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                  >
+                    <Settings className="size-4" />
+                  </button>
+                </div>
+                <p className="text-sm text-muted mt-1">
+                  {user?.zip_code ? `${user.zip_code} · ` : ""}
+                  {listings.length} {listings.length === 1 ? "item" : "items"} near you
+                </p>
+              </div>
+              <div role="tablist" aria-label="Sort by" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full">
+                {([
+                  ["recommended", "Recommended"],
+                  ["trending", "Trending"],
+                  ["newest", "Newest"],
+                ] as const).map(([id, label]) => {
+                  const active = marketSort === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setMarketSort(id)}
+                      className={`h-8 px-4 text-sm font-semibold rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        active
+                          ? "bg-canvas text-ink shadow-card"
+                          : "text-muted hover:text-ink bg-transparent"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </header>
 
-            {/* Listings */}
+            {/* Grid */}
             {!listingsLoaded && listings.length === 0 ? (
-              <div className="space-y-4">
-                {Array.from({ length: 12 }).map((_, i) => (
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
+                {Array.from({ length: 8 }).map((_, i) => (
                   <ListingCardSkeleton key={i} />
                 ))}
               </div>
             ) : listings.length === 0 ? (
-              <div className="text-center py-20">
-                <p className="text-white/40 text-lg">{marketSearch || selectedMarketCommunities.length > 0 ? "No matching listings" : "No listings yet"}</p>
-                {!marketSearch && selectedMarketCommunities.length === 0 && (
-                  <Button
-                    onClick={() => { setPage("home"); setTradeMode("sell"); }}
-                    className="mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
-                  >
-                    Create your first listing
-                  </Button>
-                )}
+              <div className="text-center text-muted py-12 mt-7">
+                {marketSearch || selectedMarketCommunities.length > 0 || selectedCategories.length > 0 || showMyListings
+                  ? "No listings match your filters."
+                  : "No listings yet."}
               </div>
             ) : (
-              <div className="space-y-4">
-                {listings.map((listing) => (
-                  <div
-                    key={listing.id}
-                    className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors cursor-pointer"
-                    onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
-                  >
-                    {isAuthenticated && listing.userId !== user?.id && (
-                      <>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleNotForMe(listing.id); }}
-                          aria-label="Not for me"
-                          title="Not for me"
-                          className="absolute top-3 right-11 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
-                        >
-                          <EyeOff className="size-4 text-white/30 hover:text-white/50" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
-                          className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
-                        >
-                          <Heart
-                            className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
+                  {listings.slice(0, visibleCount).map((listing, idx) => {
+                    const images = listing.imageUrls && listing.imageUrls.length > 0
+                      ? listing.imageUrls
+                      : [listing.imageUrl];
+                    const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
+                      ?? listing.allCommunities?.[0]
+                      ?? null;
+                    const isOwn = isAuthenticated && listing.userId === user?.id;
+                    const isWishlisted = wishlist.has(listing.id);
+                    return (
+                      <article
+                        key={listing.id}
+                        onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
+                        className="group bg-canvas border border-hairline rounded-md overflow-hidden cursor-pointer hover:shadow-hover transition-shadow motion-safe:animate-mkt-card-in"
+                        style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
+                      >
+                        {/* Trust band */}
+                        {heroCommunity ? (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                            <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                            <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
+                            {listing.seller_name && (
+                              <>
+                                <span className="text-muted">·</span>
+                                <span className="text-muted truncate">@{listing.seller_name}</span>
+                              </>
+                            )}
+                          </div>
+                        ) : listing.seller_name ? (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-surface-soft border-b border-hairline text-xs">
+                            <span className="text-muted truncate">@{listing.seller_name}</span>
+                          </div>
+                        ) : null}
+
+                        {/* Photo */}
+                        <div className="relative aspect-square bg-surface-soft">
+                          <img
+                            src={images[0]}
+                            alt={formatTitle(listing.brand, listing.name)}
+                            className="absolute inset-0 size-full object-cover"
+                            loading="lazy"
                           />
-                        </button>
-                      </>
-                    )}
-                    <ListingImageCarousel
-                      images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
-                      alt={formatTitle(listing.brand, listing.name)}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-medium truncate pr-10">{formatTitle(listing.brand, listing.name)}</h3>
-                      <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
-                        <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{listing.condition}</span>
-                        {listing.status === "sold" && <span className="px-2 py-0.5 rounded bg-white/10 text-xs text-white/40">Sold</span>}
-                      </div>
-                      {/* Key category attributes — brand is now top-level on the
-                          listing, so for non-collectibles we show only the
-                          remaining category-specific attribute. brand_or_creator
-                          is still a category attribute on collectibles only. */}
-                      {(() => {
-                        const attrs = listing.categoryAttributes || {};
-                        const cat = listing.category || "other";
-                        const display: string[] = [];
-                        if (cat === "clothing") {
-                          if (attrs.size) display.push(attrs.size);
-                        } else if (cat === "furniture") {
-                          if (attrs.carry_difficulty) display.push(attrs.carry_difficulty);
-                        } else if (cat === "collectibles") {
-                          if (attrs.brand_or_creator) display.push(attrs.brand_or_creator);
-                          if (attrs.year) display.push(attrs.year);
-                        }
-                        if (display.length === 0) return null;
-                        return (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            {display.map((d, i) => (
-                              <span key={i} className="text-xs text-white/50">{d}{i < display.length - 1 ? " \u00b7 " : ""}</span>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                      {/* Seller */}
-                      {listing.seller_name && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <div className="size-5 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
-                            {listing.seller_picture ? (
-                              <img src={listing.seller_picture} alt="" className="size-full object-cover" />
-                            ) : (
-                              <User className="size-2.5 text-white/50" />
-                            )}
-                          </div>
-                          <span className="text-xs text-white/50">{listing.seller_name}</span>
-                        </div>
-                      )}
-                      {/* Community tags */}
-                      {listing.allCommunities && listing.allCommunities.length > 0 && (() => {
-                        const neighborhood = listing.allCommunities!.find((c) => c.is_neighborhood);
-                        const others = listing.allCommunities!.filter((c) => !c.is_neighborhood);
-                        return (
-                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                            {neighborhood && (
-                              <span className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
-                                neighborhood.is_mutual
-                                  ? "bg-white/10 border-white/25 text-white"
-                                  : "bg-white/5 border-white/10 text-white/30"
-                              }`}>
-                                <MapPin className="size-2.5" />{neighborhood.name}
-                              </span>
-                            )}
-                            {neighborhood && others.length > 0 && (
-                              <span className="text-white/15 text-xs">|</span>
-                            )}
-                            {others.map((c, i) => (
-                              <span key={i} className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
-                                c.is_mutual
-                                  ? "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300"
-                                  : "bg-white/5 border-white/10 text-white/30"
-                              }`}>
-                                {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
-                              </span>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 mr-6">
-                      <span className="text-lg font-semibold text-fuchsia-400">${listing.price}</span>
-                      {((!isAuthenticated) || (isAuthenticated && listing.userId !== user?.id)) && listing.status !== "sold" && (() => {
-                        const orderInfo = myOrderStatuses[listing.id];
-                        if (orderInfo?.status === "pending") {
-                          return (
+                          {!isOwn && isAuthenticated && (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // Fetch existing slots then open edit modal
-                                (async () => {
-                                  try {
-                                    const res = await apiFetch(`/api/orders/status/${listing.id}`);
-                                    if (res.ok) {
-                                      const data = await res.json();
-                                      openEditPickupSlots(listing, data.order_id, data.selected_pickup_slots || []);
-                                    }
-                                  } catch { /* ignore */ }
-                                })();
-                              }}
-                              className="text-xs text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/25 rounded-full px-5 py-1 transition-colors"
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
+                              aria-label={isWishlisted ? "Remove from saves" : "Save"}
+                              aria-pressed={isWishlisted}
+                              className="absolute top-2 right-2 size-8 rounded-full bg-canvas/90 backdrop-blur-sm border border-hairline inline-flex items-center justify-center text-muted hover:text-ink transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                             >
-                              Pending
+                              <Heart className={`size-4 ${isWishlisted ? "text-primary fill-primary" : ""}`} />
                             </button>
-                          );
-                        }
-                        if (orderInfo?.status === "declined") {
-                          return (
-                            <span className="text-xs text-red-400/70 bg-red-500/10 border border-red-400/15 rounded-full px-5 py-1">
-                              Declined
+                          )}
+                          {listing.status === "sold" && (
+                            <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
+                              Sold
                             </span>
-                          );
-                        }
-                        if (orderInfo?.status === "confirmed") {
-                          return (
-                            <span className="text-xs text-green-400 bg-green-500/10 border border-green-400/15 rounded-full px-5 py-1">
-                              Confirmed
-                            </span>
-                          );
-                        }
-                        return (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isAuthenticated) { setPage("signin"); return; }
-                              setListingDetailData(listing);
-                              setBuyEditingOrder(null);
-                              setShowBuyModal(true);
-                            }}
-                            className="text-xs text-cyan-300 hover:text-white bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/25 rounded-full px-5 py-1 transition-colors"
-                          >
-                            Buy
-                          </button>
-                        );
-                      })()}
-                      {isAuthenticated && listing.userId === user?.id && listing.status !== "sold" && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(() => setShowEditListingModal(true), 100); }}
-                          className="inline-flex items-center gap-1 text-xs text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 border border-fuchsia-400/30 rounded-full px-4 py-1 transition-colors"
-                        >
-                          <Pencil className="size-2.5" />
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                          )}
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-3 space-y-1">
+                          <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand, listing.name)}</p>
+                          <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
+                          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                {/* End sentinel — also drives the IntersectionObserver. */}
+                <div ref={marketSentinelRef} className="text-center py-8 text-sm text-muted italic">
+                  {visibleCount < listings.length
+                    ? "Loading more nearby…"
+                    : `You've reached the end · ${listings.length} ${listings.length === 1 ? "item" : "items"}`}
+                </div>
+              </>
             )}
-            </div>
-          </div>
+          </main>
         </section>
       )}
 
