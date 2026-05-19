@@ -1,38 +1,33 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { ModalShell } from "../../components/ui/ModalShell";
 import {
   User,
-  Globe,
   Plus,
-  Package,
-  Heart,
-  SlidersHorizontal,
   MapPin,
   X,
-  Camera,
   Loader2,
   Copy,
   Check,
-  ImagePlus,
   Lock,
   Unlock,
-  Search,
   Send,
   MessageSquare,
-  UserPlus,
-  Trash2,
-  ShoppingBag,
+  CalendarCheck,
+  Coins,
   Pencil,
   LogOut,
   AlertTriangle,
   Users,
-  Clock,
-  RotateCcw,
   Star,
+  ChevronDown,
+  ShieldCheck,
+  Trash2,
+  Globe,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
 import { supabase } from "../../lib/supabase";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -40,13 +35,8 @@ import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } 
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
 import { EditListingModal } from "../../components/EditListingModal";
-import { CommunityCardSkeleton } from "../../components/CommunityCardSkeleton";
-import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
-  BUYER_ORDER_BADGE,
-  BUYER_ORDER_CONTAINER_CLASS,
-  SELLER_LISTING_CTA_BADGE,
   getBuyerOrderViewState,
   getSellerListingCtaState,
 } from "../../lib/orderStatus";
@@ -125,6 +115,34 @@ interface OrderData {
   pickup_notified: boolean;
 }
 
+interface PunchlistPickup {
+  order_id: number;
+  listing_id: string;
+  listing_title: string;
+  listing_image: string | null;
+  slot: string | null;
+}
+
+interface PunchlistResponse {
+  pickups_to_confirm: PunchlistPickup[];
+  offers_to_review: unknown[];
+  unread_messages: unknown[];
+  draft_listings: unknown[];
+}
+
+type AccountTab = "overview" | "listings" | "saved" | "settings";
+
+const ACCOUNT_TAB_STORAGE_KEY = "myaccount_tab";
+
+const TAB_BTN_BASE =
+  "relative inline-flex items-center gap-2 h-9 px-4 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+
+const SEG_BTN_BASE =
+  "inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+
 interface MyAccountPageProps {
   onNavigate: (page: string) => void;
   onCommunitiesChanged?: () => void;
@@ -139,8 +157,31 @@ interface MyAccountPageProps {
   categorySchemas?: Record<string, CategorySchema>;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas }: MyAccountPageProps) {
-  const { user, token, updateUser } = useAuth();
+export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas }: MyAccountPageProps) {
+  const { user, token, updateUser, logout } = useAuth();
+  const { settings, updateSetting } = useSettings();
+
+  // ── Tab state (persisted) ──────────────────────────────
+  const [accountTab, setAccountTab] = useState<AccountTab>(() => {
+    try {
+      const stored = localStorage.getItem(ACCOUNT_TAB_STORAGE_KEY);
+      if (stored === "overview" || stored === "listings" || stored === "saved" || stored === "settings") {
+        return stored;
+      }
+    } catch {
+      // ignore
+    }
+    return "overview";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACCOUNT_TAB_STORAGE_KEY, accountTab);
+    } catch {
+      // ignore
+    }
+  }, [accountTab]);
+
+  // ── Community / friend modals ──────────────────────────
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -148,15 +189,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [joinError, setJoinError] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [showInviteCode, setShowInviteCode] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
-  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
+  const [_communitiesLoaded, setCommunitiesLoaded] = useState(false);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Create community form state
   const [createName, setCreateName] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [createNeighborhood, setCreateNeighborhood] = useState("");
@@ -170,18 +208,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const createLocationRef = useRef<HTMLInputElement>(null);
   const createLocationSuggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Created community for share modal
   const [createdCommunity, setCreatedCommunity] = useState<CommunityData | null>(null);
 
-  // Share modal state
   const [friendSearch, setFriendSearch] = useState("");
   const [friendResults, setFriendResults] = useState<SearchUser[]>([]);
   const [selectedFriends, setSelectedFriends] = useState<SearchUser[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [isSearching] = useState(false);
   const [isInviting, setIsInviting] = useState(false);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Edit Profile modal state
+  // Edit Profile modal
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
@@ -194,7 +229,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const editSuggestionsRef = useRef<HTMLDivElement>(null);
   const editNeighborhoodRef = useRef<HTMLInputElement>(null);
 
-  // Add Friends modal state
+  // Add Friends modal
   const [showAddFriendsModal, setShowAddFriendsModal] = useState(false);
   const [addFriendsTab, setAddFriendsTab] = useState<"recommended" | "contacts" | "qr">("recommended");
   const [addFriendsSearch, setAddFriendsSearch] = useState("");
@@ -205,7 +240,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [addingFriendId, setAddingFriendId] = useState<string | null>(null);
   const addFriendsSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Community search state (join modal)
+  // Community search state
   const [communitySearch, setCommunitySearch] = useState("");
   const [communitySearchResults, setCommunitySearchResults] = useState<{
     id: number;
@@ -224,15 +259,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [joiningCommunityId, setJoiningCommunityId] = useState<number | null>(null);
   const communitySearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Metric modals state
-  const [showListingsModal, setShowListingsModal] = useState(false);
-
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [friendsList, setFriendsList] = useState<FriendSearchUser[]>([]);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
   const [removingFriendId, setRemovingFriendId] = useState<string | null>(null);
 
-  // Community detail modal state
+  // Community detail
   const [showCommunityDetail, setShowCommunityDetail] = useState(false);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityData | null>(null);
   const [communityMembers, setCommunityMembers] = useState<{ id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null; role: string }[]>([]);
@@ -252,27 +284,22 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const editCommunityNeighborhoodRef = useRef<HTMLInputElement>(null);
   const editCommunitySuggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Pending join requests state (for community owners)
   const [pendingRequests, setPendingRequests] = useState<{ id: number; user_id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null }[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
   const [acceptingRequestId, setAcceptingRequestId] = useState<number | null>(null);
   const [rejectingRequestId, setRejectingRequestId] = useState<number | null>(null);
   const [kickingMemberId, setKickingMemberId] = useState<string | null>(null);
 
-  // Profile stats
+  // Profile + listings
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0, avg_seller_rating: 5.0, avg_buyer_rating: 5.0 });
   const [myListings, setMyListings] = useState<MyListing[]>([]);
-  const [myListingsLoaded, setMyListingsLoaded] = useState(false);
+  const [_myListingsLoaded, setMyListingsLoaded] = useState(false);
+  // Used by the Overview "Your listings" panel toggle AND the Listings tab default
   const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
-  // Edit listing modal — field state lives inside EditListingModal; this
-  // page only tracks which listing is being edited.
+  // Edit listing modal
   const [editListing, setEditListing] = useState<MyListing | null>(null);
-
-  const openEditListing = (listing: MyListing) => {
-    setEditListing(listing);
-  };
-
+  const openEditListing = (listing: MyListing) => setEditListing(listing);
   const handleSaveListing = async (patch: ListingUpdatePatch) => {
     if (!token || !editListing) return;
     const formData = new FormData();
@@ -287,7 +314,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  // Order management state
+  // Order management
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [orderModalListing, setOrderModalListing] = useState<MyListing | null>(null);
   const [listingOrders, setListingOrders] = useState<OrderData[]>([]);
@@ -300,7 +327,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [withdrawingOrderId, setWithdrawingOrderId] = useState<number | null>(null);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState<number | null>(null);
 
-  // Order confirmation summary state
+  // Order confirmation summary
   const [showConfirmSummary, setShowConfirmSummary] = useState(false);
   const [confirmSummaryData, setConfirmSummaryData] = useState<{
     listing: MyListing;
@@ -313,15 +340,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   } | null>(null);
   const [showPickupAttestation, setShowPickupAttestation] = useState(false);
 
-  // Purchases (buyer's orders) and seller orders
+  // Purchases / seller orders
   const [myPurchases, setMyPurchases] = useState<OrderData[]>([]);
   const [mySellerOrders, setMySellerOrders] = useState<OrderData[]>([]);
-  // Becomes true after the first /api/orders fetch completes (success OR empty).
-  // The "open modal from notification" effect waits on this to avoid clearing
-  // pendingListingId before purchases have had a chance to load.
+  // Becomes true after first /api/orders fetch. The "open modal from
+  // notification" effect waits on this to avoid clearing pendingListingId
+  // before purchases load. Preserved from PR-A/migration.
   const [ordersLoaded, setOrdersLoaded] = useState(false);
 
-  // Countdown tick (forces re-render every 60s for live countdowns)
+  // Punchlist (R-5 new)
+  const [punchlist, setPunchlist] = useState<PunchlistResponse | null>(null);
+  const [_punchlistLoaded, setPunchlistLoaded] = useState(false);
+
+  // Countdown tick for live countdowns
   const [countdownTick, setCountdownTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setCountdownTick((p) => p + 1), 60000);
@@ -333,8 +364,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       return { expired: false, label: "", diff: Infinity };
     }
     const slot = order.selected_pickup_slots[0];
-
-    // Use confirmed_time if available (e.g. "3:00 PM"), otherwise fall back to window end
     let targetHour = 18;
     let targetMin = 0;
     if (order.confirmed_time) {
@@ -349,10 +378,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
       if (legacyEnd[slot.time]) targetHour = legacyEnd[slot.time];
     }
-
     const target = buildSlotTarget(slot.date, targetHour, targetMin);
     const diff = target.getTime() - Date.now();
-
     if (diff <= 0) return { expired: true, label: "Ready", diff };
     return { expired: false, label: formatCountdown(diff).label, diff };
   };
@@ -363,30 +390,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return new Date() > slotEnd;
   };
 
-  // Auto-release address 1 hour before pickup for neighborhood orders
+  // Auto-release address ≤ 1 hour before pickup (neighborhood orders)
   useEffect(() => {
     if (!token) return;
     const allOrders = [...myPurchases, ...mySellerOrders];
     for (const order of allOrders) {
-      if (
-        order.status === "confirmed" &&
-        order.is_neighborhood &&
-        !order.address_released
-      ) {
+      if (order.status === "confirmed" && order.is_neighborhood && !order.address_released) {
         const countdown = getPickupCountdown(order);
-        // Trigger when 1 hour or less until pickup (diff <= 3600000ms)
         if (countdown.diff <= 3600000) {
-          apiFetch(`/api/orders/${order.id}/release-address`, {
-            method: "POST",
-          }).then((res) => {
-            if (res.ok) fetchAllOrders();
-          }).catch(() => {});
+          apiFetch(`/api/orders/${order.id}/release-address`, { method: "POST" })
+            .then((res) => { if (res.ok) fetchAllOrders(); })
+            .catch(() => {});
         }
       }
     }
   }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-expire pending orders when all pickup slots have passed
+  // Auto-expire pending orders when all slots have passed
   useEffect(() => {
     if (!token) return;
     const allOrders = [...myPurchases, ...mySellerOrders];
@@ -394,17 +414,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (order.status === "pending" && order.selected_pickup_slots.length > 0) {
         const allExpired = order.selected_pickup_slots.every((slot) => isSlotExpired(slot));
         if (allExpired) {
-          apiFetch(`/api/orders/${order.id}/expire`, {
-            method: "POST",
-          }).then((res) => {
-            if (res.ok) fetchAllOrders();
-          }).catch(() => {});
+          apiFetch(`/api/orders/${order.id}/expire`, { method: "POST" })
+            .then((res) => { if (res.ok) fetchAllOrders(); })
+            .catch(() => {});
         }
       }
     }
   }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Rating modal state
+  // Rating modal
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ratingOrder, setRatingOrder] = useState<OrderData | null>(null);
   const [ratingValue, setRatingValue] = useState(0);
@@ -469,7 +487,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         setListingOrders(
-          allOrders.filter((o) => o.listing_id === listing.id && o.role === "seller" && o.status === "pending")
+          allOrders.filter((o) => o.listing_id === listing.id && o.role === "seller" && o.status === "pending"),
         );
       }
     } catch {
@@ -500,6 +518,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               imageUrl: order.listing_image,
               postedAt: 0,
               status: "sold",
+              brand: "",
+              name: order.listing_title,
             },
             buyerName: order.buyer_name,
             slot: slot || { date: "", time: "" },
@@ -550,6 +570,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         }
         fetchMyListings();
         fetchAllOrders();
+        fetchPunchlist();
       }
     } catch {
       // ignore
@@ -562,9 +583,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setDecliningOrderId(orderId);
     try {
-      const res = await apiFetch(`/api/orders/${orderId}/decline`, {
-        method: "POST",
-      });
+      const res = await apiFetch(`/api/orders/${orderId}/decline`, { method: "POST" });
       if (res.ok) {
         setListingOrders((prev) => prev.filter((o) => o.id !== orderId));
         setShowDeclineConfirm(null);
@@ -582,9 +601,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setWithdrawingOrderId(orderId);
     try {
-      const res = await apiFetch(`/api/orders/${orderId}/withdraw`, {
-        method: "POST",
-      });
+      const res = await apiFetch(`/api/orders/${orderId}/withdraw`, { method: "POST" });
       if (res.ok) {
         setShowWithdrawConfirm(null);
         fetchAllOrders();
@@ -600,10 +617,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     try {
       const res = await apiFetch("/api/friends/stats");
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
+      if (res.ok) setStats(await res.json());
     } catch (err) {
       console.error("Failed to fetch stats:", err);
     }
@@ -613,10 +627,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     try {
       const res = await apiFetch("/api/listings/mine");
-      if (res.ok) {
-        const data = await res.json();
-        setMyListings(data);
-      }
+      if (res.ok) setMyListings(await res.json());
     } catch (err) {
       console.error("Failed to fetch my listings:", err);
     } finally {
@@ -624,10 +635,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   }, [token]);
 
-  const [relistingId, setRelistingId] = useState<string | null>(null);
-
   const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-
   const getListingTimeInfo = (postedAt: number) => {
     const elapsed = Date.now() - postedAt * 1000;
     const remaining = EXPIRY_MS - elapsed;
@@ -640,32 +648,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return { expired: false, label: `${mins}m left` };
   };
 
-  const handleRelist = async (listingId: string) => {
-    if (!token) return;
-    setRelistingId(listingId);
-    try {
-      const res = await apiFetch(`/api/listings/${listingId}/relist`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        fetchMyListings();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setRelistingId(null);
-    }
-  };
-
   const fetchRecommended = useCallback(async () => {
     if (!token) return;
     setIsLoadingRecommended(true);
     try {
       const res = await apiFetch("/api/friends/recommended");
-      if (res.ok) {
-        const data = await res.json();
-        setRecommendedFriends(data);
-      }
+      if (res.ok) setRecommendedFriends(await res.json());
     } catch (err) {
       console.error("Failed to fetch recommended:", err);
     } finally {
@@ -678,10 +666,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setIsLoadingFriends(true);
     try {
       const res = await apiFetch("/api/friends");
-      if (res.ok) {
-        const data = await res.json();
-        setFriendsList(data);
-      }
+      if (res.ok) setFriendsList(await res.json());
     } catch (err) {
       console.error("Failed to fetch friends:", err);
     } finally {
@@ -693,9 +678,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRemovingFriendId(friendId);
     try {
-      const res = await apiFetch(`/api/friends/${friendId}`, {
-        method: "DELETE",
-      });
+      const res = await apiFetch(`/api/friends/${friendId}`, { method: "DELETE" });
       if (res.ok) {
         setFriendsList((prev) => prev.filter((f) => f.id !== friendId));
         fetchStats();
@@ -712,19 +695,33 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchFriendsList();
   };
 
-
   const fetchCommunities = useCallback(async () => {
     if (!token) return;
     try {
       const res = await apiFetch("/api/communities/mine");
-      if (res.ok) {
-        const data = await res.json();
-        setCommunities(data);
-      }
+      if (res.ok) setCommunities(await res.json());
     } catch (err) {
       console.error("Failed to fetch communities:", err);
     } finally {
       setCommunitiesLoaded(true);
+    }
+  }, [token]);
+
+  // ── Punchlist ──────────────────────────────────────────
+  const fetchPunchlist = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await apiFetch("/api/me/punchlist");
+      if (res.ok) {
+        setPunchlist(await res.json());
+      } else if (res.status === 404) {
+        // Endpoint not shipped — leave punchlist empty (renders "All clear")
+        setPunchlist({ pickups_to_confirm: [], offers_to_review: [], unread_messages: [], draft_listings: [] });
+      }
+    } catch (err) {
+      console.error("Failed to fetch punchlist:", err);
+    } finally {
+      setPunchlistLoaded(true);
     }
   }, [token]);
 
@@ -733,39 +730,32 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchStats();
     fetchMyListings();
     fetchAllOrders();
-  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders]);
+    fetchPunchlist();
+  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchPunchlist]);
 
+  // Realtime: refresh orders + punchlist on purchase_orders changes
   useEffect(() => {
     if (!user?.id) return;
-
     const channel = supabase
       .channel("purchase_orders_changes")
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "purchase_orders",
-        },
+        { event: "*", schema: "public", table: "purchase_orders" },
         () => {
           fetchAllOrders();
           fetchMyListings();
-        }
+          fetchPunchlist();
+        },
       )
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, fetchAllOrders, fetchMyListings]);
+  }, [user?.id, fetchAllOrders, fetchMyListings, fetchPunchlist]);
 
   // Auto-open order modal when routed from notification
   useEffect(() => {
     if (!pendingListingId) return;
-    // Seller: open pending order modal. Check mySellerOrders directly rather
-    // than relying solely on the cached pendingOrderCount on the listing,
-    // since the count can lag behind the realtime order insert that triggered
-    // the notification the user just clicked.
     const listing = myListings.find((l) => l.id === pendingListingId);
     const hasPendingSellerOrder = mySellerOrders.some(
       (o) => o.listing_id === pendingListingId && o.status === "pending",
@@ -775,7 +765,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       onClearPendingListing?.();
       return;
     }
-    // Buyer: open confirmed order summary
     const purchase = myPurchases.find((o) => o.listing_id === pendingListingId && o.status === "confirmed");
     if (purchase) {
       const slot = purchase.selected_pickup_slots[0];
@@ -791,11 +780,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           imageUrl: purchase.listing_image,
           postedAt: 0,
           status: "sold",
+          brand: "",
+          name: purchase.listing_title,
         },
-        // For role=buyer, the "other party" label in the modal renders as
-        // "Seller", so we populate `buyerName` with the seller's name here.
-        // (The field name is a legacy artifact from when the modal was
-        // seller-only; renaming would touch every call site.)
         buyerName: purchase.seller_name,
         slot: slot || { date: "", time: "" },
         role: "buyer",
@@ -807,41 +794,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       onClearPendingListing?.();
       return;
     }
-    // Orders haven't been fetched yet — wait for the next render after the
-    // first /api/orders call resolves. Previously this only waited when both
-    // myListings + myPurchases were empty, which mis-cleared the pending
-    // state for users who had own listings AND a brand-new confirmed purchase
-    // (myListings populated, myPurchases still loading).
     if (!ordersLoaded) return;
     onClearPendingListing?.();
-  }, [pendingListingId, myListings, myPurchases, mySellerOrders, ordersLoaded]);
+  }, [pendingListingId, myListings, myPurchases, mySellerOrders, ordersLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleProfilePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-
-      const res = await apiFetch("/api/auth/profile-picture", {
-        method: "PUT",
-        body: formData,
-      });
-
-      if (!res.ok) throw new Error("Upload failed");
-
-      const updatedUser = await res.json();
-      updateUser(updatedUser);
-    } catch (err) {
-      console.error("Profile picture upload failed:", err);
-    } finally {
-      setIsUploading(false);
-      e.target.value = "";
-    }
-  };
-
+  // ── Community handlers (preserved verbatim from prior file) ──
   const handleJoinCommunity = async () => {
     if (!joinCode.trim() || !token) return;
     setIsJoining(true);
@@ -849,18 +806,14 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       const res = await apiFetch("/api/communities/join", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invite_code: joinCode.trim() }),
       });
-
       if (!res.ok) {
         const err = await res.json();
         setJoinError(err.detail || "Failed to join community");
         return;
       }
-
       setJoinCode("");
       setShowJoinModal(false);
       fetchCommunities();
@@ -883,12 +836,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (!token) return;
       setIsSearchingCommunities(true);
       try {
-        const res = await apiFetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`, {
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setCommunitySearchResults(data);
-        }
+        const res = await apiFetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`);
+        if (res.ok) setCommunitySearchResults(await res.json());
       } catch {
         // ignore
       } finally {
@@ -903,15 +852,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       const res = await apiFetch("/api/communities/join", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invite_code: inviteCode }),
       });
       if (res.ok) {
-        setCommunitySearchResults((prev) =>
-          prev.map((c) => (c.id === communityId ? { ...c, is_member: true } : c))
-        );
+        setCommunitySearchResults((prev) => prev.map((c) => (c.id === communityId ? { ...c, is_member: true } : c)));
         fetchCommunities();
         onCommunitiesChanged?.();
         fetchStats();
@@ -929,15 +874,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       const res = await apiFetch("/api/communities/request-join", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ community_id: communityId }),
       });
       if (res.ok) {
-        setCommunitySearchResults((prev) =>
-          prev.map((c) => (c.id === communityId ? { ...c, has_requested: true } : c))
-        );
+        setCommunitySearchResults((prev) => prev.map((c) => (c.id === communityId ? { ...c, has_requested: true } : c)));
       }
     } catch {
       // ignore
@@ -952,15 +893,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       const res = await apiFetch("/api/communities/cancel-request", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ community_id: communityId }),
       });
       if (res.ok) {
-        setCommunitySearchResults((prev) =>
-          prev.map((c) => (c.id === communityId ? { ...c, has_requested: false } : c))
-        );
+        setCommunitySearchResults((prev) => prev.map((c) => (c.id === communityId ? { ...c, has_requested: false } : c)));
       }
     } catch {
       // ignore
@@ -998,17 +935,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (createZipCode.trim()) formData.append("zip_code", createZipCode.trim());
       formData.append("is_public", String(createIsPublic));
       if (createImage) formData.append("image", createImage);
-
-      const res = await apiFetch("/api/communities", {
-        method: "POST",
-        body: formData,
-      });
-
+      const res = await apiFetch("/api/communities", { method: "POST", body: formData });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ detail: `Server returned ${res.status}` }));
         throw new Error(data.detail || `Create failed (${res.status})`);
       }
-
       const community = await res.json();
       setCreatedCommunity(community);
       setShowCreateModal(false);
@@ -1037,12 +968,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setCreateImagePreview(null);
   };
 
-  const createFilteredNeighborhoods = createNeighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) =>
-        n.toLowerCase().includes(createNeighborhood.trim().toLowerCase())
-      )
-    : MANHATTAN_NEIGHBORHOODS;
-
   const handleCreateImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1058,7 +983,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       try {
         await navigator.share({ title: community.name, text: shareText });
       } catch {
-        // User cancelled — silently ignore
+        // user cancelled
       }
     } else {
       navigator.clipboard.writeText(shareText);
@@ -1080,23 +1005,17 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setIsLoadingMembers(true);
     try {
       const res = await apiFetch(`/api/communities/${community.id}/members`);
-      if (res.ok) {
-        const data = await res.json();
-        setCommunityMembers(data);
-      }
+      if (res.ok) setCommunityMembers(await res.json());
     } catch {
       // ignore
     } finally {
       setIsLoadingMembers(false);
     }
-    // Fetch pending join requests for owners of private communities
     if (!community.is_public && community.created_by === user?.id) {
       setIsLoadingRequests(true);
       try {
         const res = await apiFetch(`/api/communities/${community.id}/requests`);
-        if (res.ok) {
-          setPendingRequests(await res.json());
-        }
+        if (res.ok) setPendingRequests(await res.json());
       } catch {
         // ignore
       } finally {
@@ -1109,17 +1028,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setAcceptingRequestId(requestId);
     try {
-      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/accept`, {
-        method: "POST",
-      });
+      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/accept`, { method: "POST" });
       if (res.ok) {
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
-        // Refresh members list
         const membersRes = await apiFetch(`/api/communities/${communityId}/members`);
-        if (membersRes.ok) {
-          setCommunityMembers(await membersRes.json());
-        }
-        // Update member count
+        if (membersRes.ok) setCommunityMembers(await membersRes.json());
         setSelectedCommunity((prev) => prev ? { ...prev, member_count: prev.member_count + 1 } : prev);
       }
     } catch {
@@ -1133,12 +1046,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRejectingRequestId(requestId);
     try {
-      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/reject`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
-      }
+      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/reject`, { method: "POST" });
+      if (res.ok) setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch {
       // ignore
     } finally {
@@ -1150,9 +1059,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setKickingMemberId(memberId);
     try {
-      const res = await apiFetch(`/api/communities/${communityId}/members/${memberId}`, {
-        method: "DELETE",
-      });
+      const res = await apiFetch(`/api/communities/${communityId}/members/${memberId}`, { method: "DELETE" });
       if (res.ok) {
         setCommunityMembers((prev) => prev.filter((m) => m.id !== memberId));
         setSelectedCommunity((prev) => prev ? { ...prev, member_count: prev.member_count - 1 } : prev);
@@ -1177,21 +1084,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setIsEditingCommunity(true);
   };
 
-  const editCommunityFilteredNeighborhoods = editCommunityNeighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) =>
-        n.toLowerCase().includes(editCommunityNeighborhood.trim().toLowerCase())
-      )
-    : MANHATTAN_NEIGHBORHOODS;
-
   const handleSaveCommunity = async () => {
     if (!selectedCommunity || !token) return;
     setIsSavingCommunity(true);
     try {
       const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editCommunityName.trim(),
           description: editCommunityDescription.trim() || null,
@@ -1219,9 +1118,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsDeletingCommunity(true);
     try {
-      const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
-        method: "DELETE",
-      });
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, { method: "DELETE" });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
         setShowCommunityDetail(false);
@@ -1239,9 +1136,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsLeavingCommunity(true);
     try {
-      const res = await apiFetch(`/api/communities/${selectedCommunity.id}/leave`, {
-        method: "DELETE",
-      });
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}/leave`, { method: "DELETE" });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
         setShowCommunityDetail(false);
@@ -1254,9 +1149,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  // Cached friends list for invite search
   const [allFriends, setAllFriends] = useState<SearchUser[]>([]);
-
   const fetchFriendsForInvite = useCallback(async () => {
     if (!token) return;
     try {
@@ -1273,17 +1166,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const handleFriendSearch = (query: string) => {
     setFriendSearch(query);
-    const available = allFriends.filter(
-      (f) => !selectedFriends.some((s) => s.id === f.id)
-    );
+    const available = allFriends.filter((f) => !selectedFriends.some((s) => s.id === f.id));
     if (!query.trim()) {
       setFriendResults(available);
       return;
     }
     const q = query.trim().toLowerCase();
-    setFriendResults(
-      available.filter((f) => f.display_name?.toLowerCase().includes(q))
-    );
+    setFriendResults(available.filter((f) => f.display_name?.toLowerCase().includes(q)));
   };
 
   const addFriend = (friend: SearchUser) => {
@@ -1302,13 +1191,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       await apiFetch("/api/communities/invite", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          community_id: createdCommunity.id,
-          user_ids: selectedFriends.map((f) => f.id),
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ community_id: createdCommunity.id, user_ids: selectedFriends.map((f) => f.id) }),
       });
       setSelectedFriends([]);
       setShowConfirmModal(false);
@@ -1353,12 +1237,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (!token) return;
       setIsAddFriendsSearching(true);
       try {
-        const res = await apiFetch(`/api/friends/search?q=${encodeURIComponent(query.trim())}`, {
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setAddFriendsResults(data);
-        }
+        const res = await apiFetch(`/api/friends/search?q=${encodeURIComponent(query.trim())}`);
+        if (res.ok) setAddFriendsResults(await res.json());
       } catch {
         // ignore
       } finally {
@@ -1373,16 +1253,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     try {
       const res = await apiFetch("/api/friends/add", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId }),
       });
       if (res.ok) {
-        // Update the search results to reflect the new friendship
-        setAddFriendsResults((prev) =>
-          prev.map((u) => (u.id === userId ? { ...u, is_friend: true } : u))
-        );
+        setAddFriendsResults((prev) => prev.map((u) => (u.id === userId ? { ...u, is_friend: true } : u)));
         setRecommendedFriends((prev) => prev.filter((u) => u.id !== userId));
         fetchStats();
       }
@@ -1408,13 +1283,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   };
 
   const editIsValidNeighborhood = MANHATTAN_NEIGHBORHOODS.some(
-    (n) => n.toLowerCase() === editNeighborhood.trim().toLowerCase()
+    (n) => n.toLowerCase() === editNeighborhood.trim().toLowerCase(),
   );
-
   const editFilteredNeighborhoods = editNeighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) =>
-        n.toLowerCase().includes(editNeighborhood.trim().toLowerCase())
-      )
+    ? MANHATTAN_NEIGHBORHOODS.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
     : MANHATTAN_NEIGHBORHOODS;
 
   const openEditProfileModal = () => {
@@ -1439,16 +1311,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       setEditProfileError("Please select a valid Manhattan neighborhood");
       return;
     }
-
     setIsUpdatingProfile(true);
     setEditProfileError("");
-
     try {
       const res = await apiFetch("/api/auth/profile", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           display_name: `${editFirstName.trim()} ${editLastName.trim()}`,
           neighborhood: editNeighborhood.trim(),
@@ -1456,12 +1324,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           zip_code: editZipCode.trim() || undefined,
         }),
       });
-
       if (!res.ok) {
         const data = await res.json().catch(() => ({ detail: "Update failed" }));
         throw new Error(data.detail);
       }
-
       const updatedUser = await res.json();
       updateUser(updatedUser);
       setShowEditProfileModal(false);
@@ -1472,604 +1338,149 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  // Close create location suggestions on click outside
-  useClickOutside(
-    [createLocationRef, createLocationSuggestionsRef],
-    () => setCreateShowLocationSuggestions(false),
-    createShowLocationSuggestions,
-  );
+  useClickOutside([createLocationRef, createLocationSuggestionsRef], () => setCreateShowLocationSuggestions(false), createShowLocationSuggestions);
+  useClickOutside([editNeighborhoodRef, editSuggestionsRef], () => setEditShowSuggestions(false), editShowSuggestions);
+  useClickOutside([editCommunityNeighborhoodRef, editCommunitySuggestionsRef], () => setEditCommunityShowSuggestions(false), editCommunityShowSuggestions);
 
-  // Close edit suggestions on click outside
-  useClickOutside(
-    [editNeighborhoodRef, editSuggestionsRef],
-    () => setEditShowSuggestions(false),
-    editShowSuggestions,
-  );
-
-  // Close edit community neighborhood suggestions on click outside
-  useClickOutside(
-    [editCommunityNeighborhoodRef, editCommunitySuggestionsRef],
-    () => setEditCommunityShowSuggestions(false),
-    editCommunityShowSuggestions,
-  );
+  // ── Derived data ───────────────────────────────────────
+  const avgRating = ((stats.avg_seller_rating + stats.avg_buyer_rating) / 2).toFixed(2);
+  const memberSince = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   return (
-    <section className="py-10 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
-      <div className="max-w-5xl mx-auto">
-        {/* Profile Header */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-8">
-          <div className="flex items-center gap-6">
-            {/* Profile Picture */}
-            <div className="relative group">
-              <div className="size-24 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 border-2 border-white/10 flex items-center justify-center overflow-hidden">
-                {user?.profile_picture ? (
-                  <img
-                    src={user.profile_picture}
-                    alt={user.display_name || "Profile"}
-                    className="size-full object-cover"
-                  />
-                ) : (
-                  <User className="size-10 text-white/60" />
-                )}
-              </div>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-              >
-                {isUploading ? (
-                  <Loader2 className="size-5 text-white/80 animate-spin" />
-                ) : (
-                  <Camera className="size-5 text-white/80" />
-                )}
-              </button>
-              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-zinc-900 border-2 border-white/10 rounded-full px-2 py-0.5 z-10">
-                <span className="text-xs font-semibold text-white">
-                  {((stats.avg_seller_rating + stats.avg_buyer_rating) / 2).toFixed(1)}
-                </span>
-                <Star className="size-2.5 text-amber-400 fill-amber-400" />
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleProfilePictureUpload}
-              />
-            </div>
-
-            {/* Name & Neighborhood */}
-            <div className="flex-1">
-              <h1 className="text-2xl font-light tracking-wider mb-1">
-                {user?.display_name || "User"}
-              </h1>
-              <p className="text-white/50 text-sm flex items-center gap-1.5">
-                <MapPin className="size-3.5" />
-                {user?.neighborhood || "Manhattan"}
-              </p>
-              <p className="text-white/30 text-xs mt-1">
-                Member since {new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-              </p>
-
-              {/* Metrics Row */}
-              <div className="flex items-center gap-4 mt-3">
-                <button
-                  onClick={() => setShowListingsModal(true)}
-                  className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 hover:bg-white/10 hover:border-white/20 transition-colors cursor-pointer"
-                >
-                  <span className="text-xs font-medium">{stats.total_listings}</span>
-                  <span className="text-[10px] text-white/40">Listings</span>
-                </button>
-                <button
-                  onClick={() => { setListingsTab("buying"); setShowListingsModal(true); }}
-                  className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 hover:bg-white/10 hover:border-white/20 transition-colors cursor-pointer"
-                >
-                  <span className="text-xs font-medium">{stats.purchases}</span>
-                  <span className="text-[10px] text-white/40">Purchases</span>
-                </button>
-                <button
-                  onClick={openFriendsModal}
-                  className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 hover:bg-white/10 hover:border-white/20 transition-colors cursor-pointer"
-                >
-                  <span className="text-xs font-medium">{stats.friends_count}</span>
-                  <span className="text-[10px] text-white/40">Friends</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Edit Profile & Add Friends */}
-            <div className="flex flex-col gap-2">
-              <Button
-                onClick={openEditProfileModal}
-                variant="outline"
-                size="sm"
-                className="bg-white/5 border-white/20 text-white/60 hover:text-white hover:bg-white/10 text-xs"
-              >
-                Edit Profile
-              </Button>
-              <Button
-                onClick={openAddFriendsModal}
-                size="sm"
-                className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs"
-              >
-                <UserPlus className="size-3.5" />
-                Add Friends
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Communities Section */}
-        <div className="mb-10">
-          <h2 className="text-lg font-light tracking-wider mb-4 text-white/80">Communities</h2>
-          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 gap-2">
-            {/* My Neighborhood Virtual Tile */}
-            {user?.neighborhood && (
-              <div
-                className="relative bg-gradient-to-br from-cyan-500/10 to-fuchsia-500/10 border border-cyan-400/20 rounded-lg p-2 hover:from-cyan-500/15 hover:to-fuchsia-500/15 transition-colors aspect-square flex flex-col items-center justify-center gap-1.5 cursor-default"
-              >
-                <div className="size-10 rounded-full bg-cyan-500/20 flex items-center justify-center shrink-0">
-                  <MapPin className="size-5 text-cyan-400" />
-                </div>
-                <div className="min-w-0 w-full text-center">
-                  <h3 className="text-[11px] font-medium truncate leading-tight">My Neighborhood</h3>
-                  <p className="text-[9px] text-white/30 truncate mt-0.5">{user.neighborhood}</p>
-                </div>
-              </div>
+    <section className="min-h-[calc(100vh-64px)] bg-canvas text-ink">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        {/* ── Profile Header ───────────────────────────── */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-5 mb-10">
+          <div className="size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
+            {user?.profile_picture ? (
+              <img src={user.profile_picture} alt={user.display_name || "Profile"} className="size-full object-cover" />
+            ) : (
+              <span className="text-2xl font-extrabold text-ink tracking-display">
+                {(user?.display_name?.[0] || "?").toUpperCase()}
+              </span>
             )}
-
-            {/* Community Tiles (skeletons on initial cold load) */}
-            {!communitiesLoaded && communities.length === 0 &&
-              Array.from({ length: 6 }).map((_, i) => (
-                <CommunityCardSkeleton key={`community-skeleton-${i}`} />
-              ))}
-            {communities.map((community) => (
-              <div
-                key={community.id}
-                onClick={() => openCommunityDetail(community)}
-                className="relative bg-white/5 border border-white/10 rounded-lg p-2 hover:bg-white/[0.07] transition-colors aspect-square flex flex-col items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <div className="absolute top-1.5 left-1.5" title={community.is_public ? "Public community" : "Private community"}>
-                  {community.is_public ? (
-                    <Globe className="size-3 text-white/25 hover:text-white/50 transition-colors" />
-                  ) : (
-                    <Lock className="size-3 text-white/25 hover:text-white/50 transition-colors" />
-                  )}
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); shareCommunity(community); }}
-                  className="absolute top-1.5 right-1.5 text-white/25 hover:text-white/60 transition-colors p-0.5"
-                  title="Share community"
-                >
-                  <Send className="size-3" />
-                </button>
-                <div className="size-10 rounded-full bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
-                  {community.image ? (
-                    <img src={community.image} alt={community.name} className="size-full object-cover" />
-                  ) : (
-                    <Globe className="size-5 text-cyan-400" />
-                  )}
-                </div>
-                <div className="min-w-0 w-full text-center">
-                  <h3 className="text-[11px] font-medium truncate leading-tight">
-                    {community.name}
-                  </h3>
-                  {community.neighborhood && (
-                    <div className="flex items-center justify-center gap-0.5 mt-0.5">
-                      <MapPin className="size-2.5 text-white/30 shrink-0" />
-                      <span className="text-[9px] text-white/30 truncate">{community.neighborhood}</span>
-                    </div>
-                  )}
-                  <p className="text-[9px] text-white/25 mt-0.5">
-                    {community.member_count} {community.member_count === 1 ? "member" : "members"}
-                  </p>
-                </div>
-              </div>
-            ))}
-
-            {/* Join / Create Community Tile */}
-            <button
-              onClick={() => setShowJoinModal(true)}
-              className="bg-white/[0.02] border border-dashed border-white/15 rounded-lg p-2 hover:bg-white/5 hover:border-white/25 transition-all flex flex-col items-center justify-center gap-1.5 aspect-square cursor-pointer"
-            >
-              <div className="size-10 rounded-full bg-white/5 flex items-center justify-center">
-                <Plus className="size-4 text-white/40" />
-              </div>
-              <span className="text-[9px] text-white/40">Join or Create</span>
-            </button>
           </div>
-        </div>
-
-        {/* User Dashboard */}
-        <div className="mb-10">
-          <h2 className="text-lg font-light tracking-wider mb-4 text-white/80">User Dashboard</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* My Listings */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="size-8 rounded-lg bg-fuchsia-500/15 flex items-center justify-center">
-                <Package className="size-4 text-fuchsia-400" />
-              </div>
-              <h3 className="text-sm font-medium">My Orders</h3>
-            </div>
-
-            {/* Selling / Buying tabs */}
-            <div className="flex gap-1 p-0.5 bg-white/5 rounded-lg mb-4">
-              <button
-                onClick={() => setListingsTab("selling")}
-                className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${listingsTab === "selling" ? "bg-fuchsia-500/20 text-fuchsia-300 font-medium" : "text-white/40 hover:text-white/60"}`}
-              >
-                Selling
-              </button>
-              <button
-                onClick={() => setListingsTab("buying")}
-                className={`flex-1 text-xs py-1.5 rounded-md transition-colors relative ${listingsTab === "buying" ? "bg-cyan-500/20 text-cyan-300 font-medium" : "text-white/40 hover:text-white/60"}`}
-              >
-                Buying
-                {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length > 0 && listingsTab !== "buying" && (
-                  <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                    {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-extrabold text-ink tracking-display leading-tight">
+              {user?.display_name || "Your account"}
+            </h1>
+            <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5">
+              <span className="inline-flex items-center gap-1">
+                <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
+                Verified
+              </span>
+              {stats.total_listings > 0 && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    {avgRating}
+                    <Star className="size-3 fill-ink text-ink" aria-hidden="true" />
                   </span>
-                )}
-              </button>
-            </div>
-
-            {listingsTab === "selling" ? (
-              <>
-                {!myListingsLoaded && myListings.length === 0 ? (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <ListingCardSkeleton key={i} />
-                    ))}
-                  </div>
-                ) : myListings.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Package className="size-8 text-white/15 mx-auto mb-2" />
-                    <p className="text-xs text-white/30 mb-3">No listings yet</p>
-                    <Button
-                      onClick={() => onNavigate("home")}
-                      size="sm"
-                      className="bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 text-xs"
-                    >
-                      Create Listing
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {[...myListings].sort((a, b) => {
-                      const aOrders = a.pendingOrderCount ?? 0;
-                      const bOrders = b.pendingOrderCount ?? 0;
-                      if (aOrders !== bOrders) return bOrders - aOrders;
-                      const aTime = a.latestOrderAt || "";
-                      const bTime = b.latestOrderAt || "";
-                      if (aTime !== bTime) return bTime > aTime ? 1 : -1;
-                      return 0;
-                    }).map((listing) => {
-                      const timeInfo = getListingTimeInfo(listing.postedAt);
-                      const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
-                      const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
-                      const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
-                      const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
-                      const buyerHasReviewed = sellerOrder?.buyer_reviewed ?? false;
-                      const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
-                      const isSellerWaitingForBuyer = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed;
-                      const isSellerCompleted = sellerOrder && sellerOrder.status === "completed";
-
-                      return (
-                        <div
-                          key={listing.id}
-                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors cursor-pointer ${
-                            timeInfo.expired
-                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isSellerPickupReady
-                                ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
-                                : isSellerWaitingForBuyer
-                                  ? "bg-amber-500/[0.05] border-amber-400/20"
-                                  : hasPendingOrders
-                                    ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
-                                    : sellerOrder && sellerOrder.status === "confirmed"
-                                      ? "bg-green-500/[0.03] border-green-400/20"
-                                      : "bg-white/[0.03] border-white/5 hover:bg-white/5"
-                          }`}
-                          onClick={() => {
-                            if (timeInfo.expired) return;
-                            if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
-                            else if (isSellerWaitingForBuyer) return;
-                            else if (hasPendingOrders) openOrderModal(listing);
-                            else if (sellerOrder) openConfirmedOrderSummary(listing.id);
-                            else openEditListing(listing);
-                          }}
-                        >
-                          <div className="relative shrink-0">
-                            <img src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} className="size-10 rounded-md object-cover border border-white/10" />
-                            {hasPendingOrders && (
-                              <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                                {listing.pendingOrderCount}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-white/80 truncate">{formatTitle(listing.brand, listing.name)}</p>
-                            <div className="flex items-center gap-1.5">
-                              {isSellerCompleted ? (
-                                <span className="text-[10px] text-white/30">Completed</span>
-                              ) : isSellerWaitingForBuyer ? (
-                                <span className="text-[10px] text-amber-400">Waiting for buyer to confirm pickup</span>
-                              ) : isSellerPickupReady ? (
-                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
-                              ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
-                                <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup{sellerOrder.confirmed_time ? ` at ${sellerOrder.confirmed_time}` : ""}</span>
-                              ) : hasPendingOrders ? (
-                                <span className="text-[10px] text-cyan-400">{listing.pendingOrderCount} pending {listing.pendingOrderCount === 1 ? "order" : "orders"}</span>
-                              ) : (
-                                <>
-                                  <Clock className="size-2.5 text-white/20" />
-                                  <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>{timeInfo.label}</p>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-xs font-medium text-fuchsia-400">${listing.price}</span>
-                            {(() => {
-                              const cta = getSellerListingCtaState({
-                                timeExpired: timeInfo.expired,
-                                isSellerWaitingForBuyer,
-                                isSellerPickupReady,
-                                sellerOrderStatus: sellerOrder?.status ?? null,
-                                hasPendingOrders,
-                              });
-                              if (cta === "expired") return (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
-                                  disabled={relistingId === listing.id}
-                                  className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
-                                >
-                                  {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
-                                </button>
-                              );
-                              if (cta === "default") return <Pencil className="size-3 text-white/20" />;
-                              const badge = SELLER_LISTING_CTA_BADGE[cta];
-                              return <span className={badge.className}>{badge.label}</span>;
-                            })()}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="mt-4 pt-4 border-t border-white/5">
-                  <div className="flex justify-between text-xs text-white/30">
-                    <span>Active</span>
-                    <span>{myListings.filter((l) => !getListingTimeInfo(l.postedAt).expired).length}</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-white/30 mt-1">
-                    <span>Expired</span>
-                    <span>{myListings.filter((l) => getListingTimeInfo(l.postedAt).expired).length}</span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {myPurchases.length === 0 ? (
-                  <div className="text-center py-6">
-                    <ShoppingBag className="size-8 text-white/15 mx-auto mb-2" />
-                    <p className="text-xs text-white/30 mb-3">No purchases yet</p>
-                    <Button
-                      onClick={() => onNavigate("market")}
-                      size="sm"
-                      className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs"
-                    >
-                      Browse Market
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {myPurchases.map((order) => {
-                      const countdown = getPickupCountdown(order);
-                      const viewState = getBuyerOrderViewState({
-                        status: order.status,
-                        countdownExpired: countdown.expired,
-                        hasReviewed: order.buyer_reviewed,
-                        otherReviewed: order.seller_reviewed,
-                      });
-                      const badge = BUYER_ORDER_BADGE[viewState];
-
-                      return (
-                        <div key={order.id}>
-                        <div
-                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${BUYER_ORDER_CONTAINER_CLASS[viewState]}`}
-                          onClick={() => {
-                            if (viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "waitingForOther") return;
-                            if (viewState === "pickupReady") openRatingModal(order);
-                            else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
-                          }}
-                        >
-                          <img src={order.listing_image} alt={order.listing_title} className="size-10 rounded-md object-cover border border-white/10 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
-                            <div className="flex items-center gap-1.5">
-                              {viewState === "declined" ? (
-                                <span className="text-[10px] text-red-400/70">Order was declined</span>
-                              ) : viewState === "withdrawn" ? (
-                                <span className="text-[10px] text-white/40">Order withdrawn</span>
-                              ) : viewState === "expired" ? (
-                                <span className="text-[10px] text-white/40">Order expired</span>
-                              ) : viewState === "waitingForOther" ? (
-                                <span className="text-[10px] text-amber-400">Waiting for seller to confirm pickup</span>
-                              ) : viewState === "pickupReady" ? (
-                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
-                              ) : viewState === "confirmedCountdown" ? (
-                                <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
-                              ) : (
-                                <p className="text-[10px] text-white/30">
-                                  {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
-                                </p>
-                              )}
-                            </div>
-                            {order.address_released && order.pickup_address && (
-                              <p className="text-[10px] text-green-400/80 flex items-center gap-1 mt-0.5">
-                                <MapPin className="size-2.5" />{order.pickup_address}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
-                            <span className={badge.className}>{badge.label}</span>
-                            {order.status === "pending" && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowWithdrawConfirm(showWithdrawConfirm === order.id ? null : order.id);
-                                }}
-                                className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
-                              >
-                                Withdraw
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {showWithdrawConfirm === order.id && (
-                          <div className="mt-1.5 bg-amber-500/[0.05] border border-amber-400/20 rounded-lg p-2">
-                            <p className="text-[10px] text-white/60 mb-2">Withdraw your order? You can re-order later.</p>
-                            <div className="flex gap-1.5">
-                              <button
-                                onClick={() => setShowWithdrawConfirm(null)}
-                                className="flex-1 text-[10px] text-white/40 bg-white/5 border border-white/10 rounded py-1 hover:bg-white/10"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => handleWithdrawOrder(order.id)}
-                                disabled={withdrawingOrderId === order.id}
-                                className="flex-1 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-400/20 rounded py-1 hover:bg-amber-500/20 disabled:opacity-40"
-                              >
-                                {withdrawingOrderId === order.id ? "..." : "Withdraw"}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="mt-4 pt-4 border-t border-white/5">
-                  <div className="flex justify-between text-xs text-white/30">
-                    <span>Active</span>
-                    <span>{myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length}</span>
-                  </div>
-                  <div className="flex justify-between text-xs text-white/30 mt-1">
-                    <span>Completed</span>
-                    <span>{myPurchases.filter((o) => o.status === "completed").length}</span>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Wishlist */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-            <div className="flex items-center gap-2.5 mb-5">
-              <div className="size-8 rounded-lg bg-red-500/15 flex items-center justify-center">
-                <Heart className="size-4 text-red-400" />
-              </div>
-              <h3 className="text-sm font-medium">Wishlist</h3>
-            </div>
-
-            {wishlistItems.length === 0 ? (
-              <div className="text-center py-4">
-                <Heart className="size-6 text-white/15 mx-auto mb-2" />
-                <p className="text-xs text-white/30 mb-2">Nothing saved yet</p>
-                <Button onClick={() => onNavigate("market")} size="sm" className="bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-400/20 text-xs">
-                  Browse Market
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {wishlistItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
-                    onClick={() => openListingDetail?.(item)}
-                  >
-                    <img src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl} alt={formatTitle(item.brand, item.name)} className="size-10 rounded-md object-cover shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium truncate">{formatTitle(item.brand, item.name)}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <p className="text-[10px] text-fuchsia-400">${item.price}</p>
-                        {item.status === "sold" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-white/30">Sold</span>
-                        )}
-                      </div>
-                    </div>
-                    {onToggleWishlist && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onToggleWishlist(item.id); }}
-                        className="p-1 rounded-full hover:bg-white/10 transition-colors shrink-0"
-                      >
-                        <Heart className="size-3.5 text-red-400 fill-red-400" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-4 pt-4 border-t border-white/5">
-              <div className="flex justify-between text-xs text-white/30">
-                <span>Saved Items</span>
-                <span>{wishlistItems.length}</span>
-              </div>
+                </>
+              )}
+              <span aria-hidden="true">·</span>
+              <span>Member since {memberSince}</span>
+              {user?.neighborhood && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{user.neighborhood}, NY</span>
+                </>
+              )}
             </div>
           </div>
-
-          {/* Preferences */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
-            <div className="flex items-center gap-2.5 mb-5">
-              <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
-                <SlidersHorizontal className="size-4 text-cyan-400" />
-              </div>
-              <h3 className="text-sm font-medium">Preferences</h3>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between py-2">
-                <span className="text-xs text-white/50">Notifications</span>
-                <span className="text-xs text-white/30">Off</span>
-              </div>
-              <div className="flex items-center justify-between py-2">
-                <span className="text-xs text-white/50">Pickup Radius</span>
-                <span className="text-xs text-white/30">1 mile</span>
-              </div>
-              <div className="flex items-center justify-between py-2">
-                <span className="text-xs text-white/50">Price Alerts</span>
-                <span className="text-xs text-white/30">Off</span>
-              </div>
-              <div className="flex items-center justify-between py-2">
-                <span className="text-xs text-white/50">Visibility</span>
-                <span className="text-xs text-white/30">Public</span>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-white/5">
-              <Button
-                onClick={() => onNavigate("settings")}
-                variant="ghost"
-                size="sm"
-                className="w-full text-xs text-white/40 hover:text-white/60"
-              >
-                Manage Settings
-              </Button>
-            </div>
-          </div>
+          <button
+            onClick={openEditProfileModal}
+            className={`inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+          >
+            Edit profile
+          </button>
         </div>
-      </div>
+
+        {/* ── Tab strip ────────────────────────────────── */}
+        <div role="tablist" aria-label="Account sections" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md mb-8">
+          {([
+            ["overview", "Overview"],
+            ["listings", "Listings"],
+            ["saved", "Saved"],
+            ["settings", "Settings"],
+          ] as const).map(([id, label]) => {
+            const active = accountTab === id;
+            return (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={active}
+                aria-controls={`account-panel-${id}`}
+                onClick={() => setAccountTab(id)}
+                className={`${TAB_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Tab panels ────────────────────────────────── */}
+        {accountTab === "overview" && (
+          <div id="account-panel-overview" role="tabpanel" className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
+            <OverviewListingsPanel
+              listingsTab={listingsTab}
+              setListingsTab={setListingsTab}
+              myListings={myListings}
+              myPurchases={myPurchases}
+              mySellerOrders={mySellerOrders}
+              openEditListing={openEditListing}
+              openOrderModal={openOrderModal}
+              openConfirmedOrderSummary={openConfirmedOrderSummary}
+              openRatingModal={openRatingModal}
+              getListingTimeInfo={getListingTimeInfo}
+              getPickupCountdown={getPickupCountdown}
+              onNavigate={onNavigate}
+            />
+            <PunchlistPanel
+              punchlist={punchlist}
+              onConfirmPickup={(p) => {
+                const listing = myListings.find((l) => l.id === p.listing_id);
+                if (listing) openOrderModal(listing);
+              }}
+            />
+          </div>
+        )}
+
+        {accountTab === "listings" && (
+          <div id="account-panel-listings" role="tabpanel" className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
+            <p className="text-sm text-muted">Listings tab coming next.</p>
+          </div>
+        )}
+
+        {accountTab === "saved" && (
+          <div id="account-panel-saved" role="tabpanel" className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
+            <p className="text-sm text-muted">Saved tab coming next.</p>
+          </div>
+        )}
+
+        {accountTab === "settings" && (
+          <div id="account-panel-settings" role="tabpanel">
+            <SettingsTabContent
+              settings={settings}
+              updateSetting={updateSetting}
+              openEditProfileModal={openEditProfileModal}
+              openAddFriendsModal={openAddFriendsModal}
+              openFriendsModal={openFriendsModal}
+              friendsCount={stats.friends_count}
+              communities={communities}
+              openCommunityDetail={openCommunityDetail}
+              openJoinModal={() => setShowJoinModal(true)}
+              logout={async () => {
+                await logout();
+                onNavigate("home");
+              }}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Join Community Modal */}
+      {/* ── Modals (preserved) ───────────────────────────── */}
       <JoinCommunityModal
         open={showJoinModal}
         communitySearch={communitySearch}
@@ -2092,7 +1503,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onCreateClick={() => { closeJoinModal(); setShowCreateModal(true); }}
       />
 
-      {/* Create Community Modal */}
       <CreateCommunityModal
         open={showCreateModal}
         createName={createName}
@@ -2116,7 +1526,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onCreate={handleCreateCommunity}
       />
 
-      {/* Share Community Modal */}
       <ShareCommunityModal
         open={showConfirmModal}
         createdCommunity={createdCommunity}
@@ -2135,7 +1544,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onShareSMS={shareViaSMS}
         onShareInstagram={shareViaInstagram}
       />
-      {/* Edit Profile Modal */}
+
       <EditProfileModal
         open={showEditProfileModal}
         editFirstName={editFirstName}
@@ -2160,7 +1569,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onSubmit={handleUpdateProfile}
       />
 
-      {/* Add Friends Modal */}
       <AddFriendsModal
         open={showAddFriendsModal}
         addFriendsTab={addFriendsTab}
@@ -2176,301 +1584,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onAddFriend={handleAddFriend}
         onViewUser={onViewUser}
       />
-      {/* Listings Modal */}
-      {showListingsModal && (
-        <ModalShell
-          open
-          onClose={() => setShowListingsModal(false)}
-          z={50}
-        >
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => setShowListingsModal(false)}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
 
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                <Package className="size-5 text-fuchsia-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium">My Orders</h3>
-                <p className="text-xs text-white/40">
-                  {listingsTab === "selling"
-                    ? `${myListings.length} listing${myListings.length !== 1 ? "s" : ""}`
-                    : `${myPurchases.length} order${myPurchases.length !== 1 ? "s" : ""}`}
-                </p>
-              </div>
-            </div>
-
-            {/* Selling / Buying tabs */}
-            <div className="flex gap-1 p-0.5 bg-white/5 rounded-lg mb-4">
-              <button
-                onClick={() => setListingsTab("selling")}
-                className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${listingsTab === "selling" ? "bg-fuchsia-500/20 text-fuchsia-300 font-medium" : "text-white/40 hover:text-white/60"}`}
-              >
-                Selling
-              </button>
-              <button
-                onClick={() => setListingsTab("buying")}
-                className={`flex-1 text-xs py-1.5 rounded-md transition-colors relative ${listingsTab === "buying" ? "bg-cyan-500/20 text-cyan-300 font-medium" : "text-white/40 hover:text-white/60"}`}
-              >
-                Buying
-                {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length > 0 && listingsTab !== "buying" && (
-                  <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                    {myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto min-h-0">
-              {listingsTab === "selling" ? (
-                myListings.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Package className="size-10 text-white/15 mx-auto mb-3" />
-                    <p className="text-sm text-white/30 mb-1">No listings yet</p>
-                    <p className="text-xs text-white/20">Create your first listing from the homepage</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {[...myListings].sort((a, b) => {
-                      const aOrders = a.pendingOrderCount ?? 0;
-                      const bOrders = b.pendingOrderCount ?? 0;
-                      if (aOrders !== bOrders) return bOrders - aOrders;
-                      const aTime = a.latestOrderAt || "";
-                      const bTime = b.latestOrderAt || "";
-                      if (aTime !== bTime) return bTime > aTime ? 1 : -1;
-                      return 0;
-                    }).map((listing) => {
-                      const timeInfo = getListingTimeInfo(listing.postedAt);
-                      const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
-                      const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
-                      const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
-                      const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
-                      const buyerHasReviewedM = sellerOrder?.buyer_reviewed ?? false;
-                      const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
-                      const isSellerWaitingForBuyerM = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewedM;
-                      const isSellerCompletedM = sellerOrder && sellerOrder.status === "completed";
-
-                      return (
-                        <div
-                          key={listing.id}
-                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${
-                            timeInfo.expired
-                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isSellerPickupReady
-                                ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08]"
-                                : isSellerWaitingForBuyerM
-                                  ? "bg-amber-500/[0.05] border-amber-400/20"
-                                  : hasPendingOrders
-                                    ? "bg-cyan-500/[0.05] border-cyan-400/30 hover:bg-cyan-500/[0.08]"
-                                    : sellerOrder && sellerOrder.status === "confirmed"
-                                      ? "bg-green-500/[0.03] border-green-400/20"
-                                      : "bg-white/[0.03] border-white/5 hover:bg-white/5"
-                          }`}
-                          onClick={() => {
-                            setShowListingsModal(false);
-                            if (timeInfo.expired) return;
-                            if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
-                            else if (isSellerWaitingForBuyerM) return;
-                            else if (hasPendingOrders) openOrderModal(listing);
-                            else if (sellerOrder) openConfirmedOrderSummary(listing.id);
-                            else openEditListing(listing);
-                          }}
-                        >
-                          <div className="relative shrink-0">
-                            <img src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} className="size-14 rounded-lg object-cover border border-white/10" />
-                            {hasPendingOrders && (
-                              <span className="absolute -top-1 -right-1 size-4 bg-cyan-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                                {listing.pendingOrderCount}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white/80 truncate">{formatTitle(listing.brand, listing.name)}</p>
-                            <div className="flex items-center gap-1.5">
-                              {isSellerCompletedM ? (
-                                <span className="text-[10px] text-white/30">Completed</span>
-                              ) : isSellerWaitingForBuyerM ? (
-                                <span className="text-[10px] text-amber-400">Waiting for buyer to confirm pickup</span>
-                              ) : isSellerPickupReady ? (
-                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
-                              ) : sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown ? (
-                                <span className="text-[10px] text-green-400">{sellerCountdown.label} till pickup{sellerOrder.confirmed_time ? ` at ${sellerOrder.confirmed_time}` : ""}</span>
-                              ) : hasPendingOrders ? (
-                                <span className="text-[10px] text-cyan-400">{listing.pendingOrderCount} pending {listing.pendingOrderCount === 1 ? "order" : "orders"}</span>
-                              ) : (
-                                <>
-                                  <Clock className="size-2.5 text-white/20" />
-                                  <p className={`text-[10px] ${timeInfo.expired ? "text-red-400" : "text-white/30"}`}>{timeInfo.label}</p>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-sm font-medium text-fuchsia-400">${listing.price}</span>
-                            {timeInfo.expired ? (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
-                                disabled={relistingId === listing.id}
-                                className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
-                              >
-                                {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
-                              </button>
-                            ) : isSellerWaitingForBuyerM ? (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Buyer</span>
-                            ) : isSellerPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
-                            ) : hasPendingOrders ? (
-                              <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Review</span>
-                            ) : (
-                              <Pencil className="size-3.5 text-white/20" />
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )
-              ) : (
-                myPurchases.length === 0 ? (
-                  <div className="text-center py-12">
-                    <ShoppingBag className="size-10 text-white/15 mx-auto mb-3" />
-                    <p className="text-sm text-white/30 mb-1">No purchases yet</p>
-                    <p className="text-xs text-white/20">Browse the market to find items</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {myPurchases.map((order) => {
-                      const countdown = getPickupCountdown(order);
-                      const hasReviewed = order.buyer_reviewed;
-                      const otherReviewed = order.seller_reviewed;
-                      const isPickupReady = order.status === "confirmed" && countdown.expired && !hasReviewed;
-                      const isWaitingForOther = order.status === "confirmed" && countdown.expired && hasReviewed && !otherReviewed;
-                      const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
-                      const isCompleted = order.status === "completed";
-                      const isDeclined = order.status === "declined";
-                      const isWithdrawn = order.status === "withdrawn";
-                      const isExpired = order.status === "expired";
-
-                      return (
-                        <div key={order.id}>
-                        <div
-                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
-                            isDeclined
-                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isWithdrawn || isExpired
-                                ? "bg-white/[0.02] border-white/5 opacity-50"
-                                : isPickupReady
-                                  ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
-                                  : isWaitingForOther
-                                    ? "bg-amber-500/[0.05] border-amber-400/20"
-                                    : isConfirmedCountdown
-                                      ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                                      : "bg-white/[0.03] border-white/5"
-                          }`}
-                          onClick={() => {
-                            if (isDeclined || isWithdrawn || isExpired || isWaitingForOther) return;
-                            setShowListingsModal(false);
-                            if (isPickupReady) openRatingModal(order);
-                            else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
-                          }}
-                        >
-                          <img src={order.listing_image} alt={order.listing_title} className="size-14 rounded-lg object-cover border border-white/10 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-white/80 truncate">{order.listing_title}</p>
-                            <div className="flex items-center gap-1.5">
-                              {isDeclined ? (
-                                <span className="text-[10px] text-red-400/70">Order was declined</span>
-                              ) : isWithdrawn ? (
-                                <span className="text-[10px] text-white/40">Order withdrawn</span>
-                              ) : isExpired ? (
-                                <span className="text-[10px] text-white/40">Order expired</span>
-                              ) : isWaitingForOther ? (
-                                <span className="text-[10px] text-amber-400">Waiting for seller to confirm pickup</span>
-                              ) : isPickupReady ? (
-                                <span className="text-[10px] text-green-400">Confirm Pickup</span>
-                              ) : isConfirmedCountdown ? (
-                                <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
-                              ) : (
-                                <p className="text-[10px] text-white/30">
-                                  {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
-                                </p>
-                              )}
-                            </div>
-                            {order.address_released && order.pickup_address && (
-                              <p className="text-[10px] text-green-400/80 flex items-center gap-1 mt-0.5">
-                                <MapPin className="size-2.5" />{order.pickup_address}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-sm font-medium text-fuchsia-400">${order.listing_price}</span>
-                            {isDeclined ? (
-                              <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
-                            ) : isWithdrawn ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
-                            ) : isExpired ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Expired</span>
-                            ) : isWaitingForOther ? (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Seller</span>
-                            ) : isPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
-                            ) : isConfirmedCountdown ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
-                            ) : isCompleted ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Completed</span>
-                            ) : (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Pending</span>
-                            )}
-                            {order.status === "pending" && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowWithdrawConfirm(showWithdrawConfirm === order.id ? null : order.id);
-                                }}
-                                className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
-                              >
-                                Withdraw
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {showWithdrawConfirm === order.id && (
-                          <div className="mt-1.5 bg-amber-500/[0.05] border border-amber-400/20 rounded-lg p-2">
-                            <p className="text-[10px] text-white/60 mb-2">Withdraw your order? You can re-order later.</p>
-                            <div className="flex gap-1.5">
-                              <button
-                                onClick={() => setShowWithdrawConfirm(null)}
-                                className="flex-1 text-[10px] text-white/40 bg-white/5 border border-white/10 rounded py-1 hover:bg-white/10"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => handleWithdrawOrder(order.id)}
-                                disabled={withdrawingOrderId === order.id}
-                                className="flex-1 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-400/20 rounded py-1 hover:bg-amber-500/20 disabled:opacity-40"
-                              >
-                                {withdrawingOrderId === order.id ? "..." : "Withdraw"}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )
-              )}
-            </div>
-          </div>
-        </ModalShell>
-      )}
-
-      {/* Friends List Modal */}
       <FriendsListModal
         open={showFriendsModal}
         friendsList={friendsList}
@@ -2481,281 +1595,209 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onRemoveFriend={handleRemoveFriend}
       />
 
-      {/* Community Detail Modal */}
+      {/* Community Detail Modal — inline (preserved). Color tokens updated. */}
       {showCommunityDetail && selectedCommunity && (
         <ModalShell
           open
           onClose={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
           z={50}
         >
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
+          <div className="relative border border-hairline rounded-md p-6 max-w-md w-full mx-4 shadow-overlay max-h-[85vh] flex flex-col bg-canvas">
             <button
               onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
+              className={`absolute top-4 right-4 text-muted hover:text-ink transition-colors ${FOCUS_RING}`}
+              aria-label="Close"
             >
               <X className="size-5" />
             </button>
 
-            {/* Delete Confirmation Overlay */}
             {showDeleteConfirm && (
-              <div className="absolute inset-0 z-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: "rgba(24, 24, 27, 0.95)" }}>
+              <div className="absolute inset-0 z-10 rounded-md flex items-center justify-center bg-canvas/95">
                 <div className="text-center px-6">
-                  <div className="size-12 bg-red-500/15 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <AlertTriangle className="size-6 text-red-400" />
+                  <div className="size-12 bg-error/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertTriangle className="size-6 text-error" />
                   </div>
-                  <h3 className="text-lg font-medium mb-2">Delete Community</h3>
-                  <p className="text-sm text-white/50 mb-6">
-                    Are you sure you want to delete <span className="text-white/80 font-medium">{selectedCommunity.name}</span>? This action cannot be undone and all members will be removed.
+                  <h3 className="text-lg font-extrabold text-ink mb-2 tracking-display">Delete community</h3>
+                  <p className="text-sm text-muted mb-6">
+                    Are you sure you want to delete <span className="text-ink font-semibold">{selectedCommunity.name}</span>? This action cannot be undone and all members will be removed.
                   </p>
                   <div className="flex gap-3">
-                    <Button
+                    <button
                       onClick={() => setShowDeleteConfirm(false)}
-                      className="flex-1 bg-white/10 hover:bg-white/15 text-white border-0"
+                      className={`flex-1 h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                     >
                       Cancel
-                    </Button>
-                    <Button
+                    </button>
+                    <button
                       onClick={handleDeleteCommunity}
                       disabled={isDeletingCommunity}
-                      className="flex-1 bg-red-500 hover:bg-red-600 text-white border-0"
+                      className={`flex-1 h-9 px-4 rounded-md bg-error text-on-primary text-sm font-semibold hover:bg-error/90 transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                     >
-                      {isDeletingCommunity ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
-                    </Button>
+                      {isDeletingCommunity ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Delete"}
+                    </button>
                   </div>
                 </div>
               </div>
             )}
 
             {isEditingCommunity ? (
-              /* Edit Mode */
               <>
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                    <Pencil className="size-5 text-fuchsia-400" />
-                  </div>
-                  <h3 className="text-lg font-medium">Edit Community</h3>
+                  <Pencil className="size-5 text-primary" />
+                  <h3 className="text-lg font-extrabold text-ink tracking-display">Edit community</h3>
                 </div>
-
                 <div className="flex-1 overflow-y-auto min-h-0 space-y-4">
                   <div>
-                    <label className="text-xs text-white/40 mb-1 block">Name</label>
-                    <Input
-                      value={editCommunityName}
-                      onChange={(e) => setEditCommunityName(e.target.value)}
-                      className="bg-white/5 border-white/20 text-white"
-                    />
+                    <label className="text-xs text-muted mb-1 block">Name</label>
+                    <Input value={editCommunityName} onChange={(e) => setEditCommunityName(e.target.value)} />
                   </div>
-
                   <div>
-                    <label className="text-xs text-white/40 mb-1 block">Description</label>
+                    <label className="text-xs text-muted mb-1 block">Description</label>
                     <textarea
                       value={editCommunityDescription}
                       onChange={(e) => setEditCommunityDescription(e.target.value)}
                       rows={3}
-                      className="w-full rounded-md bg-white/5 border border-white/20 text-white text-sm px-3 py-2 resize-none focus:outline-none focus:border-white/40"
+                      className={`w-full rounded-md bg-canvas border border-hairline text-ink text-sm px-3 py-2 resize-none ${FOCUS_RING}`}
                     />
                   </div>
-
                   <div>
-                    <label className="text-xs text-white/40 mb-1 block">Pickup Address</label>
-                    <Input
-                      value={editCommunityPickupAddress}
-                      onChange={(e) => setEditCommunityPickupAddress(e.target.value)}
-                      placeholder="Street address"
-                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                    />
+                    <label className="text-xs text-muted mb-1 block">Pickup address</label>
+                    <Input value={editCommunityPickupAddress} onChange={(e) => setEditCommunityPickupAddress(e.target.value)} placeholder="Street address" />
                   </div>
-
                   <div>
-                    <label className="text-xs text-white/40 mb-1 block">Neighborhood</label>
-                    <Input
-                      ref={editCommunityNeighborhoodRef}
-                      value={editCommunityNeighborhood}
-                      onChange={(e) => setEditCommunityNeighborhood(e.target.value)}
-                      placeholder="e.g., Upper West Side"
-                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                    />
+                    <label className="text-xs text-muted mb-1 block">Neighborhood</label>
+                    <Input ref={editCommunityNeighborhoodRef} value={editCommunityNeighborhood} onChange={(e) => setEditCommunityNeighborhood(e.target.value)} placeholder="e.g., Upper West Side" />
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs text-white/40 mb-1 block">City</label>
-                      <Input
-                        value="New York"
-                        disabled
-                        className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
-                      />
+                      <label className="text-xs text-muted mb-1 block">City</label>
+                      <Input value="New York" disabled />
                     </div>
                     <div>
-                      <label className="text-xs text-white/40 mb-1 block">State</label>
-                      <Input
-                        value="NY"
-                        disabled
-                        className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
-                      />
+                      <label className="text-xs text-muted mb-1 block">State</label>
+                      <Input value="NY" disabled />
                     </div>
                   </div>
-
                   <div>
-                    <label className="text-xs text-white/40 mb-1 block">Zip Code</label>
+                    <label className="text-xs text-muted mb-1 block">Zip code</label>
                     <Input
                       value={editCommunityZipCode}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
-                        setEditCommunityZipCode(val);
-                      }}
+                      onChange={(e) => setEditCommunityZipCode(e.target.value.replace(/[^\d-]/g, "").slice(0, 10))}
                       placeholder="e.g., 10001"
-                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
                     />
                   </div>
-
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {editCommunityIsPublic ? (
-                        <Unlock className="size-4 text-green-400" />
-                      ) : (
-                        <Lock className="size-4 text-amber-400" />
-                      )}
-                      <span className="text-sm text-white/70">
-                        {editCommunityIsPublic ? "Public" : "Private"}
-                      </span>
+                    <div className="flex items-center gap-2 text-sm text-body">
+                      {editCommunityIsPublic ? <Unlock className="size-4 text-primary" /> : <Lock className="size-4 text-warning" />}
+                      {editCommunityIsPublic ? "Public" : "Private"}
                     </div>
-                    <button
-                      onClick={() => setEditCommunityIsPublic(!editCommunityIsPublic)}
-                      className={`relative w-10 h-5 rounded-full transition-colors ${
-                        editCommunityIsPublic ? "bg-green-500/30" : "bg-white/10"
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                          editCommunityIsPublic ? "translate-x-5" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
+                    <ToggleSwitch
+                      checked={editCommunityIsPublic}
+                      onChange={(v) => setEditCommunityIsPublic(v)}
+                      label="Public community"
+                    />
                   </div>
-
-                  {/* Delete Community */}
-                  <div className="pt-4 border-t border-white/10">
+                  <div className="pt-4 border-t border-hairline">
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-2 text-red-400/70 hover:text-red-400 transition-colors text-sm"
+                      className={`inline-flex items-center gap-2 text-sm text-error hover:underline ${FOCUS_RING} rounded`}
                     >
                       <Trash2 className="size-4" />
-                      Delete Community
+                      Delete community
                     </button>
                   </div>
                 </div>
-
                 <div className="flex gap-3 mt-5">
-                  <Button
+                  <button
                     onClick={() => setIsEditingCommunity(false)}
-                    className="flex-1 bg-white/10 hover:bg-white/15 text-white border-0"
+                    className={`flex-1 h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                   >
                     Cancel
-                  </Button>
-                  <Button
+                  </button>
+                  <button
                     onClick={handleSaveCommunity}
                     disabled={isSavingCommunity || !editCommunityName.trim()}
-                    className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
+                    className={`flex-1 h-9 px-4 rounded-md bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                   >
-                    {isSavingCommunity ? <Loader2 className="size-4 animate-spin" /> : "Save"}
-                  </Button>
+                    {isSavingCommunity ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Save"}
+                  </button>
                 </div>
               </>
             ) : (
-              /* View Mode */
               <>
-                {/* Header */}
                 <div className="flex items-start gap-3 mb-5 pr-8">
-                  <div className="size-12 rounded-xl bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
+                  <div className="size-12 rounded-md bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
                     {selectedCommunity.image ? (
-                      <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover rounded-xl" />
+                      <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover rounded-md" />
                     ) : (
-                      <Globe className="size-6 text-cyan-400" />
+                      <Globe className="size-6 text-muted" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-medium truncate">{selectedCommunity.name}</h3>
-                    <div className="flex items-center gap-3 mt-0.5">
+                    <h3 className="text-lg font-extrabold text-ink truncate tracking-display">{selectedCommunity.name}</h3>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted">
                       {selectedCommunity.neighborhood && (
-                        <div className="flex items-center gap-1">
-                          <MapPin className="size-3 text-white/30" />
-                          <span className="text-xs text-white/40">{selectedCommunity.neighborhood}</span>
-                        </div>
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="size-3" />
+                          {selectedCommunity.neighborhood}
+                        </span>
                       )}
-                      <div className="flex items-center gap-1">
-                        <Users className="size-3 text-white/30" />
-                        <span className="text-xs text-white/40">{selectedCommunity.member_count} members</span>
-                      </div>
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="size-3" />
+                        {selectedCommunity.member_count} members
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {selectedCommunity.description && (
-                  <p className="text-sm text-white/50 mb-4">{selectedCommunity.description}</p>
+                  <p className="text-sm text-body mb-4">{selectedCommunity.description}</p>
                 )}
 
-                {/* Invite Code */}
-                <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2 mb-4">
-                  <span className="text-xs text-white/30">Invite Code:</span>
-                  <span className="text-xs text-white/70 font-mono tracking-wider">{selectedCommunity.invite_code}</span>
+                <div className="flex items-center gap-2 bg-surface-soft rounded-md px-3 py-2 mb-4">
+                  <span className="text-xs text-muted">Invite code:</span>
+                  <span className="text-xs text-ink font-mono tracking-wider">{selectedCommunity.invite_code}</span>
                   <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(selectedCommunity.invite_code);
-                    }}
-                    className="ml-auto text-white/30 hover:text-white/60 transition-colors"
+                    onClick={() => navigator.clipboard.writeText(selectedCommunity.invite_code)}
+                    className={`ml-auto text-muted hover:text-ink transition-colors ${FOCUS_RING} rounded`}
                     title="Copy invite code"
+                    aria-label="Copy invite code"
                   >
                     <Copy className="size-3.5" />
                   </button>
                 </div>
 
-                {/* Members List */}
                 <div className="mb-4">
-                  <h4 className="text-xs text-white/40 mb-2 uppercase tracking-wider">Members</h4>
-                  <div className="flex-1 overflow-y-auto max-h-48 min-h-0">
+                  <h4 className="text-xs text-muted mb-2 uppercase tracking-wider">Members</h4>
+                  <div className="max-h-48 overflow-y-auto">
                     {isLoadingMembers ? (
-                      <div className="flex justify-center py-6">
-                        <Loader2 className="size-5 text-white/30 animate-spin" />
-                      </div>
+                      <div className="flex justify-center py-6"><Loader2 className="size-5 text-muted animate-spin" /></div>
                     ) : (
                       <div className="space-y-1">
                         {communityMembers.map((member) => (
-                          <div
-                            key={member.id}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
-                          >
-                            <button onClick={() => onViewUser?.(member.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                              <div className="size-8 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                                {member.profile_picture ? (
-                                  <img src={member.profile_picture} alt="" className="size-full object-cover" />
-                                ) : (
-                                  <User className="size-3.5 text-white/50" />
-                                )}
+                          <div key={member.id} className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-surface-soft transition-colors">
+                            <button
+                              onClick={() => onViewUser?.(member.id)}
+                              className={`flex items-center gap-3 flex-1 min-w-0 text-left ${FOCUS_RING} rounded`}
+                            >
+                              <div className="size-8 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
+                                {member.profile_picture ? <img src={member.profile_picture} alt="" className="size-full object-cover" /> : <User className="size-3.5 text-muted" />}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white/80 truncate">{member.display_name}</p>
-                                {member.neighborhood && (
-                                  <p className="text-[10px] text-white/30 truncate">{member.neighborhood}</p>
-                                )}
+                                <p className="text-sm text-ink truncate">{member.display_name}</p>
+                                {member.neighborhood && <p className="text-[11px] text-muted truncate">{member.neighborhood}</p>}
                               </div>
                             </button>
                             {member.role === "owner" ? (
-                              <span className="text-[10px] text-fuchsia-400/70 bg-fuchsia-500/10 px-1.5 py-0.5 rounded-full border border-fuchsia-400/20">
-                                Creator
-                              </span>
+                              <span className="text-[10px] text-primary bg-primary-soft px-1.5 py-0.5 rounded-full border border-primary/20">Creator</span>
                             ) : selectedCommunity.created_by === user?.id ? (
                               <button
                                 onClick={() => handleKickMember(selectedCommunity.id, member.id)}
                                 disabled={kickingMemberId === member.id}
-                                className="text-[10px] text-red-400/60 hover:text-red-400 bg-red-500/0 hover:bg-red-500/10 px-1.5 py-0.5 rounded-full border border-transparent hover:border-red-400/20 transition-all shrink-0"
+                                className={`text-[10px] text-error/70 hover:text-error px-1.5 py-0.5 rounded-full hover:bg-error/10 transition-colors shrink-0 ${FOCUS_RING}`}
                                 title="Remove member"
                               >
-                                {kickingMemberId === member.id ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  <X className="size-3" />
-                                )}
+                                {kickingMemberId === member.id ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3" />}
                               </button>
                             ) : null}
                           </div>
@@ -2765,67 +1807,48 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   </div>
                 </div>
 
-                {/* Pending Join Requests (for owners of private communities) */}
                 {!selectedCommunity.is_public && selectedCommunity.created_by === user?.id && (
                   <div className="mb-4">
-                    <h4 className="text-xs text-white/40 mb-2 uppercase tracking-wider">
-                      Pending Requests
+                    <h4 className="text-xs text-muted mb-2 uppercase tracking-wider">
+                      Pending requests
                       {pendingRequests.length > 0 && (
-                        <span className="ml-1.5 text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full text-[10px] normal-case">
-                          {pendingRequests.length}
-                        </span>
+                        <span className="ml-1.5 text-warning bg-warning/10 px-1.5 py-0.5 rounded-full text-[10px] normal-case">{pendingRequests.length}</span>
                       )}
                     </h4>
                     {isLoadingRequests ? (
-                      <div className="flex justify-center py-4">
-                        <Loader2 className="size-4 text-white/30 animate-spin" />
-                      </div>
+                      <div className="flex justify-center py-4"><Loader2 className="size-4 text-muted animate-spin" /></div>
                     ) : pendingRequests.length === 0 ? (
-                      <p className="text-xs text-white/20 py-3 text-center">No pending requests</p>
+                      <p className="text-xs text-muted py-3 text-center">No pending requests</p>
                     ) : (
                       <div className="space-y-1 max-h-36 overflow-y-auto">
                         {pendingRequests.map((req) => (
-                          <div
-                            key={req.id}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/5"
-                          >
-                            <button onClick={() => onViewUser?.(req.user_id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                              <div className="size-8 rounded-full bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                                {req.profile_picture ? (
-                                  <img src={req.profile_picture} alt="" className="size-full object-cover" />
-                                ) : (
-                                  <User className="size-3.5 text-white/50" />
-                                )}
+                          <div key={req.id} className="flex items-center gap-3 px-3 py-2 rounded-md bg-surface-soft border border-hairline">
+                            <button
+                              onClick={() => onViewUser?.(req.user_id)}
+                              className={`flex items-center gap-3 flex-1 min-w-0 text-left ${FOCUS_RING} rounded`}
+                            >
+                              <div className="size-8 rounded-full bg-canvas border border-hairline flex items-center justify-center overflow-hidden shrink-0">
+                                {req.profile_picture ? <img src={req.profile_picture} alt="" className="size-full object-cover" /> : <User className="size-3.5 text-muted" />}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white/80 truncate">{req.display_name}</p>
-                                {req.neighborhood && (
-                                  <p className="text-[10px] text-white/30 truncate">{req.neighborhood}</p>
-                                )}
+                                <p className="text-sm text-ink truncate">{req.display_name}</p>
+                                {req.neighborhood && <p className="text-[11px] text-muted truncate">{req.neighborhood}</p>}
                               </div>
                             </button>
                             <div className="flex gap-1.5 shrink-0">
                               <button
                                 onClick={() => handleAcceptRequest(selectedCommunity.id, req.id)}
                                 disabled={acceptingRequestId === req.id}
-                                className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 hover:bg-green-500/20 transition-colors disabled:opacity-50"
+                                className={`text-[10px] text-primary bg-primary-soft px-2 py-1 rounded-full border border-primary/20 hover:bg-primary-tint transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                               >
-                                {acceptingRequestId === req.id ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  "Accept"
-                                )}
+                                {acceptingRequestId === req.id ? <Loader2 className="size-3 animate-spin" /> : "Accept"}
                               </button>
                               <button
                                 onClick={() => handleRejectRequest(selectedCommunity.id, req.id)}
                                 disabled={rejectingRequestId === req.id}
-                                className="text-[10px] text-red-400 bg-red-500/10 px-2 py-1 rounded-full border border-red-400/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                                className={`text-[10px] text-error bg-error/10 px-2 py-1 rounded-full border border-error/20 hover:bg-error/20 transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                               >
-                                {rejectingRequestId === req.id ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  "Reject"
-                                )}
+                                {rejectingRequestId === req.id ? <Loader2 className="size-3 animate-spin" /> : "Reject"}
                               </button>
                             </div>
                           </div>
@@ -2835,38 +1858,30 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   </div>
                 )}
 
-                {/* Action Buttons */}
-                <div className="flex gap-3 mt-auto pt-4 border-t border-white/10">
-                  <Button
+                <div className="flex gap-3 mt-auto pt-4 border-t border-hairline">
+                  <button
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); shareCommunity(selectedCommunity); }}
-                    className="flex-1 bg-white/10 hover:bg-white/15 text-white border-0 gap-2"
+                    className={`flex-1 h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors inline-flex items-center justify-center gap-2 ${FOCUS_RING}`}
                   >
                     <Send className="size-4" />
                     Share
-                  </Button>
+                  </button>
                   {selectedCommunity.created_by === user?.id ? (
-                    <Button
+                    <button
                       onClick={startEditCommunity}
-                      className="flex-1 bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 gap-2"
+                      className={`flex-1 h-9 px-4 rounded-md bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors inline-flex items-center justify-center gap-2 ${FOCUS_RING}`}
                     >
                       <Pencil className="size-4" />
                       Edit
-                    </Button>
+                    </button>
                   ) : (
-                    <Button
+                    <button
                       onClick={handleLeaveCommunity}
                       disabled={isLeavingCommunity}
-                      className="flex-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-400/20 gap-2"
+                      className={`flex-1 h-9 px-4 rounded-md border border-error/40 text-sm font-semibold text-error bg-canvas hover:bg-error/5 transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-50 ${FOCUS_RING}`}
                     >
-                      {isLeavingCommunity ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <>
-                          <LogOut className="size-4" />
-                          Leave
-                        </>
-                      )}
-                    </Button>
+                      {isLeavingCommunity ? <Loader2 className="size-4 animate-spin" /> : <><LogOut className="size-4" />Leave</>}
+                    </button>
                   )}
                 </div>
               </>
@@ -2874,8 +1889,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           </div>
         </ModalShell>
       )}
-      {/* User Profile Summary Modal */}
-      {/* Edit Listing Modal */}
+
       {editListing && (
         <EditListingModal
           open
@@ -2887,8 +1901,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         />
       )}
 
-      {/* Order Management Modal */}
-      {/* Order Confirmation Summary Modal */}
       <OrderConfirmSummaryModal
         open={showConfirmSummary}
         data={confirmSummaryData}
@@ -2914,16 +1926,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         }}
       />
 
+      {/* Order Management Modal — inline (preserved). Color tokens updated. */}
       {showOrderModal && orderModalListing && (
         <ModalShell
           open
           onClose={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
           z={50}
         >
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
+          <div className="relative border border-hairline rounded-md p-6 max-w-md w-full mx-4 shadow-overlay max-h-[85vh] overflow-y-auto bg-canvas">
             <button
               onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
+              className={`absolute top-4 right-4 text-muted hover:text-ink transition-colors ${FOCUS_RING} rounded`}
+              aria-label="Close"
             >
               <X className="size-5" />
             </button>
@@ -2932,32 +1946,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <img
                 src={orderModalListing.imageUrl}
                 alt={formatTitle(orderModalListing.brand, orderModalListing.name)}
-                className="size-12 rounded-lg object-cover border border-white/10 shrink-0"
+                className="size-12 rounded-md object-cover border border-hairline shrink-0"
               />
               <div className="min-w-0">
-                <h3 className="text-sm font-medium truncate">{formatTitle(orderModalListing.brand, orderModalListing.name)}</h3>
-                <p className="text-xs text-fuchsia-400">${orderModalListing.price}</p>
+                <h3 className="text-sm font-semibold text-ink truncate">{formatTitle(orderModalListing.brand, orderModalListing.name)}</h3>
+                <p className="text-xs text-primary font-semibold">${orderModalListing.price}</p>
               </div>
             </div>
 
-            <p className="text-[10px] text-white/30 uppercase tracking-wider mb-3">Pending Orders</p>
+            <p className="text-[10px] text-muted uppercase tracking-wider mb-3">Pending orders</p>
 
             {isLoadingOrders ? (
-              <div className="py-8 text-center">
-                <Loader2 className="size-5 animate-spin mx-auto text-cyan-400" />
-              </div>
+              <div className="py-8 text-center"><Loader2 className="size-5 animate-spin mx-auto text-primary" /></div>
             ) : listingOrders.length === 0 ? (
               <div className="py-8 text-center">
-                <Package className="size-8 text-white/15 mx-auto mb-2" />
-                <p className="text-xs text-white/30">No pending orders</p>
+                <p className="text-xs text-muted">No pending orders</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {listingOrders.map((order) => {
                   const timeLabels: Record<string, string> = { morning: "8 AM – 12 PM", afternoon: "12 – 5 PM", evening: "5 – 9 PM" };
                   const isSelected = selectedSlot?.orderId === order.id;
-
-                  // Generate 30-min increments for a time window string like "10 AM – 6 PM"
                   const generateTimeOptions = (timeWindow: string): string[] => {
                     const parseHour = (s: string): number => {
                       const m = s.trim().match(/^(\d{1,2})\s*(AM|PM)$/i);
@@ -2980,7 +1989,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                         options.push(`${hour}:${m.toString().padStart(2, "0")} ${ampm}`);
                       }
                     }
-                    // Include the end hour itself as a valid pickup time
                     const endHour = endH % 12 || 12;
                     const endAmpm = endH >= 12 ? "PM" : "AM";
                     options.push(`${endHour}:00 ${endAmpm}`);
@@ -2988,23 +1996,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   };
 
                   return (
-                    <div key={order.id} className="bg-white/[0.03] border border-cyan-400/20 rounded-lg p-4">
+                    <div key={order.id} className="bg-surface-soft border border-hairline rounded-md p-4">
                       <div className="flex items-center justify-between mb-3">
                         <button
                           onClick={() => onViewUser?.(order.buyer_id)}
-                          className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
+                          className={`flex items-center gap-2.5 hover:opacity-80 transition-opacity ${FOCUS_RING} rounded`}
                         >
-                          <div className="size-8 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
-                            {order.buyer_picture ? (
-                              <img src={order.buyer_picture} alt="" className="size-full object-cover" />
-                            ) : (
-                              <User className="size-3.5 text-white/50" />
-                            )}
+                          <div className="size-8 rounded-full bg-canvas border border-hairline flex items-center justify-center overflow-hidden shrink-0">
+                            {order.buyer_picture ? <img src={order.buyer_picture} alt="" className="size-full object-cover" /> : <User className="size-3.5 text-muted" />}
                           </div>
                           <div className="text-left">
-                            <p className="text-sm font-medium">{order.buyer_name}</p>
+                            <p className="text-sm font-semibold text-ink">{order.buyer_name}</p>
                             {order.created_at && (
-                              <p className="text-[10px] text-white/25 mt-0.5">
+                              <p className="text-[11px] text-muted mt-0.5">
                                 {new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                               </p>
                             )}
@@ -3014,37 +2018,37 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           {showDeclineConfirm !== order.id && (
                             <button
                               onClick={() => setShowDeclineConfirm(order.id)}
-                              className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors"
+                              className={`text-[11px] text-error hover:underline ${FOCUS_RING} rounded`}
                             >
                               Decline
                             </button>
                           )}
-                          <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Pending</span>
+                          <span className="text-[10px] text-primary bg-primary-soft px-2 py-0.5 rounded-full border border-primary/20">Pending</span>
                         </div>
                       </div>
 
                       {showDeclineConfirm === order.id ? (
-                        <div className="bg-red-500/[0.05] border border-red-400/20 rounded-lg p-3">
-                          <p className="text-xs text-white/70 mb-3">Are you sure you want to decline this order?</p>
+                        <div className="bg-error/5 border border-error/20 rounded-md p-3">
+                          <p className="text-xs text-body mb-3">Decline this order?</p>
                           <div className="flex gap-2">
                             <button
                               onClick={() => setShowDeclineConfirm(null)}
-                              className="flex-1 text-xs text-white/50 bg-white/5 border border-white/10 rounded-lg py-1.5 hover:bg-white/10 transition-colors"
+                              className={`flex-1 text-xs h-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft ${FOCUS_RING}`}
                             >
                               Cancel
                             </button>
                             <button
                               onClick={() => handleDeclineOrder(order.id)}
                               disabled={decliningOrderId === order.id}
-                              className="flex-1 text-xs text-red-400 bg-red-500/10 border border-red-400/20 rounded-lg py-1.5 hover:bg-red-500/20 transition-colors disabled:opacity-40"
+                              className={`flex-1 text-xs h-8 rounded-md bg-error text-on-primary font-semibold hover:bg-error/90 disabled:opacity-50 ${FOCUS_RING}`}
                             >
-                              {decliningOrderId === order.id ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Decline Order"}
+                              {decliningOrderId === order.id ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Decline"}
                             </button>
                           </div>
                         </div>
                       ) : (
                         <>
-                          <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Select a Pickup Window</p>
+                          <p className="text-[10px] text-muted uppercase tracking-wider mb-2">Select pickup window</p>
                           <div className="space-y-1.5">
                             {order.selected_pickup_slots.map((slot, i) => {
                               const dateStr = new Date(slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
@@ -3064,25 +2068,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                                     }
                                   }}
                                   disabled={expired}
-                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-colors text-left ${
+                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md border text-left transition-colors ${FOCUS_RING} ${
                                     expired
-                                      ? "border-white/5 bg-white/[0.02] opacity-40 cursor-not-allowed"
+                                      ? "border-hairline-soft bg-surface-soft opacity-50 cursor-not-allowed"
                                       : isThisSelected
-                                        ? "border-cyan-400/50 bg-cyan-500/10"
-                                        : "border-white/10 bg-white/[0.03] hover:border-cyan-400/30 hover:bg-cyan-500/[0.03]"
+                                        ? "border-primary bg-primary-soft"
+                                        : "border-hairline bg-canvas hover:border-primary hover:bg-primary-soft/50"
                                   }`}
                                 >
                                   <div>
-                                    <p className={`text-xs ${expired ? "text-white/30 line-through" : "text-white/80"}`}>{dateStr}</p>
-                                    <p className={`text-[10px] ${expired ? "text-white/20" : "text-white/40"}`}>{timeLabels[slot.time] || slot.time}</p>
+                                    <p className={`text-xs ${expired ? "text-muted line-through" : "text-ink"}`}>{dateStr}</p>
+                                    <p className={`text-[11px] ${expired ? "text-muted-soft" : "text-muted"}`}>{timeLabels[slot.time] || slot.time}</p>
                                   </div>
                                   {expired ? (
-                                    <span className="text-[9px] text-white/20 italic">Expired</span>
+                                    <span className="text-[10px] text-muted italic">Expired</span>
                                   ) : (
-                                    <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                                      isThisSelected ? "border-cyan-400 bg-cyan-400" : "border-white/25"
-                                    }`}>
-                                      {isThisSelected && <Check className="size-2.5 text-white" />}
+                                    <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isThisSelected ? "border-primary bg-primary" : "border-border-strong"}`}>
+                                      {isThisSelected && <Check className="size-2.5 text-on-primary" />}
                                     </div>
                                   )}
                                 </button>
@@ -3094,29 +2096,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             const timeOptions = generateTimeOptions(selectedSlot.slot.time);
                             const slotDateStr = new Date(selectedSlot.slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
                             return (
-                              <div className="mt-3 pt-3 border-t border-white/10">
-                                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Choose Exact Pickup Time</p>
-                                <p className="text-xs text-white/50 mb-2">{slotDateStr} — {timeLabels[selectedSlot.slot.time] || selectedSlot.slot.time}</p>
+                              <div className="mt-3 pt-3 border-t border-hairline">
+                                <p className="text-[10px] text-muted uppercase tracking-wider mb-2">Choose exact pickup time</p>
+                                <p className="text-xs text-muted mb-2">{slotDateStr} — {timeLabels[selectedSlot.slot.time] || selectedSlot.slot.time}</p>
                                 <select
                                   value={confirmTime}
                                   onChange={(e) => setConfirmTime(e.target.value)}
-                                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors mb-3"
+                                  className={`w-full px-3 py-2 rounded-md bg-canvas border border-hairline text-sm text-ink ${FOCUS_RING} mb-3`}
                                 >
-                                  <option value="">Select a time...</option>
-                                  {timeOptions.map((t) => (
-                                    <option key={t} value={t}>{t}</option>
-                                  ))}
+                                  <option value="">Select a time…</option>
+                                  {timeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
                                 </select>
                                 <button
                                   onClick={() => handleConfirmSlot(selectedSlot.orderId, selectedSlot.slot, selectedSlot.order, confirmTime)}
                                   disabled={!confirmTime || confirmingOrderId === order.id}
-                                  className="w-full py-2 rounded-lg text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                  className={`w-full h-9 rounded-md text-sm font-semibold bg-primary text-on-primary hover:bg-primary-hover transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                                 >
-                                  {confirmingOrderId === order.id ? (
-                                    <Loader2 className="size-4 animate-spin" />
-                                  ) : (
-                                    "Confirm Pickup"
-                                  )}
+                                  {confirmingOrderId === order.id ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Confirm pickup"}
                                 </button>
                               </div>
                             );
@@ -3132,7 +2128,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         </ModalShell>
       )}
 
-      {/* Rating / Confirm Pickup Modal */}
       <RatingModal
         open={showRatingModal}
         order={ratingOrder}
@@ -3149,3 +2144,558 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     </section>
   );
 }
+
+// ── Reusable: Toggle switch ─────────────────────────────────
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors motion-safe:duration-150 ${FOCUS_RING} ${checked ? "bg-primary" : "bg-surface-strong"}`}
+    >
+      <span
+        className={`inline-block size-5 transform rounded-full bg-canvas shadow-card transition-transform motion-safe:duration-150 ${checked ? "translate-x-5" : "translate-x-0.5"}`}
+      />
+    </button>
+  );
+}
+
+// ── Overview: Your Listings Panel ───────────────────────────
+function OverviewListingsPanel({
+  listingsTab,
+  setListingsTab,
+  myListings,
+  myPurchases,
+  mySellerOrders,
+  openEditListing,
+  openOrderModal,
+  openConfirmedOrderSummary,
+  openRatingModal,
+  getListingTimeInfo,
+  getPickupCountdown,
+  onNavigate,
+}: {
+  listingsTab: "selling" | "buying";
+  setListingsTab: (t: "selling" | "buying") => void;
+  myListings: MyListing[];
+  myPurchases: OrderData[];
+  mySellerOrders: OrderData[];
+  openEditListing: (l: MyListing) => void;
+  openOrderModal: (l: MyListing) => void;
+  openConfirmedOrderSummary: (id: string) => void;
+  openRatingModal: (o: OrderData) => void;
+  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
+  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
+  onNavigate: (page: string) => void;
+}) {
+  const sellingRows = [...myListings].sort((a, b) => {
+    const aOrders = a.pendingOrderCount ?? 0;
+    const bOrders = b.pendingOrderCount ?? 0;
+    if (aOrders !== bOrders) return bOrders - aOrders;
+    const aTime = a.latestOrderAt || "";
+    const bTime = b.latestOrderAt || "";
+    if (aTime !== bTime) return bTime > aTime ? 1 : -1;
+    return 0;
+  });
+
+  return (
+    <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-base font-extrabold text-ink tracking-display">Your listings</h3>
+        <div role="tablist" aria-label="Selling or buying" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md">
+          {(["selling", "buying"] as const).map((side) => {
+            const active = listingsTab === side;
+            return (
+              <button
+                key={side}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setListingsTab(side)}
+                className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
+              >
+                {side === "selling" ? "Selling" : "Buying"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {listingsTab === "selling" ? (
+        myListings.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+            <p className="text-sm text-muted mb-4">No listings yet</p>
+            <button
+              onClick={() => onNavigate("newlisting")}
+              className={`inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+            >
+              Create listing
+            </button>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+              <span>Item</span>
+              <span className="text-right">Price</span>
+              <span className="text-right">Status</span>
+            </div>
+            <div>
+              {sellingRows.map((listing) => {
+                const timeInfo = getListingTimeInfo(listing.postedAt);
+                const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
+                const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
+                const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
+                const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
+                const buyerHasReviewed = sellerOrder?.buyer_reviewed ?? false;
+                const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
+                const isSellerWaitingForBuyer = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed;
+                const isCompleted = sellerOrder?.status === "completed";
+                const cta = getSellerListingCtaState({
+                  timeExpired: timeInfo.expired,
+                  isSellerWaitingForBuyer: !!isSellerWaitingForBuyer,
+                  isSellerPickupReady: !!isSellerPickupReady,
+                  sellerOrderStatus: sellerOrder?.status ?? null,
+                  hasPendingOrders,
+                });
+                const statusLabel = isCompleted
+                  ? "Completed"
+                  : isSellerPickupReady
+                    ? "Pickup ready"
+                    : isSellerWaitingForBuyer
+                      ? "Awaiting buyer"
+                      : sellerOrder?.status === "confirmed"
+                        ? "Confirmed"
+                        : hasPendingOrders
+                          ? `${listing.pendingOrderCount} pending`
+                          : timeInfo.expired
+                            ? "Expired"
+                            : "Live";
+
+                const isClickable = !timeInfo.expired && !isSellerWaitingForBuyer;
+
+                return (
+                  <button
+                    key={listing.id}
+                    onClick={() => {
+                      if (timeInfo.expired) return;
+                      if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
+                      else if (isSellerWaitingForBuyer) return;
+                      else if (hasPendingOrders) openOrderModal(listing);
+                      else if (sellerOrder) openConfirmedOrderSummary(listing.id);
+                      else openEditListing(listing);
+                    }}
+                    disabled={!isClickable}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img src={listing.imageUrl} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
+                        <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
+                      </div>
+                    </div>
+                    <span className="text-sm font-extrabold text-ink tracking-display tabular-nums text-right">${listing.price}</span>
+                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                      cta === "expired" || isCompleted
+                        ? "bg-surface-strong text-muted"
+                        : cta === "default"
+                          ? "bg-primary-soft text-primary"
+                          : "bg-primary text-on-primary"
+                    }`}>
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {statusLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )
+      ) : (
+        myPurchases.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+            <p className="text-sm text-muted mb-4">No purchases yet</p>
+            <button
+              onClick={() => onNavigate("market")}
+              className={`inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+            >
+              Browse market
+            </button>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+              <span>Item</span>
+              <span>Seller</span>
+              <span className="text-right">Listed</span>
+              <span className="text-right">Status</span>
+            </div>
+            <div>
+              {myPurchases.map((order) => {
+                const countdown = getPickupCountdown(order);
+                const viewState = getBuyerOrderViewState({
+                  status: order.status,
+                  countdownExpired: countdown.expired,
+                  hasReviewed: order.buyer_reviewed,
+                  otherReviewed: order.seller_reviewed,
+                });
+                const statusLabel = viewState === "declined" ? "Declined"
+                  : viewState === "withdrawn" ? "Withdrawn"
+                  : viewState === "expired" ? "Expired"
+                  : viewState === "waitingForOther" ? "Awaiting seller"
+                  : viewState === "pickupReady" ? "Pickup ready"
+                  : viewState === "confirmedCountdown" ? "Confirmed"
+                  : order.status === "completed" ? "Completed"
+                  : "Pending";
+                const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "waitingForOther");
+                return (
+                  <button
+                    key={order.id}
+                    onClick={() => {
+                      if (!isClickable) return;
+                      if (viewState === "pickupReady") openRatingModal(order);
+                      else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
+                    }}
+                    disabled={!isClickable}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img src={order.listing_image} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+                      <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
+                    </div>
+                    <span className="text-xs text-muted truncate">{order.seller_name}</span>
+                    <span className="text-xs text-muted whitespace-nowrap text-right">
+                      {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+                    </span>
+                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
+                        ? "bg-surface-strong text-muted"
+                        : viewState === "waitingForOther"
+                          ? "bg-warning/10 text-warning"
+                          : "bg-primary text-on-primary"
+                    }`}>
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {statusLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// ── Overview: Punchlist Panel ───────────────────────────────
+function PunchlistPanel({
+  punchlist,
+  onConfirmPickup,
+}: {
+  punchlist: PunchlistResponse | null;
+  onConfirmPickup: (p: PunchlistPickup) => void;
+}) {
+  const cats = [
+    {
+      id: "pickups",
+      label: "Confirm pickups",
+      icon: CalendarCheck,
+      items: punchlist?.pickups_to_confirm ?? [],
+      cta: "Confirm slot",
+      onAction: (item: PunchlistPickup) => onConfirmPickup(item),
+    },
+    {
+      id: "offers",
+      label: "Review offers",
+      icon: Coins,
+      items: punchlist?.offers_to_review ?? [],
+      cta: "Review offer",
+      onAction: () => {},
+    },
+    {
+      id: "messages",
+      label: "Respond to messages",
+      icon: MessageSquare,
+      items: punchlist?.unread_messages ?? [],
+      cta: "Open thread",
+      onAction: () => {},
+    },
+    {
+      id: "drafts",
+      label: "Finish drafts",
+      icon: Pencil,
+      items: punchlist?.draft_listings ?? [],
+      cta: "Resume draft",
+      onAction: () => {},
+    },
+  ];
+
+  const totalTodo = cats.reduce((n, c) => n + c.items.length, 0);
+  const [open, setOpen] = useState<Record<string, boolean>>(() => {
+    const top = cats.reduce<(typeof cats)[number] | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
+    return top && top.items.length > 0 ? { [top.id]: true } : {};
+  });
+  useEffect(() => {
+    setOpen((cur) => {
+      if (Object.values(cur).some(Boolean)) return cur;
+      const top = cats.reduce<(typeof cats)[number] | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
+      return top && top.items.length > 0 ? { [top.id]: true } : cur;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [punchlist]);
+
+  return (
+    <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-base font-extrabold text-ink tracking-display">Punchlist</h3>
+        <span className="text-xs text-muted">{totalTodo} to do today</span>
+      </div>
+      <ul className="space-y-2 flex-1">
+        {cats.map((cat) => {
+          const empty = cat.items.length === 0;
+          const isOpen = !!open[cat.id] && !empty;
+          const Icon = cat.icon;
+          return (
+            <li key={cat.id} className={`rounded-md border ${empty ? "border-hairline-soft" : "border-hairline"}`}>
+              <button
+                onClick={() => !empty && setOpen((o) => ({ ...o, [cat.id]: !o[cat.id] }))}
+                aria-expanded={isOpen}
+                disabled={empty}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${FOCUS_RING} rounded-md ${empty ? "cursor-default" : "hover:bg-surface-soft"}`}
+              >
+                <span className={`size-7 rounded-md flex items-center justify-center ${empty ? "bg-surface-soft text-muted-soft" : "bg-primary-soft text-primary"}`}>
+                  <Icon className="size-3.5" aria-hidden="true" />
+                </span>
+                <span className={`flex-1 text-sm font-semibold ${empty ? "text-muted-soft" : "text-ink"}`}>{cat.label}</span>
+                {empty ? (
+                  <span className="text-[11px] text-muted-soft inline-flex items-center gap-1">
+                    <Check className="size-3" aria-hidden="true" />
+                    All clear
+                  </span>
+                ) : (
+                  <>
+                    <span className="text-[11px] font-semibold bg-primary text-on-primary px-2 py-0.5 rounded-full">{cat.items.length}</span>
+                    <ChevronDown className={`size-4 text-muted transition-transform motion-safe:duration-150 ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                  </>
+                )}
+              </button>
+              {isOpen && (
+                <ul className="px-3 pb-3 space-y-2">
+                  {cat.items.map((it, i) => {
+                    const isPickup = cat.id === "pickups";
+                    const pickup = isPickup ? (it as PunchlistPickup) : null;
+                    return (
+                      <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
+                        {pickup?.listing_image && (
+                          <img src={pickup.listing_image} alt="" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-ink truncate">
+                            {pickup ? pickup.listing_title : "Item"}
+                          </p>
+                          {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
+                        </div>
+                        <button
+                          onClick={() => isPickup && pickup && cat.onAction(pickup)}
+                          className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                        >
+                          {cat.cta}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ── Settings tab content ────────────────────────────────────
+function SettingsTabContent({
+  settings,
+  updateSetting,
+  openEditProfileModal,
+  openAddFriendsModal,
+  openFriendsModal,
+  friendsCount,
+  communities,
+  openCommunityDetail,
+  openJoinModal,
+  logout,
+}: {
+  settings: { fontSize: "default" | "large" | "extra-large"; reduceMotion: boolean; highContrast: boolean; compactMode: boolean };
+  updateSetting: <K extends "fontSize" | "reduceMotion" | "highContrast" | "compactMode">(k: K, v: { fontSize: "default" | "large" | "extra-large"; reduceMotion: boolean; highContrast: boolean; compactMode: boolean }[K]) => void;
+  openEditProfileModal: () => void;
+  openAddFriendsModal: () => void;
+  openFriendsModal: () => void;
+  friendsCount: number;
+  communities: CommunityData[];
+  openCommunityDetail: (c: CommunityData) => void;
+  openJoinModal: () => void;
+  logout: () => Promise<void>;
+}) {
+  const fontSizes: [typeof settings.fontSize, string][] = [
+    ["default", "Default"],
+    ["large", "Large"],
+    ["extra-large", "Extra large"],
+  ];
+  return (
+    <div className="max-w-2xl space-y-8">
+      <section>
+        <h3 className="text-base font-extrabold text-ink tracking-display mb-1">Accessibility</h3>
+        <p className="text-sm text-muted mb-4">Stored on this device, applied across Cosello.</p>
+        <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
+          <div className="flex items-center justify-between gap-4 p-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">Text size</p>
+              <p className="text-xs text-muted mt-0.5">Adjust body text size used throughout Cosello.</p>
+            </div>
+            <div role="radiogroup" aria-label="Text size" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md shrink-0">
+              {fontSizes.map(([v, label]) => {
+                const active = settings.fontSize === v;
+                return (
+                  <button
+                    key={v}
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => updateSetting("fontSize", v)}
+                    className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <SettingRow
+            title="Reduce motion"
+            subtitle="Disable transitions and incidental animation."
+            control={<ToggleSwitch checked={settings.reduceMotion} onChange={(v) => updateSetting("reduceMotion", v)} label="Reduce motion" />}
+          />
+          <SettingRow
+            title="High contrast"
+            subtitle="Increase contrast on muted text and borders."
+            control={<ToggleSwitch checked={settings.highContrast} onChange={(v) => updateSetting("highContrast", v)} label="High contrast" />}
+          />
+          <SettingRow
+            title="Compact mode"
+            subtitle="Tighten spacing across cards, sections, and layouts."
+            control={<ToggleSwitch checked={settings.compactMode} onChange={(v) => updateSetting("compactMode", v)} label="Compact mode" />}
+          />
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-base font-extrabold text-ink tracking-display mb-1">Communities &amp; friends</h3>
+        <p className="text-sm text-muted mb-4">Manage your trust signals.</p>
+        <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
+          <SettingRow
+            title="Friends"
+            subtitle={`${friendsCount} ${friendsCount === 1 ? "friend" : "friends"}`}
+            control={
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openFriendsModal}
+                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold ${FOCUS_RING}`}
+                >
+                  View
+                </button>
+                <button
+                  onClick={openAddFriendsModal}
+                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                >
+                  Add friends
+                </button>
+              </div>
+            }
+          />
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-ink">Communities</p>
+              <button
+                onClick={openJoinModal}
+                className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+              >
+                <Plus className="size-3.5 mr-1" />
+                Join or create
+              </button>
+            </div>
+            {communities.length === 0 ? (
+              <p className="text-xs text-muted">You haven't joined any communities yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {communities.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => openCommunityDetail(c)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                    >
+                      <div className="size-8 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
+                        {c.image ? <img src={c.image} alt="" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-ink truncate">{c.name}</p>
+                        <p className="text-[11px] text-muted truncate">{c.neighborhood ?? "—"} · {c.member_count} {c.member_count === 1 ? "member" : "members"}</p>
+                      </div>
+                      <ChevronRight className="size-4 text-muted" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-base font-extrabold text-ink tracking-display mb-1">Account</h3>
+        <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
+          <SettingRow
+            title="Edit profile"
+            subtitle="Name, photo, neighborhood, and pickup address."
+            control={
+              <button
+                onClick={openEditProfileModal}
+                className={`inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold ${FOCUS_RING}`}
+              >
+                Edit
+              </button>
+            }
+          />
+          <SettingRow
+            title="Log out"
+            subtitle="Sign out of Cosello on this device."
+            control={
+              <button
+                onClick={logout}
+                className={`inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md border border-error/40 text-error bg-canvas hover:bg-error/5 text-xs font-semibold ${FOCUS_RING}`}
+              >
+                <LogOut className="size-3.5" />
+                Log out
+              </button>
+            }
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SettingRow({ title, subtitle, control }: { title: string; subtitle: string; control: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 p-4">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-ink">{title}</p>
+        <p className="text-xs text-muted mt-0.5">{subtitle}</p>
+      </div>
+      <div className="shrink-0">{control}</div>
+    </div>
+  );
+}
+
