@@ -1,7 +1,7 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { X, UserPlus, User, Loader2, Trash2 } from "lucide-react";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 export interface FriendListItem {
   id: string;
@@ -42,7 +42,7 @@ export function FriendsListModal({
               <UserPlus className="size-5 text-primary" />
             </div>
             <div>
-              <h3 className="text-xl font-extrabold text-ink tracking-display">Friends</h3>
+              <h3 className={`text-xl ${MODAL_TITLE}`}>Friends</h3>
               <p className="text-sm text-muted">{friendsList.length} friends</p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { AlertTriangle } from "lucide-react";
+import { MODAL_TITLE } from "../constants";
 
 export interface PickupAttestationModalProps {
   open: boolean;
@@ -20,7 +21,7 @@ export function PickupAttestationModal({
           <div className="size-12 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-3">
             <AlertTriangle className="size-6 text-warning" />
           </div>
-          <h3 className="text-xl font-extrabold text-ink tracking-display">Confirm Pickup & Payment</h3>
+          <h3 className={`text-xl ${MODAL_TITLE}`}>Confirm Pickup & Payment</h3>
           <p className="text-sm text-muted mt-2 leading-relaxed">
             By selecting Confirm, I verify that the item has been picked up and payment has been exchanged.
             Do not confirm until you have received your item and completed payment.

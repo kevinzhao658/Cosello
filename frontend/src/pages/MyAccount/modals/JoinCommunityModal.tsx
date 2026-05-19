@@ -2,7 +2,7 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, Globe, Search, Loader2, Lock, MapPin, Plus } from "lucide-react";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5";
@@ -65,7 +65,7 @@ export function JoinCommunityModal({
             <div className="size-10 bg-primary-soft rounded-full flex items-center justify-center">
               <Globe className="size-5 text-primary" />
             </div>
-            <h3 className="text-xl font-extrabold text-ink tracking-display">Join a Community</h3>
+            <h3 className={`text-xl ${MODAL_TITLE}`}>Join a Community</h3>
           </div>
         </div>
 

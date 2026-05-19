@@ -1,7 +1,7 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { X, Check, Loader2 } from "lucide-react";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 export interface RatingModalOrder {
   role: string;
@@ -46,7 +46,7 @@ export function RatingModal({
             <div className="size-12 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-3">
               <Check className="size-6 text-primary" />
             </div>
-            <h3 className="text-xl font-extrabold text-ink tracking-display">Confirm Pickup</h3>
+            <h3 className={`text-xl ${MODAL_TITLE}`}>Confirm Pickup</h3>
             <p className="text-sm text-muted mt-1">
               Rate your experience with {order.role === "buyer" ? "the seller" : order.buyer_name}.
               Both parties must confirm for the transaction to complete.

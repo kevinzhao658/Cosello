@@ -3,7 +3,7 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, User, Loader2 } from "lucide-react";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5";
@@ -56,7 +56,7 @@ export function EditProfileModal({
             <div className="size-10 bg-primary-soft rounded-full flex items-center justify-center">
               <User className="size-5 text-primary" />
             </div>
-            <h3 className="text-xl font-extrabold text-ink tracking-display">Edit Profile</h3>
+            <h3 className={`text-xl ${MODAL_TITLE}`}>Edit Profile</h3>
           </div>
         </div>
 

@@ -2,7 +2,7 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, UserPlus, Search, Loader2, User, MessageSquare, Globe } from "lucide-react";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 export type AddFriendsTab = "recommended" | "contacts" | "qr";
 
@@ -120,7 +120,7 @@ export function AddFriendsModal({
             <div className="size-10 bg-primary-soft rounded-full flex items-center justify-center">
               <UserPlus className="size-5 text-primary" />
             </div>
-            <h3 className="text-xl font-extrabold text-ink tracking-display">Add Friends</h3>
+            <h3 className={`text-xl ${MODAL_TITLE}`}>Add Friends</h3>
           </div>
 
           <div className="relative">

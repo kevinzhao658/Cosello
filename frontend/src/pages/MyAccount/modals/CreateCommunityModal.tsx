@@ -3,7 +3,7 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, Plus, ImagePlus, Loader2, Unlock, Lock } from "lucide-react";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5";
@@ -54,7 +54,7 @@ export function CreateCommunityModal({
             <div className="size-10 bg-primary-soft rounded-full flex items-center justify-center">
               <Plus className="size-5 text-primary" />
             </div>
-            <h3 className="text-xl font-extrabold text-ink tracking-display">Create a Community</h3>
+            <h3 className={`text-xl ${MODAL_TITLE}`}>Create a Community</h3>
           </div>
         </div>
 

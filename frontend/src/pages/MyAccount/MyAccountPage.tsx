@@ -37,7 +37,7 @@ import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } 
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
 import { getChipClass } from "../../lib/listings";
-import { FOCUS_RING, TAB_BTN_BASE, SEG_BTN_BASE } from "./constants";
+import { FOCUS_RING, TAB_BTN_BASE, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
@@ -160,9 +160,14 @@ interface MyAccountPageProps {
   openListingDetail?: (listing: Listing) => void;
   onViewUser?: (userId: string) => void;
   categorySchemas?: Record<string, CategorySchema>;
+  // Cross-page tab requests (e.g. Settings dropdown from global nav). The nonce
+  // forces re-application even when the page is already mounted and the
+  // requested tab matches the current tab.
+  requestedAccountTab?: { tab: AccountTab; nonce: number } | null;
+  onClearRequestedAccountTab?: () => void;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas }: MyAccountPageProps) {
+export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting } = useSettings();
 
@@ -185,6 +190,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       // ignore
     }
   }, [accountTab]);
+  // Honor cross-page tab requests (e.g. Settings dropdown). Depend on the
+  // nonce so the same tab can be re-requested when the page is already mounted.
+  useEffect(() => {
+    if (!requestedAccountTab) return;
+    setAccountTab(requestedAccountTab.tab);
+    onClearRequestedAccountTab?.();
+  }, [requestedAccountTab, onClearRequestedAccountTab]);
 
   // ── Community / friend modals ──────────────────────────
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -1861,7 +1873,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   <div className="size-12 bg-error/10 rounded-full flex items-center justify-center mx-auto mb-4">
                     <AlertTriangle className="size-6 text-error" />
                   </div>
-                  <h3 className="text-lg font-extrabold text-ink mb-2 tracking-display">Delete community</h3>
+                  <h3 className={`text-lg ${MODAL_TITLE} mb-2`}>Delete community</h3>
                   <p className="text-sm text-muted mb-6">
                     Are you sure you want to delete <span className="text-ink font-semibold">{selectedCommunity.name}</span>? This action cannot be undone and all members will be removed.
                   </p>
@@ -1888,7 +1900,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <>
                 <div className="flex items-center gap-3 mb-5">
                   <Pencil className="size-5 text-primary" />
-                  <h3 className="text-lg font-extrabold text-ink tracking-display">Edit community</h3>
+                  <h3 className={`text-lg ${MODAL_TITLE}`}>Edit community</h3>
                 </div>
                 <div className="flex-1 overflow-y-auto min-h-0 space-y-4">
                   <div>
@@ -1978,7 +1990,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-extrabold text-ink truncate tracking-display">{selectedCommunity.name}</h3>
+                    <h3 className={`text-lg truncate ${MODAL_TITLE}`}>{selectedCommunity.name}</h3>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted">
                       {selectedCommunity.neighborhood && (
                         <span className="inline-flex items-center gap-1">
@@ -2592,7 +2604,7 @@ function OverviewListingsPanel({
   return (
     <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
       <div className="flex items-center justify-between mb-5">
-        <h3 className="text-base font-extrabold text-ink tracking-display">Your listings</h3>
+        <h3 className={`text-base ${PANEL_TITLE}`}>Your listings</h3>
         <div role="tablist" aria-label="Selling or buying" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md">
           {(["selling", "buying"] as const).map((side) => {
             const active = listingsTab === side;
@@ -2684,7 +2696,7 @@ function OverviewListingsPanel({
                         <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-extrabold text-ink tracking-display tabular-nums text-right">${listing.price}</span>
+                    <span className="text-sm font-bold text-ink tabular-nums text-right">${listing.price}</span>
                     <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       cta === "expired" || isCompleted
                         ? "bg-surface-strong text-muted"
@@ -2838,7 +2850,7 @@ function PunchlistPanel({
   return (
     <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
       <div className="flex items-center justify-between mb-5">
-        <h3 className="text-base font-extrabold text-ink tracking-display">Punchlist</h3>
+        <h3 className={`text-base ${PANEL_TITLE}`}>Punchlist</h3>
         <span className="text-xs text-muted">{totalTodo} to do today</span>
       </div>
       <ul className="space-y-2 flex-1">
@@ -3066,7 +3078,7 @@ function ListingsTabContent({
             <p className="text-sm text-muted">Nothing in this view yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredListings.map((listing) => {
               const timeInfo = getListingTimeInfo(listing.postedAt);
               const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
@@ -3094,19 +3106,19 @@ function ListingsTabContent({
                   : "bg-primary text-on-primary";
 
               return (
-                <article key={listing.id} className="bg-canvas border border-hairline rounded-md overflow-hidden flex flex-col">
+                <article key={listing.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
                   <div className="relative aspect-square bg-surface-soft">
-                    <img src={listing.imageUrl} alt="" className="w-full h-full object-cover" />
+                    <img src={listing.imageUrl} alt="" className="absolute inset-0 size-full object-cover" />
                     <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                       {statusLabel}
                     </span>
                   </div>
-                  <div className="p-3 flex-1 flex flex-col gap-1.5">
-                    <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
-                    <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
-                    <p className="text-base font-extrabold text-ink tracking-display tabular-nums mt-auto">${listing.price}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
+                  <div className="p-3 flex-1 flex flex-col gap-1">
+                    <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand, listing.name)}</p>
+                    <p className="text-xs text-muted line-clamp-1">{listing.location || "—"}</p>
+                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
+                    <div className="flex items-center gap-1.5 mt-2">
                       {timeInfo.expired ? (
                         <button
                           onClick={() => handleRelist(listing.id)}
@@ -3169,7 +3181,7 @@ function ListingsTabContent({
             <p className="text-sm text-muted">Nothing in this view yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredPurchases.map((order) => {
               const countdown = getPickupCountdown(order);
               const viewState = getBuyerOrderViewState({
@@ -3193,19 +3205,19 @@ function ListingsTabContent({
                   : "bg-primary text-on-primary";
 
               return (
-                <article key={order.id} className="bg-canvas border border-hairline rounded-md overflow-hidden flex flex-col">
+                <article key={order.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
                   <div className="relative aspect-square bg-surface-soft">
-                    <img src={order.listing_image} alt="" className="w-full h-full object-cover" />
+                    <img src={order.listing_image} alt="" className="absolute inset-0 size-full object-cover" />
                     <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                       {statusLabel}
                     </span>
                   </div>
-                  <div className="p-3 flex-1 flex flex-col gap-1.5">
-                    <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
-                    <p className="text-[11px] text-muted truncate">@{order.seller_name}</p>
-                    <p className="text-base font-extrabold text-ink tracking-display tabular-nums mt-auto">${order.listing_price}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
+                  <div className="p-3 flex-1 flex flex-col gap-1">
+                    <p className="text-sm font-medium text-ink line-clamp-1">{order.listing_title}</p>
+                    <p className="text-xs text-muted line-clamp-1">@{order.seller_name}</p>
+                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${order.listing_price}</p>
+                    <div className="flex items-center gap-1.5 mt-2">
                       {viewState === "pickupReady" ? (
                         <button
                           onClick={() => openRatingModal(order)}
@@ -3540,7 +3552,7 @@ function SavedTabContent({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {items.map((item) => {
               const selected = selectedIds.has(item.id);
               const folderId = "folder_id" in item ? item.folder_id : null;
@@ -3549,14 +3561,14 @@ function SavedTabContent({
                 <article
                   key={item.id}
                   className={`bg-canvas border rounded-md overflow-hidden flex flex-col transition-shadow ${
-                    selected ? "border-primary ring-2 ring-primary" : "border-hairline hover:shadow-card"
+                    selected ? "border-primary ring-2 ring-primary" : "border-hairline hover:shadow-hover"
                   }`}
                 >
                   <div className="relative aspect-square bg-surface-soft">
                     <img
                       src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl}
                       alt=""
-                      className="w-full h-full object-cover cursor-pointer"
+                      className="absolute inset-0 size-full object-cover cursor-pointer"
                       onClick={() => openListingDetail?.(item as Listing)}
                     />
                     <button
@@ -3574,9 +3586,9 @@ function SavedTabContent({
                       </div>
                     )}
                   </div>
-                  <div className="p-3 flex flex-col gap-1">
-                    <p className="text-sm font-semibold text-ink truncate">{formatTitle(item.brand ?? "", item.name ?? "")}</p>
-                    <p className="text-base font-extrabold text-ink tracking-display tabular-nums">${item.price}</p>
+                  <div className="p-3 space-y-1">
+                    <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(item.brand ?? "", item.name ?? "")}</p>
+                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${item.price}</p>
                   </div>
                 </article>
               );
@@ -3647,7 +3659,7 @@ function SettingsTabContent({
   return (
     <div className="max-w-2xl space-y-8">
       <section>
-        <h3 className="text-base font-extrabold text-ink tracking-display mb-1">Accessibility</h3>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Accessibility</h3>
         <p className="text-sm text-muted mb-4">Stored on this device, applied across Cosello.</p>
         <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
           <div className="flex items-center justify-between gap-4 p-4">
@@ -3691,7 +3703,7 @@ function SettingsTabContent({
       </section>
 
       <section>
-        <h3 className="text-base font-extrabold text-ink tracking-display mb-1">Communities &amp; friends</h3>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Communities &amp; friends</h3>
         <p className="text-sm text-muted mb-4">Manage your trust signals.</p>
         <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
           <SettingRow
@@ -3753,7 +3765,7 @@ function SettingsTabContent({
       </section>
 
       <section>
-        <h3 className="text-base font-extrabold text-ink tracking-display mb-1">Account</h3>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Account</h3>
         <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
           <SettingRow
             title="Edit profile"

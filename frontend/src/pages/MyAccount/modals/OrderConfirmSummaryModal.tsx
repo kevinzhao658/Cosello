@@ -3,7 +3,7 @@ import { Button } from "../../../components/ui/button";
 import { X, Check, MapPin } from "lucide-react";
 import { formatTitle } from "../../../lib/format";
 import type { MyListing } from "../../../lib/types";
-import { FOCUS_RING } from "../constants";
+import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 export interface OrderConfirmSummaryOrder {
   buyer_reviewed: boolean;
@@ -53,7 +53,7 @@ export function OrderConfirmSummaryModal({
             <div className="size-12 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-3">
               <Check className="size-6 text-primary" />
             </div>
-            <h3 className="text-xl font-extrabold text-ink tracking-display">
+            <h3 className={`text-xl ${MODAL_TITLE}`}>
               {data.role === "seller" ? "Pickup Confirmed!" : "Order Confirmed!"}
             </h3>
             <p className="text-sm text-muted mt-1">

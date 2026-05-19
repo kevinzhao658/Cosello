@@ -1,4 +1,4 @@
-import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, Check, ImagePlus, ArrowRight } from "lucide-react";
+import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, Check, ImagePlus, ArrowRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
@@ -10,7 +10,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "./components/ui/dropdown-menu";
-import { useSettings } from "./contexts/SettingsContext";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
@@ -38,11 +37,10 @@ import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
-type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
+type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
-  const { settings, updateSetting } = useSettings();
 
   // Temporary token for new users who haven't completed profile yet
   const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
@@ -88,9 +86,18 @@ export default function App() {
 
   const [page, setPage] = useState<Page>(() => {
     const hash = window.location.hash.replace("#", "");
-    const validPages: Page[] = ["home", "market", "terms", "settings", "signin", "signup", "account", "help", "mission", "newlisting"];
+    const validPages: Page[] = ["home", "market", "terms", "signin", "signup", "account", "help", "mission", "newlisting"];
     return validPages.includes(hash as Page) ? (hash as Page) : "home";
   });
+  // Bumped each time a nav element wants to land on a specific MyAccount tab.
+  // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
+  // target (e.g. Settings → Settings) still re-applies the tab even when the
+  // page is already mounted.
+  const [requestedAccountTab, setRequestedAccountTab] = useState<{ tab: "overview" | "listings" | "saved" | "settings"; nonce: number } | null>(null);
+  const goToAccountTab = useCallback((tab: "overview" | "listings" | "saved" | "settings") => {
+    setRequestedAccountTab({ tab, nonce: Date.now() });
+    setPage("account");
+  }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -888,7 +895,7 @@ export default function App() {
                           My Account
                         </button>
                         <button
-                          onClick={() => { setProfileOpen(false); setPage("settings"); }}
+                          onClick={() => { setProfileOpen(false); goToAccountTab("settings"); }}
                           className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <Settings className="size-3.5" />
@@ -993,7 +1000,7 @@ export default function App() {
                         Profile
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onSelect={() => setPage("settings")}
+                        onSelect={() => goToAccountTab("settings")}
                         className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
                       >
                         <Settings className="size-3.5" />
@@ -1783,11 +1790,11 @@ export default function App() {
         <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
           <div className="max-w-3xl mx-auto">
             <button
-              onClick={() => setPage("settings")}
+              onClick={() => setPage("home")}
               className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
             >
               <ChevronRight className="size-3 rotate-180" />
-              Back to Settings
+              Back
             </button>
 
             <div className="flex items-center gap-3 mb-8">
@@ -1945,241 +1952,76 @@ export default function App() {
         </section>
       )}
 
-      {/* Settings Page */}
-      {page === "settings" && (
-        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl font-light tracking-wider mb-8" style={{ fontFamily: "'Courier Prime', monospace" }}>
-              Settings
-            </h2>
-
-            {/* Display */}
-            <div className="mb-8">
-              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">Display</h3>
-              <div className="space-y-1">
-                {/* Font Size */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Type className="size-5 text-cyan-400" />
-                    <div>
-                      <span className="text-sm">Font Size</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Adjust text size across the app</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
-                    {([
-                      { value: "default" as const, label: "A", title: "Default" },
-                      { value: "large" as const, label: "A", title: "Large" },
-                      { value: "extra-large" as const, label: "A", title: "Extra Large" },
-                    ]).map((opt, i) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => updateSetting("fontSize", opt.value)}
-                        title={opt.title}
-                        className={`px-2.5 py-1 rounded-md transition-colors ${
-                          settings.fontSize === opt.value
-                            ? "bg-cyan-500/20 text-cyan-400"
-                            : "text-white/40 hover:text-white/60"
-                        }`}
-                        style={{ fontSize: `${12 + i * 3}px` }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* High Contrast */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Contrast className="size-5 text-cyan-400" />
-                    <div>
-                      <span className="text-sm">High Contrast</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Increase text and border visibility</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => updateSetting("highContrast", !settings.highContrast)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      settings.highContrast ? "bg-cyan-500/30" : "bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                        settings.highContrast ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Compact Mode */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Minimize2 className="size-5 text-cyan-400" />
-                    <div>
-                      <span className="text-sm">Compact Mode</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Reduce spacing for denser layout</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => updateSetting("compactMode", !settings.compactMode)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      settings.compactMode ? "bg-cyan-500/30" : "bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                        settings.compactMode ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Accessibility */}
-            <div className="mb-8">
-              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">Accessibility</h3>
-              <div className="space-y-1">
-                {/* Reduce Motion */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Zap className="size-5 text-fuchsia-400" />
-                    <div>
-                      <span className="text-sm">Reduce Motion</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Disable animations and transitions</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => updateSetting("reduceMotion", !settings.reduceMotion)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      settings.reduceMotion ? "bg-fuchsia-500/30" : "bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                        settings.reduceMotion ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* About */}
-            <div className="mb-8">
-              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">About</h3>
-              <div className="space-y-1">
-                <button
-                  onClick={() => setPage("terms")}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <Scale className="size-5 text-fuchsia-400" />
-                    <span className="text-sm">Terms & Conditions</span>
-                  </div>
-                  <ChevronRight className="size-4 text-white/30" />
-                </button>
-                <button
-                  onClick={() => setPage("mission")}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <Sparkles className="size-5 text-fuchsia-400" />
-                    <span className="text-sm">Our Mission</span>
-                  </div>
-                  <ChevronRight className="size-4 text-white/30" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* Help & Support Page */}
       {page === "help" && (
-        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
-          <div className="max-w-3xl mx-auto">
-            <button
-              onClick={() => setPage("settings")}
-              className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
+        <section className="max-w-3xl mx-auto px-6 py-12">
+          <button
+            onClick={() => setPage(isAuthenticated ? "account" : "home")}
+            className="text-sm text-muted hover:text-ink transition-colors mb-6 inline-flex items-center gap-1"
+          >
+            <ChevronRight className="size-3 rotate-180" />
+            Back
+          </button>
+
+          <div className="flex items-center gap-3 mb-8">
+            <HelpCircle className="size-7 text-primary" />
+            <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">Help & Support</h1>
+          </div>
+
+          {/* Contact */}
+          <div className="bg-canvas border border-hairline rounded-md p-6 mb-6">
+            <h2 className="text-lg font-bold text-ink tracking-tight mb-2">Contact us</h2>
+            <p className="text-sm text-body leading-relaxed">
+              Have a question, concern, or feedback? We'd love to hear from you. Reach out to our support team and we'll get back to you as soon as possible.
+            </p>
+            <a
+              href="mailto:support@cosello.app"
+              className="mt-4 inline-flex items-center gap-2 bg-surface-soft border border-hairline rounded-md px-4 py-3 text-sm font-semibold text-primary hover:bg-primary-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
-              <ChevronRight className="size-3 rotate-180" />
-              Back to Settings
-            </button>
+              <MessageSquare className="size-4 text-primary shrink-0" />
+              support@cosello.app
+            </a>
+          </div>
 
-            <div className="flex items-center gap-3 mb-8">
-              <HelpCircle className="size-7 text-cyan-400" />
-              <h2 className="text-3xl font-light tracking-wider" style={{ fontFamily: "'Courier Prime', monospace" }}>
-                Help & Support
-              </h2>
-            </div>
-
-            {/* Contact */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
-              <h3 className="text-lg font-medium mb-2">Contact Us</h3>
-              <p className="text-sm text-white/60 leading-relaxed">
-                Have a question, concern, or feedback? We'd love to hear from you. Reach out to our support team and we'll get back to you as soon as possible.
-              </p>
-              <div className="mt-4 flex items-center gap-2 bg-white/5 rounded-lg px-4 py-3">
-                <MessageSquare className="size-4 text-cyan-400 shrink-0" />
-                <span className="text-sm text-cyan-400">support@cosello.app</span>
-              </div>
-            </div>
-
-            {/* FAQ */}
-            <div>
-              <h3 className="text-lg font-medium mb-4">Frequently Asked Questions</h3>
-              <div className="space-y-3">
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">What is Cosello?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Cosello is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.
-                  </p>
+          {/* FAQ */}
+          <div className="bg-canvas border border-hairline rounded-md p-6">
+            <h2 className="text-lg font-bold text-ink tracking-tight mb-4">Frequently asked questions</h2>
+            <div className="divide-y divide-hairline-soft">
+              {[
+                {
+                  q: "What is Cosello?",
+                  a: "Cosello is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.",
+                },
+                {
+                  q: "What is a community?",
+                  a: "A community is a group of users who share a common bond — whether it's a neighborhood, a school, a workplace, or any other group. Communities let you browse and post listings exclusively within your trusted circles. Public communities are open for anyone to join, while private communities require an invite code. Every user also gets a virtual “My Neighborhood” community that automatically connects them with others in the same area.",
+                },
+                {
+                  q: "How do I post a listing?",
+                  a: "From the homepage, switch to “Sell” mode and upload a photo of your item. Our AI will automatically generate a title, description, price suggestion, and tags. You can edit any of these details, select which communities to post to, and hit “Post listing” when you're ready.",
+                },
+                {
+                  q: "How do I join a community?",
+                  a: "Go to your Account page and click the “Join or create” tile in the Communities section. You can join by entering an invite code shared by a friend, or search for public communities by name. You can also create your own community and invite others.",
+                },
+                {
+                  q: "Who can see my listings?",
+                  a: "When you post a listing, you choose which communities to post it to. Listings posted to public communities are visible to all users. Listings posted to private communities are only visible to members of those communities. This gives you full control over who sees your items.",
+                },
+                {
+                  q: "Is it free to use?",
+                  a: "Yes. Cosello is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.",
+                },
+                {
+                  q: "How do I stay safe when meeting a buyer or seller?",
+                  a: "Always meet in a public, well-lit location. We recommend using your community's designated pickup location when available. Let someone know where you're going, and trust your instincts — if something feels off, don't proceed with the transaction.",
+                },
+              ].map((item) => (
+                <div key={item.q} className="py-4 first:pt-0 last:pb-0">
+                  <h3 className="text-sm font-semibold text-ink tracking-tight mb-1.5">{item.q}</h3>
+                  <p className="text-sm text-body leading-relaxed">{item.a}</p>
                 </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">What is a community?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    A community is a group of users who share a common bond — whether it's a neighborhood, a school, a workplace, or any other group. Communities let you browse and post listings exclusively within your trusted circles. Public communities are open for anyone to join, while private communities require an invite code. Every user also gets a virtual "My Neighborhood" community that automatically connects them with others in the same area.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I post a listing?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    From the homepage, switch to "Sell" mode and upload a photo of your item. Our AI will automatically generate a title, description, price suggestion, and tags. You can edit any of these details, select which communities to post to, and hit "Post Listing" when you're ready.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I join a community?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Go to your Account page and click the "Join or Create" tile in the Communities section. You can join by entering an invite code shared by a friend, or search for public communities by name. You can also create your own community and invite others.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">Who can see my listings?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    When you post a listing, you choose which communities to post it to. Listings posted to public communities are visible to all users. Listings posted to private communities are only visible to members of those communities. This gives you full control over who sees your items.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">Is it free to use?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Yes! Cosello is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I stay safe when meeting a buyer or seller?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Always meet in a public, well-lit location. We recommend using your community's designated pickup location when available. Let someone know where you're going, and trust your instincts — if something feels off, don't proceed with the transaction.
-                  </p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </section>
@@ -2190,11 +2032,11 @@ export default function App() {
         <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
           <div className="max-w-3xl mx-auto">
             <button
-              onClick={() => setPage("settings")}
+              onClick={() => setPage("home")}
               className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
             >
               <ChevronRight className="size-3 rotate-180" />
-              Back to Settings
+              Back
             </button>
 
             <div className="flex items-center gap-3 mb-8">
@@ -2274,7 +2116,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 
