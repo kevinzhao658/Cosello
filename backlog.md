@@ -37,6 +37,17 @@ Convention:
 - **Current state:** Routes to backend `sort=newest`. Same fallback for "Recommended" (which uses the FYP scoring path).
 - **Backend need:** View-count window (last 24h / 7d) on listings, exposed as a sort mode.
 
+### New Listing — Save draft
+- **What:** Persist an in-progress listing so the user can come back and finish it.
+- **Why:** R-4 New Listing page exposes a "Save draft" toolbar button per design, but no drafts table exists today.
+- **Current state:** Button shows an alert ("Drafts are coming soon") on click.
+- **Backend need:** `drafts` table (one row per in-progress listing per user), `POST /api/listings/drafts`, `GET /api/listings/drafts/:id`, `DELETE /api/listings/drafts/:id`. Drafts page in My account to resume.
+
+### New Listing — price suggestion pill
+- **What:** "Suggested $X – $Y" pill in the Pricing & pickup section of the New Listing page.
+- **Current state:** Hardcoded `$60 – $120` placeholder.
+- **Backend need:** Reuse the queued pricing seed DB / condition-to-discount model (see memory `project_pricing_model.md`, `project_pricing_seed_db_queued.md`). Endpoint shape TBD — likely `POST /api/pricing/suggest` taking `{ brand, name, category, condition }` → `{ low, high }`.
+
 ### Notifications UX overhaul
 - **What:** Group notifications by order/community, inline actions, "needs action" vs "informational" vs "done" visual hierarchy.
 - **Why:** Current panel treats every event as a flat-list timeline item; juggling multiple orders is hard.

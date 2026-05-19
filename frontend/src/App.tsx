@@ -1,4 +1,4 @@
-import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight } from "lucide-react";
+import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, Check, ImagePlus, ArrowRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
@@ -25,7 +25,7 @@ import { ListingDetailModal, type SellerProfile } from "./features/listings/List
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import { PLACEHOLDER_COMMUNITY } from "./lib/listings";
+import { PLACEHOLDER_COMMUNITY, CONDITIONS } from "./lib/listings";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
@@ -35,7 +35,7 @@ import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
-type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
+type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
@@ -54,10 +54,30 @@ export default function App() {
   // while the wizard is in a deep step.
   const sellWizardRef = useRef<SellWizardHandle | null>(null);
   const [wizardPhase, setWizardPhase] = useState<"review" | "reason" | "cards" | "pickup" | null>(null);
+  // Mirror of wizard.uploadedImages.length so the #newlisting page can react
+  // (preview cover, checklist, photo counter). The wizard fires onImagesChange
+  // on every state.uploadedImages change.
+  const [wizardImageCount, setWizardImageCount] = useState(0);
+
+  // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
+  // flow and a blank-form manual flow. Manual form fields live here so the page
+  // owns the publish payload; the wizard owns the photo state and the publish
+  // network call (called via the imperative handle after seeding productDetails).
+  const [newListingMode, setNewListingMode] = useState<"ai" | "manual">("ai");
+  const [manualBrand, setManualBrand] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualPrice, setManualPrice] = useState("");
+  const [manualCondition, setManualCondition] = useState<string>("Good");
+  const [manualCategory, setManualCategory] = useState<CategorySlug>("other");
+  const [manualPickup, setManualPickup] = useState("");
+  const [manualTags, setManualTags] = useState<string[]>([]);
+  const [manualTagInput, setManualTagInput] = useState("");
+  const [isPublishingManual, setIsPublishingManual] = useState(false);
 
   const [page, setPage] = useState<Page>(() => {
     const hash = window.location.hash.replace("#", "");
-    const validPages: Page[] = ["home", "market", "terms", "settings", "signin", "signup", "account", "help", "mission"];
+    const validPages: Page[] = ["home", "market", "terms", "settings", "signin", "signup", "account", "help", "mission", "newlisting"];
     return validPages.includes(hash as Page) ? (hash as Page) : "home";
   });
   const [showPostConfirm, setShowPostConfirm] = useState(false);
@@ -172,6 +192,77 @@ export default function App() {
   // Edit listing modal trigger. All field state lives inside EditListingModal;
   // App.tsx only owns the open flag and the save handler.
   const [showEditListingModal, setShowEditListingModal] = useState(false);
+
+  // Reset the New Listing form back to defaults — called after a successful
+  // publish so a follow-up listing starts blank.
+  const resetNewListingForm = useCallback(() => {
+    setNewListingMode("ai");
+    setManualBrand("");
+    setManualName("");
+    setManualDescription("");
+    setManualPrice("");
+    setManualCondition("Good");
+    setManualCategory("other");
+    setManualPickup("");
+    setManualTags([]);
+    setManualTagInput("");
+    setWizardImageCount(0);
+  }, []);
+
+  // Manual-mode publish. Seeds the wizard's productDetails from the page-level
+  // form fields, then calls the wizard's existing single-publish handler (which
+  // already wires images + categories + pickup + auth gates correctly).
+  const handlePublishNewListing = useCallback(async () => {
+    if (!isAuthenticated) {
+      setPage("signin");
+      return;
+    }
+    if (newListingMode === "ai") {
+      // AI mode publish happens via the wizard's own flow — Publish in the
+      // page toolbar is disabled until the wizard has produced a productDetails
+      // (single) or bulkItems (multi). For single, we route through the same
+      // confirm modal the home flow uses.
+      setShowPostConfirm(true);
+      return;
+    }
+    if (wizardImageCount === 0) {
+      alert("Add at least one photo before publishing.");
+      return;
+    }
+    const priceNumber = Number.parseInt(manualPrice, 10);
+    if (!Number.isFinite(priceNumber) || priceNumber <= 0) {
+      alert("Enter a valid price before publishing.");
+      return;
+    }
+    if (!manualBrand.trim() && !manualName.trim()) {
+      alert("Add a brand or item name before publishing.");
+      return;
+    }
+    const wizard = sellWizardRef.current;
+    if (!wizard) return;
+
+    setIsPublishingManual(true);
+    try {
+      const details = {
+        brand: manualBrand.trim(),
+        name: manualName.trim(),
+        description: manualDescription.trim(),
+        price: manualPrice,
+        condition: manualCondition,
+        location: user?.neighborhood || "",
+        tags: manualTags,
+        category: manualCategory,
+        categoryAttributes: {},
+        identifierConfidence: "high" as const,
+        retrieval_fallback: false,
+      };
+      const pickup = manualPickup.trim() || user?.pickup_address || "";
+      await wizard.postSingleListing({ details, pickupLocation: pickup });
+      resetNewListingForm();
+    } finally {
+      setIsPublishingManual(false);
+    }
+  }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualPickup, manualTags, user, resetNewListingForm]);
 
   const handleSaveListingFromMarket = async (patch: ListingUpdatePatch) => {
     if (!listingDetailData || !token) return;
@@ -740,11 +831,11 @@ export default function App() {
                   />
                 </div>
 
-                {/* Sell pill */}
+                {/* Sell pill — routes to the dedicated New Listing surface. */}
                 <button
                   type="button"
-                  onClick={() => { setTradeMode("sell"); setPage("home"); }}
-                  className="inline-flex items-center justify-center bg-primary text-on-primary rounded-full px-4 h-9 text-sm font-semibold hover:bg-primary-hover transition-colors cursor-pointer"
+                  onClick={() => { setPage("newlisting"); }}
+                  className="inline-flex items-center justify-center bg-primary text-on-primary rounded-full px-4 h-9 text-sm font-semibold hover:bg-primary-hover transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
                   Sell
                 </button>
@@ -866,7 +957,7 @@ export default function App() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onSelect={() => { setTradeMode("sell"); setPage("home"); }}
+                    onSelect={() => { setPage("newlisting"); }}
                     className="text-primary font-semibold hover:bg-surface-soft focus:bg-surface-soft focus:text-primary"
                   >
                     Sell
@@ -959,10 +1050,389 @@ export default function App() {
         </Suspense>
       )}
 
+      {/*
+        SellWizard is mounted at the app shell so its internal state
+        (uploadedImages, segmentation, bulkItems, etc.) survives navigation
+        between pages. It only renders content when isActive is true.
+      */}
+      {page === "newlisting" && (
+        <section className="min-h-[calc(100vh-64px)] bg-canvas">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {/* Breadcrumb + title + toolbar */}
+            <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+              <div className="min-w-0">
+                <nav aria-label="Breadcrumb" className="text-xs text-muted flex items-center gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => { if (!isAuthenticated) { setPage("signin"); return; } setPage("account"); }}
+                    className="hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
+                  >
+                    My account
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <span>Drafts</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-ink font-medium">New listing</span>
+                </nav>
+                <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
+                  New listing
+                </h1>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Drafts API isn't wired yet — flagged in backlog.md.
+                    alert("Drafts are coming soon. For now, finish the listing and publish it.");
+                  }}
+                  className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  Save draft
+                </button>
+                {newListingMode === "manual" && (
+                  <button
+                    type="button"
+                    disabled={isPublishingManual || wizardImageCount === 0}
+                    onClick={handlePublishNewListing}
+                    className="inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                  >
+                    {isPublishingManual ? "Publishing…" : "Publish listing"}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Two-column body */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+              {/* Left — form column */}
+              <div className="space-y-6 min-w-0">
+                {/* Photos section eyebrow */}
+                <section>
+                  <header className="flex items-baseline justify-between mb-3">
+                    <h2 className="text-sm font-semibold text-ink uppercase tracking-wider">Photos</h2>
+                    <span className={`text-xs ${wizardImageCount > 0 ? "text-primary" : "text-muted"}`}>
+                      {wizardImageCount}/20 — first photo becomes the cover
+                    </span>
+                  </header>
+                  {/* SellWizard photo composer renders below via the app-shell
+                      mount. In Manual mode it stays as the composer only; in
+                      AI mode it expands into the full wizard flow. */}
+                  <SellWizard
+                    ref={sellWizardRef}
+                    categorySchemas={categorySchemas}
+                    isActive={true}
+                    mode={newListingMode}
+                    photosOnly={newListingMode === "manual"}
+                    onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
+                    onRequestSignIn={() => setPage("signin")}
+                    onPosted={() => {
+                      resetNewListingForm();
+                      setPage("market");
+                      fetchListings();
+                    }}
+                    onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
+                    onPhaseChange={setWizardPhase}
+                    onImagesChange={setWizardImageCount}
+                  />
+                </section>
+
+                {/* AI / Manual toggle — green callout */}
+                <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
+                  <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newListingMode === "ai"}
+                      onClick={() => setNewListingMode("ai")}
+                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        newListingMode === "ai"
+                          ? "bg-primary text-on-primary"
+                          : "bg-transparent text-primary hover:bg-primary/10"
+                      }`}
+                    >
+                      AI Drafted
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newListingMode === "manual"}
+                      onClick={() => setNewListingMode("manual")}
+                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        newListingMode === "manual"
+                          ? "bg-primary text-on-primary"
+                          : "bg-transparent text-primary hover:bg-primary/10"
+                      }`}
+                    >
+                      Manual
+                    </button>
+                  </div>
+                  <p className="text-xs text-body mt-3 leading-relaxed">
+                    {newListingMode === "ai"
+                      ? "Upload as many items and we'll take care of the rest."
+                      : "Fill out the product details, description, and pricing below to publish your listing."}
+                  </p>
+                </div>
+
+                {/* Manual form sections */}
+                {newListingMode === "manual" && (
+                  <>
+                    <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
+                      <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Product details</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="block">
+                          <span className="text-xs text-muted uppercase tracking-wider">Brand</span>
+                          <Input
+                            value={manualBrand}
+                            onChange={(e) => setManualBrand(e.target.value)}
+                            placeholder="Olivetti, Eames, Le Creuset…"
+                            className="mt-1"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-xs text-muted uppercase tracking-wider">Name / model</span>
+                          <Input
+                            value={manualName}
+                            onChange={(e) => setManualName(e.target.value)}
+                            placeholder="Lettera 32, LCW chair, 5.5qt dutch oven…"
+                            className="mt-1"
+                          />
+                        </label>
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted uppercase tracking-wider">Category</span>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {(Object.entries(categorySchemas).length > 0
+                            ? Object.entries(categorySchemas).map(([slug, schema]) => ({ slug: slug as CategorySlug, label: schema.label }))
+                            : ([
+                                { slug: "clothing", label: "Clothing" },
+                                { slug: "furniture", label: "Furniture" },
+                                { slug: "electronics", label: "Electronics" },
+                                { slug: "sports", label: "Sports" },
+                                { slug: "collectibles", label: "Collectibles" },
+                                { slug: "other", label: "Other" },
+                              ] as { slug: CategorySlug; label: string }[])
+                          ).map((c) => {
+                            const active = manualCategory === c.slug;
+                            return (
+                              <button
+                                key={c.slug}
+                                type="button"
+                                onClick={() => setManualCategory(c.slug)}
+                                aria-pressed={active}
+                                className={`h-8 px-3 rounded-full text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                                  active
+                                    ? "bg-primary text-on-primary"
+                                    : "bg-surface-soft text-body border border-hairline hover:border-border-strong hover:text-ink"
+                                }`}
+                              >
+                                {c.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted uppercase tracking-wider">Condition</span>
+                        <div role="radiogroup" aria-label="Condition" className="flex flex-wrap gap-2 mt-2">
+                          {CONDITIONS.map((c) => {
+                            const active = manualCondition === c;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                role="radio"
+                                aria-checked={active}
+                                onClick={() => setManualCondition(c)}
+                                className={`h-8 px-3 rounded-full text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                                  active
+                                    ? "bg-primary text-on-primary"
+                                    : "bg-surface-soft text-body border border-hairline hover:border-border-strong hover:text-ink"
+                                }`}
+                              >
+                                {c}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
+                      <header className="flex items-baseline justify-between">
+                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
+                        <span className="text-xs text-muted">{manualDescription.length} characters</span>
+                      </header>
+                      <textarea
+                        value={manualDescription}
+                        onChange={(e) => setManualDescription(e.target.value)}
+                        rows={5}
+                        placeholder="Tell the story. Where you got it, what you used it for, any flaws worth calling out."
+                        className="w-full min-h-32 bg-surface-soft border border-hairline rounded-md p-3 text-sm text-ink placeholder:text-muted-soft resize-y focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      />
+                      <div>
+                        <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {manualTags.map((t) => (
+                            <span
+                              key={t}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-primary-soft border border-primary/20 text-primary-active"
+                            >
+                              {t}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${t}`}
+                                onClick={() => setManualTags((prev) => prev.filter((x) => x !== t))}
+                                className="hover:text-ink transition-colors"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </span>
+                          ))}
+                          <input
+                            value={manualTagInput}
+                            onChange={(e) => setManualTagInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const trimmed = manualTagInput.trim();
+                              if (!trimmed || manualTags.includes(trimmed)) return;
+                              setManualTags((prev) => [...prev, trimmed]);
+                              setManualTagInput("");
+                            }}
+                            placeholder={manualTags.length ? "Add another…" : "typewriter, 1960s…"}
+                            className="w-32 px-2.5 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
+                          />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
+                      <header className="flex items-baseline justify-between gap-2">
+                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Pricing &amp; pickup</h3>
+                        {/* Price suggestion is faked for now; real suggestion logic
+                            is queued in backlog.md (sell-flow pricing). */}
+                        <span className="bg-primary-soft text-primary px-2 py-1 rounded-full text-xs font-medium">
+                          Suggested $60 – $120
+                        </span>
+                      </header>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-xs text-muted uppercase tracking-wider">Price</span>
+                          <div className="flex items-center gap-1 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
+                            <span className="text-3xl font-extrabold tracking-display text-ink">$</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={manualPrice}
+                              onChange={(e) => setManualPrice(e.target.value.replace(/\D/g, ""))}
+                              placeholder="0"
+                              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-3xl font-extrabold tracking-display text-ink placeholder:text-muted-soft"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-muted uppercase tracking-wider">Pickup neighborhood</span>
+                          <div className="flex items-center gap-2 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
+                            <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
+                            <input
+                              type="text"
+                              value={manualPickup}
+                              onChange={(e) => setManualPickup(e.target.value)}
+                              placeholder={user?.neighborhood || "West Village"}
+                              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-muted-soft"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-soft leading-relaxed">
+                        Your address will not be shared until pickup is confirmed.
+                      </p>
+                    </section>
+                  </>
+                )}
+              </div>
+
+              {/* Right — sticky preview column */}
+              <aside className="lg:sticky lg:top-20 self-start space-y-4">
+                <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+                <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                    <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+                  </div>
+                  <div className="relative aspect-square bg-surface-soft">
+                    {/* Cover image — first uploaded photo. Wizard owns the
+                        blob URLs; we read the count above and only show the
+                        cover when at least one exists. The actual cover URL
+                        isn't exposed via the imperative handle yet (intentional —
+                        keeps the contract minimal); the preview shows a tinted
+                        placeholder until publish. */}
+                    {wizardImageCount > 0 ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-primary-soft text-primary">
+                        <ImagePlus className="size-8" aria-hidden="true" />
+                      </div>
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center text-muted-soft">
+                        <ImagePlus className="size-8" aria-hidden="true" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-3 space-y-1">
+                    <p className="text-sm font-medium text-ink line-clamp-1">
+                      {(() => {
+                        if (newListingMode !== "manual") {
+                          return wizardImageCount > 0 ? "Your listing title" : "Untitled";
+                        }
+                        const brand = manualBrand.trim();
+                        const name = manualName.trim();
+                        if (brand && name) return `${brand} — ${name}`;
+                        return brand || name || "Untitled";
+                      })()}
+                    </p>
+                    <p className="text-xs text-muted line-clamp-1">
+                      {(newListingMode === "manual" ? manualPickup.trim() : "") || user?.neighborhood || "West Village"}
+                      {newListingMode === "manual" ? ` · ${manualCondition}` : ""}
+                    </p>
+                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
+                      {newListingMode === "manual" && manualPrice ? `$${manualPrice}` : "$—"}
+                    </p>
+                  </div>
+                </article>
+
+                <div className="bg-canvas border border-hairline rounded-md p-4">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
+                  <ul className="space-y-2">
+                    {([
+                      ["At least one photo", wizardImageCount > 0],
+                      ["Brand or name", newListingMode === "manual" ? (manualBrand.trim().length > 0 || manualName.trim().length > 0) : false],
+                      ["Price set", newListingMode === "manual" ? /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0 : false],
+                      ["Description 20+ chars", newListingMode === "manual" ? manualDescription.trim().length >= 20 : false],
+                    ] as const).map(([label, done]) => (
+                      <li key={label} className="flex items-center gap-2.5 text-sm">
+                        <span
+                          aria-hidden="true"
+                          className={`inline-flex items-center justify-center size-4 rounded-full border ${
+                            done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
+                          }`}
+                        >
+                          <Check className="size-3" />
+                        </span>
+                        <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+      )}
+
       {page === "home" && (
         <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-16">
           <div className="w-full max-w-[760px]">
-            <div className={`transition-all duration-300 overflow-hidden ${(wizardPhase === "review" || wizardPhase === "reason" || wizardPhase === "cards" || wizardPhase === "pickup") ? "max-h-0 mb-0 opacity-0" : "max-h-[600px] mb-8 opacity-100"}`}>
+            <div className="mb-8">
               <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
                 {(() => {
                   const d = new Date();
@@ -978,13 +1448,13 @@ export default function App() {
                 Tell us what you're looking for, or drop a few photos and we'll write the listing for you.
               </p>
 
-              <div role="tablist" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full mb-6">
+              <div role="tablist" aria-label="Buy or sell" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full mb-6">
                 <button
                   type="button"
                   role="tab"
                   aria-selected={tradeMode === "buy"}
                   onClick={() => setTradeMode("buy")}
-                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors ${tradeMode === "buy" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
+                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${tradeMode === "buy" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
                 >
                   Buy
                 </button>
@@ -993,7 +1463,7 @@ export default function App() {
                   role="tab"
                   aria-selected={tradeMode === "sell"}
                   onClick={() => setTradeMode("sell")}
-                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors ${tradeMode === "sell" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
+                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${tradeMode === "sell" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
                 >
                   Sell
                 </button>
@@ -1029,7 +1499,7 @@ export default function App() {
                     />
                     <button
                       type="submit"
-                      className="h-12 px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0"
+                      className="h-12 px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
                       Search
                     </button>
@@ -1042,30 +1512,33 @@ export default function App() {
                         key={q}
                         type="button"
                         onClick={() => setHomeSearch(q)}
-                        className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors"
+                        className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                       >
                         {q}
                       </button>
                     ))}
                   </div>
                 </>
-              ) : null}
-              {/*
-                SellWizard is always mounted (not gated on tradeMode) so its
-                internal state — uploadedImages, segmentation, etc. — survives
-                a buy/sell toggle. The wizard returns null when isActive is
-                false; on switch-back-to-sell its state is intact.
-              */}
-              <SellWizard
-                ref={sellWizardRef}
-                categorySchemas={categorySchemas}
-                isActive={tradeMode === "sell"}
-                onSwitchToBuy={() => setTradeMode("buy")}
-                onRequestSignIn={() => setPage("signin")}
-                onPosted={() => { setTradeMode("buy"); setPage("market"); fetchListings(); }}
-                onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
-                onPhaseChange={setWizardPhase}
-              />
+              ) : (
+                // R-4.1: Home Sell composer is a thin entry point — photos
+                // drop only on the dedicated #newlisting surface to keep the
+                // wizard state plumbing simple (Option B). Click submit →
+                // navigate to the New Listing page.
+                <button
+                  type="button"
+                  onClick={() => setPage("newlisting")}
+                  className="group w-full flex items-center gap-3 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  <ImagePlus className="size-[18px] text-primary shrink-0" />
+                  <span className="flex-1 text-base text-muted">Tell us what you're selling…</span>
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-on-primary group-hover:bg-primary-hover transition-colors shrink-0"
+                  >
+                    <ArrowRight className="size-[18px]" />
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         </section>

@@ -22,18 +22,31 @@ import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 
 export interface SellWizardHandle {
-  postSingleListing: () => Promise<void>;
+  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
   resetForLogout: () => void;
+  addImages: (files: FileList | File[]) => void;
+  getImageCount: () => number;
+  setProductDetails: (details: ProductDetails) => void;
+  setPostPickupLocation: (value: string) => void;
 }
 
 export interface SellWizardProps {
   categorySchemas: Record<string, CategorySchema>;
   isActive: boolean;
+  // Wizard mode. `"ai"` runs the existing segmentation → cards → pickup flow.
+  // `"manual"` keeps the photo composer mounted but skips segmentation entirely;
+  // the page-level form supplies productDetails via the imperative handle.
+  mode?: "ai" | "manual";
+  // When true the wizard renders only the photo composer (no upload affordance,
+  // no submit arrow, no downstream phases). Used by the #newlisting page where
+  // the page owns the publish button.
+  photosOnly?: boolean;
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
   onSwitchToBuy: () => void;
   onPhaseChange?: (phase: "review" | "reason" | "cards" | "pickup" | null) => void;
+  onImagesChange?: (count: number) => void;
 }
 
 const priceStringToCents = (raw: string): number | null => {
@@ -47,11 +60,14 @@ const priceStringToCents = (raw: string): number | null => {
 export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function SellWizard({
   categorySchemas,
   isActive,
+  mode = "ai",
+  photosOnly = false,
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
   onSwitchToBuy,
   onPhaseChange,
+  onImagesChange,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
   const [state, actions] = useSellWizard();
@@ -72,7 +88,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const uploadedImagesRef = useRef(uploadedImages);
   useEffect(() => {
     uploadedImagesRef.current = uploadedImages;
-  }, [uploadedImages]);
+    onImagesChange?.(uploadedImages.length);
+  }, [uploadedImages, onImagesChange]);
   useEffect(() => {
     return () => {
       for (const img of uploadedImagesRef.current) {
@@ -191,7 +208,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     }));
 
     // Step 2 (review): re-run segmentation in place with the combined photo set.
-    if (bulkReviewPhase === "review") {
+    // In manual mode we skip segmentation entirely — just append.
+    if (mode !== "manual" && bulkReviewPhase === "review") {
       const updatedImages = [...uploadedImages, ...newImages];
       actions.setImages(updatedImages);
       actions.setSegmentationError(null);
@@ -270,6 +288,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   }, [uploadedImages, actions]);
 
   const handleSellSubmit = async () => {
+    if (mode === "manual") return;
     if (uploadedImages.length === 0) return;
     if (uploadedImages.length > 20) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
@@ -441,11 +460,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     actions.updateBulkItemField(index, field, value);
   }, [actions]);
 
-  const handlePostListing = useCallback(async () => {
-    if (!productDetails || uploadedImages.length === 0) return;
+  const handlePostListing = useCallback(async (override?: { details: ProductDetails; pickupLocation: string }) => {
+    // Override path lets the New Listing page publish in Manual mode without
+    // waiting for setProductDetails to flush through React state.
+    const details = override?.details ?? productDetails;
+    const pickup = override?.pickupLocation ?? postPickupLocation;
+    if (!details || uploadedImages.length === 0) return;
     if (!isAuthenticated) { onRequestSignIn(); return; }
 
-    const priceCents = priceStringToCents(productDetails.price);
+    const priceCents = priceStringToCents(details.price);
     if (priceCents === null) { alert("Enter a valid price before posting."); return; }
 
     try {
@@ -460,13 +483,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       } else {
         uploadedImages.forEach((img) => formData.append("images", img.file));
       }
-      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = productDetails;
+      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = details;
       void _; void _rf;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
       formData.append("communities", "");
       formData.append("visibility", "public");
-      formData.append("pickup_location", postPickupLocation);
+      formData.append("pickup_location", pickup);
 
       const res = await apiFetch("/api/listings", { method: "POST", body: formData });
       if (!res.ok) throw new Error("Failed to post listing");
@@ -489,10 +512,32 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     actions.resetToUpload();
   }, [uploadedImages, actions]);
 
+  const addImagesFromFiles = useCallback((files: FileList | File[]) => {
+    const incoming = Array.from(files);
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const trimmed = incoming.slice(0, remaining);
+    if (incoming.length > remaining) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+    }
+    const newImages = trimmed.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    actions.appendImages(newImages);
+  }, [uploadedImages.length, actions]);
+
   useImperativeHandle(ref, () => ({
     postSingleListing: handlePostListing,
     resetForLogout,
-  }), [handlePostListing, resetForLogout]);
+    addImages: addImagesFromFiles,
+    getImageCount: () => uploadedImagesRef.current.length,
+    setProductDetails: (details) => actions.setProductDetails(details),
+    setPostPickupLocation: (value) => actions.setPostPickupLocation(value),
+  }), [handlePostListing, resetForLogout, addImagesFromFiles, actions]);
 
   const handleBulkPostListing = async () => {
     if (bulkItems.length === 0 || uploadedImages.length === 0) return;
@@ -820,15 +865,17 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 <span>Or drop more photos here</span>
               </button>
 
-              <button
-                type="button"
-                aria-label="Continue"
-                disabled={isGenerating}
-                onClick={handleSellSubmit}
-                className="absolute right-3 bottom-3 inline-flex items-center justify-center size-10 rounded-full bg-primary text-on-primary hover:bg-primary-hover transition-colors disabled:opacity-50"
-              >
-                {isGenerating ? <Loader2 className="size-[18px] animate-spin" /> : <ArrowRight className="size-[18px]" />}
-              </button>
+              {mode !== "manual" && (
+                <button
+                  type="button"
+                  aria-label="Continue"
+                  disabled={isGenerating}
+                  onClick={handleSellSubmit}
+                  className="absolute right-3 bottom-3 inline-flex items-center justify-center size-10 rounded-full bg-primary text-on-primary hover:bg-primary-hover transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  {isGenerating ? <Loader2 className="size-[18px] animate-spin" /> : <ArrowRight className="size-[18px]" />}
+                </button>
+              )}
             </div>
           )}
         </>
@@ -877,7 +924,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         </div>
       )}
 
-      {productDetails && !isGenerating && (
+      {productDetails && !isGenerating && !photosOnly && (
         <SingleListingForm
           productDetails={productDetails}
           setProductDetails={actions.setProductDetails}
@@ -916,8 +963,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         />
       )}
 
-      {!productDetails && !isGenerating && !bulkReviewPhase && (
-        <p className="text-sm text-white/60 text-center mt-2">
+      {!productDetails && !isGenerating && !bulkReviewPhase && !photosOnly && mode !== "manual" && (
+        <p className="text-sm text-muted text-center mt-2">
           {uploadedImages.length > 0
             ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate listing`
             : "Selling • Click above to upload photos"}
