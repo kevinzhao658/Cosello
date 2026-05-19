@@ -85,11 +85,36 @@ class WishlistItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
     listing_id = Column(String(20), nullable=False)
+    folder_id = Column(
+        Integer,
+        ForeignKey("wishlist_folders.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         UniqueConstraint("user_id", "listing_id", name="uq_wishlist_item"),
     )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "listing_id": self.listing_id,
+            "folder_id": self.folder_id,
+        }
+
+
+class WishlistFolder(Base):
+    __tablename__ = "wishlist_folders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "name": self.name}
 
 
 class Friendship(Base):

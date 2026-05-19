@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User, Community, CommunityMember, WishlistItem, PurchaseOrder, Notification, Listing
+from models import User, Community, CommunityMember, WishlistItem, WishlistFolder, PurchaseOrder, Notification, Listing
 from auth import get_current_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
@@ -29,6 +29,7 @@ from routers.events import router as events_router
 from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
+from routers.punchlist import router as punchlist_router
 from category_schemas import CATEGORY_SCHEMAS
 from services.google import vision
 from services.google.vision import VisionResult
@@ -56,6 +57,7 @@ app.include_router(events_router)
 app.include_router(friends_router)
 app.include_router(notifications_router)
 app.include_router(orders_router)
+app.include_router(punchlist_router)
 
 # Legacy local-disk uploads directory. Pre-Phase 3 listings stored images here;
 # everything new goes to Supabase Storage. On Vercel the runtime filesystem is
@@ -1752,13 +1754,170 @@ async def get_wishlist_listings(
         .order_by(WishlistItem.created_at.desc())
         .all()
     )
-    wishlisted_ids = {item.listing_id for item in items}
-    if not wishlisted_ids:
+    if not items:
         return []
+    folder_by_listing = {item.listing_id: item.folder_id for item in items}
+    wishlisted_ids = set(folder_by_listing.keys())
     now = time.time()
     cutoff = now - LISTING_EXPIRY_SECONDS
     rows = db.query(Listing).filter(Listing.id.in_(wishlisted_ids), Listing.posted_at >= cutoff).all()
-    return [r.to_dict() for r in rows]
+    results = []
+    for r in rows:
+        d = r.to_dict()
+        d["folder_id"] = folder_by_listing.get(r.id)
+        results.append(d)
+    return results
+
+
+# ---------- wishlist folders ----------
+#
+# These routes are declared BEFORE `POST /api/wishlist/{listing_id}` so the
+# literal `/folders` and `/{listing_id}/folder` paths don't get shadowed by
+# the catch-all `{listing_id}` segment (FastAPI matches routes in
+# registration order).
+
+class WishlistFolderCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+
+
+class WishlistFolderUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+
+
+class WishlistItemFolderUpdate(BaseModel):
+    folder_id: Optional[int] = None
+
+
+def _validate_folder_name(name: str) -> str:
+    trimmed = (name or "").strip()
+    if not trimmed:
+        raise HTTPException(status_code=400, detail="Folder name cannot be empty")
+    if len(trimmed) > 80:
+        raise HTTPException(status_code=400, detail="Folder name too long (max 80)")
+    return trimmed
+
+
+@app.get("/api/wishlist/folders")
+async def list_wishlist_folders(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    folders = (
+        db.query(WishlistFolder)
+        .filter(WishlistFolder.user_id == current_user.id)
+        .order_by(WishlistFolder.created_at.asc())
+        .all()
+    )
+    if not folders:
+        return []
+    folder_ids = [f.id for f in folders]
+    counts: dict[int, int] = {fid: 0 for fid in folder_ids}
+    rows = (
+        db.query(WishlistItem.folder_id)
+        .filter(
+            WishlistItem.user_id == current_user.id,
+            WishlistItem.folder_id.in_(folder_ids),
+        )
+        .all()
+    )
+    for (fid,) in rows:
+        counts[fid] = counts.get(fid, 0) + 1
+    return [
+        {"id": f.id, "name": f.name, "item_count": counts.get(f.id, 0)}
+        for f in folders
+    ]
+
+
+@app.post("/api/wishlist/folders", status_code=201)
+async def create_wishlist_folder(
+    body: WishlistFolderCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    name = _validate_folder_name(body.name)
+    folder = WishlistFolder(user_id=current_user.id, name=name)
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+    return folder.to_dict()
+
+
+@app.patch("/api/wishlist/folders/{folder_id}")
+async def update_wishlist_folder(
+    folder_id: int,
+    body: WishlistFolderUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    folder = (
+        db.query(WishlistFolder)
+        .filter(
+            WishlistFolder.id == folder_id,
+            WishlistFolder.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    folder.name = _validate_folder_name(body.name)
+    db.commit()
+    db.refresh(folder)
+    return folder.to_dict()
+
+
+@app.delete("/api/wishlist/folders/{folder_id}", status_code=204)
+async def delete_wishlist_folder(
+    folder_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    folder = (
+        db.query(WishlistFolder)
+        .filter(
+            WishlistFolder.id == folder_id,
+            WishlistFolder.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    # FK uses ON DELETE SET NULL — items remain wishlisted, just unfiled.
+    db.delete(folder)
+    db.commit()
+    return
+
+
+@app.patch("/api/wishlist/{listing_id}/folder", status_code=204)
+async def set_wishlist_item_folder(
+    listing_id: str,
+    body: WishlistItemFolderUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    item = (
+        db.query(WishlistItem)
+        .filter(
+            WishlistItem.user_id == current_user.id,
+            WishlistItem.listing_id == listing_id,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Listing not in wishlist")
+    if body.folder_id is not None:
+        folder = (
+            db.query(WishlistFolder)
+            .filter(
+                WishlistFolder.id == body.folder_id,
+                WishlistFolder.user_id == current_user.id,
+            )
+            .first()
+        )
+        if not folder:
+            raise HTTPException(status_code=400, detail="Folder not owned by user")
+    item.folder_id = body.folder_id
+    db.commit()
+    return
 
 
 @app.post("/api/wishlist/{listing_id}")
