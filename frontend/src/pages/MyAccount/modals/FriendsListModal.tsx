@@ -1,4 +1,5 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
+import { Tooltip } from "../../../components/ui/tooltip";
 import { X, UserPlus, User, Loader2, Trash2 } from "lucide-react";
 
 export interface FriendListItem {
@@ -83,18 +84,20 @@ export function FriendsListModal({
                       </div>
                     </div>
                   </button>
-                  <button
-                    onClick={() => onRemoveFriend(friend.id)}
-                    disabled={removingFriendId === friend.id}
-                    className="p-1.5 text-white/20 hover:text-red-400 transition-colors disabled:opacity-30"
-                    title="Remove friend"
-                  >
-                    {removingFriendId === friend.id ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="size-3.5" />
-                    )}
-                  </button>
+                  <Tooltip content="Remove friend">
+                    <button
+                      onClick={() => onRemoveFriend(friend.id)}
+                      disabled={removingFriendId === friend.id}
+                      className="p-1.5 text-muted-soft hover:text-error transition-colors disabled:opacity-30 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      aria-label="Remove friend"
+                    >
+                      {removingFriendId === friend.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-3.5" />
+                      )}
+                    </button>
+                  </Tooltip>
                 </div>
               ))}
             </div>

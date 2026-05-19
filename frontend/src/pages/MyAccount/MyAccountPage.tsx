@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Input } from "../../components/ui/input";
 import { ModalShell } from "../../components/ui/ModalShell";
+import { Tooltip } from "../../components/ui/tooltip";
 import {
   User,
   Plus,
@@ -2001,14 +2002,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <div className="flex items-center gap-2 bg-surface-soft rounded-md px-3 py-2 mb-4">
                   <span className="text-xs text-muted">Invite code:</span>
                   <span className="text-xs text-ink font-mono tracking-wider">{selectedCommunity.invite_code}</span>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(selectedCommunity.invite_code)}
-                    className={`ml-auto text-muted hover:text-ink transition-colors ${FOCUS_RING} rounded`}
-                    title="Copy invite code"
-                    aria-label="Copy invite code"
-                  >
-                    <Copy className="size-3.5" />
-                  </button>
+                  <Tooltip content="Copy invite code">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(selectedCommunity.invite_code)}
+                      className={`ml-auto text-muted hover:text-ink transition-colors ${FOCUS_RING} rounded`}
+                      aria-label="Copy invite code"
+                    >
+                      <Copy className="size-3.5" />
+                    </button>
+                  </Tooltip>
                 </div>
 
                 <div className="mb-4">
@@ -2035,14 +2037,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                             {member.role === "owner" ? (
                               <span className="text-[10px] text-primary bg-primary-soft px-1.5 py-0.5 rounded-full border border-primary/20">Creator</span>
                             ) : selectedCommunity.created_by === user?.id ? (
-                              <button
-                                onClick={() => handleKickMember(selectedCommunity.id, member.id)}
-                                disabled={kickingMemberId === member.id}
-                                className={`text-[10px] text-error/70 hover:text-error px-1.5 py-0.5 rounded-full hover:bg-error/10 transition-colors shrink-0 ${FOCUS_RING}`}
-                                title="Remove member"
-                              >
-                                {kickingMemberId === member.id ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3" />}
-                              </button>
+                              <Tooltip content="Remove member">
+                                <button
+                                  onClick={() => handleKickMember(selectedCommunity.id, member.id)}
+                                  disabled={kickingMemberId === member.id}
+                                  className={`text-[10px] text-error/70 hover:text-error px-1.5 py-0.5 rounded-full hover:bg-error/10 transition-colors shrink-0 ${FOCUS_RING}`}
+                                  aria-label="Remove member"
+                                >
+                                  {kickingMemberId === member.id ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3" />}
+                                </button>
+                              </Tooltip>
                             ) : null}
                           </div>
                         ))}
@@ -2972,14 +2976,15 @@ function ListingsTabContent({
                         </button>
                       ) : (
                         <>
-                          <button
-                            onClick={() => openEditListing(listing)}
-                            className={`inline-flex items-center justify-center size-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
-                            aria-label="Edit listing"
-                            title="Edit"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
+                          <Tooltip content="Edit listing">
+                            <button
+                              onClick={() => openEditListing(listing)}
+                              className={`inline-flex items-center justify-center size-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                              aria-label="Edit listing"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                          </Tooltip>
                           {hasPendingOrders ? (
                             <button
                               onClick={() => openOrderModal(listing)}
@@ -3250,22 +3255,24 @@ function SavedTabContent({
               )}
               {!isRenaming && (
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5 bg-canvas border border-hairline rounded-md shadow-card">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setRenamingFolderId(f.id); setRenamingFolderName(f.name); }}
-                    className={`size-7 inline-flex items-center justify-center text-muted hover:text-ink rounded-md ${FOCUS_RING}`}
-                    aria-label="Rename folder"
-                    title="Rename"
-                  >
-                    <Pencil className="size-3" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteFolder(f.id); }}
-                    className={`size-7 inline-flex items-center justify-center text-muted hover:text-error rounded-md ${FOCUS_RING}`}
-                    aria-label="Delete folder"
-                    title="Delete"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
+                  <Tooltip content="Rename folder">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setRenamingFolderId(f.id); setRenamingFolderName(f.name); }}
+                      className={`size-7 inline-flex items-center justify-center text-muted hover:text-ink rounded-md ${FOCUS_RING}`}
+                      aria-label="Rename folder"
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete folder">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteFolder(f.id); }}
+                      className={`size-7 inline-flex items-center justify-center text-muted hover:text-error rounded-md ${FOCUS_RING}`}
+                      aria-label="Delete folder"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </div>

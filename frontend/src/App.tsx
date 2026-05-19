@@ -2,6 +2,7 @@ import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertT
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
+import { Tooltip } from "./components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -768,14 +769,15 @@ export default function App() {
               >
                 Marketplace
               </button>
-              <button
-                type="button"
-                disabled
-                title="Coming soon"
-                className={`${navLinkClass(false)} opacity-50 cursor-not-allowed`}
-              >
-                Communities
-              </button>
+              <Tooltip content="Coming soon">
+                <button
+                  type="button"
+                  disabled
+                  className={`${navLinkClass(false)} opacity-50 cursor-not-allowed`}
+                >
+                  Communities
+                </button>
+              </Tooltip>
               <button
                 type="button"
                 onClick={() => {
@@ -952,13 +954,14 @@ export default function App() {
                   >
                     Marketplace
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled
-                    title="Coming soon"
-                    className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink"
-                  >
-                    Communities
-                  </DropdownMenuItem>
+                  <Tooltip content="Coming soon" side="right">
+                    <DropdownMenuItem
+                      disabled
+                      className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink"
+                    >
+                      Communities
+                    </DropdownMenuItem>
+                  </Tooltip>
                   <DropdownMenuItem
                     onSelect={() => {
                       if (!isAuthenticated) { setPage("signin"); return; }
@@ -1634,14 +1637,15 @@ export default function App() {
                   <h1 className="text-4xl font-extrabold text-ink tracking-display leading-[1.05] truncate">
                     {user?.neighborhood ?? "Marketplace"}
                   </h1>
-                  <button
-                    type="button"
-                    aria-label="Change location"
-                    title="Change location"
-                    className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                  >
-                    <Settings className="size-4" />
-                  </button>
+                  <Tooltip content="Change location">
+                    <button
+                      type="button"
+                      aria-label="Change location"
+                      className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <Settings className="size-4" />
+                    </button>
+                  </Tooltip>
                 </div>
                 <p className="text-sm text-muted mt-1">
                   {user?.zip_code ? `${user.zip_code} · ` : ""}
