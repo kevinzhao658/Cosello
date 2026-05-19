@@ -1,5 +1,6 @@
 import React from "react";
 import { HelpCircle } from "lucide-react";
+import { Tooltip } from "./ui/tooltip";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
@@ -88,12 +89,11 @@ export function CategoryAttributeFields({
             <label className="text-xs text-muted uppercase tracking-wider inline-flex items-center gap-1">
               {field.label}
               {field.tooltip && (
-                <span className="group relative">
-                  <HelpCircle className="size-3 text-muted-soft hover:text-muted cursor-help" />
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 bg-ink text-on-dark rounded-md text-[11px] leading-snug whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-overlay z-10">
-                    {field.tooltip}
+                <Tooltip content={field.tooltip}>
+                  <span tabIndex={0} aria-label={`About ${field.label}`} className="inline-flex">
+                    <HelpCircle className="size-3 text-muted-soft hover:text-muted cursor-help" />
                   </span>
-                </span>
+                </Tooltip>
               )}
             </label>
             {field.type === "select" && field.options ? (

@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { formatTitle } from "../../lib/format";
 import { PLACEHOLDER_COMMUNITY } from "../../lib/listings";
+import { Tooltip } from "../../components/ui/tooltip";
 import type { Listing } from "../../lib/types";
 
 export type SellerProfile = {
@@ -239,7 +240,8 @@ export function ListingDetailModal({
               ) : (
                 <>
                   <Button onClick={onOpenBuy} className="w-full h-12 rounded-md">Buy now</Button>
-                  <div className="flex gap-2" title="Offers coming soon">
+                  <Tooltip content="Offers coming soon">
+                    <div className="flex gap-2">
                     <input
                       type="text"
                       disabled
@@ -255,7 +257,8 @@ export function ListingDetailModal({
                     >
                       Send
                     </button>
-                  </div>
+                    </div>
+                  </Tooltip>
                 </>
               )}
 
@@ -341,15 +344,16 @@ export function ListingDetailModal({
                       </p>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onOpenUserDashboard(sellerProfile.id)}
-                    aria-label="View seller profile"
-                    title="View seller profile"
-                    className="shrink-0 size-9 rounded-full bg-canvas border border-hairline inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                  >
-                    <ChevronRight className="size-4" />
-                  </button>
+                  <Tooltip content="View seller profile">
+                    <button
+                      type="button"
+                      onClick={() => onOpenUserDashboard(sellerProfile.id)}
+                      aria-label="View seller profile"
+                      className="shrink-0 size-9 rounded-full bg-canvas border border-hairline inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <ChevronRight className="size-4" />
+                    </button>
+                  </Tooltip>
                 </div>
               ) : null}
             </div>

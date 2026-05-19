@@ -4,6 +4,7 @@ import { Input } from "../../../components/ui/input";
 import { PriceInput } from "../../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../../components/CategoryFields";
 import { AlertTriangle, Loader2, X } from "lucide-react";
+import { Tooltip } from "../../../components/ui/tooltip";
 import { formatTitle } from "../../../lib/format";
 import { CONDITIONS } from "../../../lib/listings";
 import type { CategorySchema } from "../../../lib/types";
@@ -247,15 +248,16 @@ export function AIReviewStep({
         >
           Previous
         </Button>
-        <Button
-          onClick={() => deleteBulkItem(currentCardIndex)}
-          variant="outline"
-          className="border-error/40 text-error hover:bg-error/10 hover:text-error px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-          title="Remove this item"
-          aria-label="Remove this item"
-        >
-          <X className="size-4" />
-        </Button>
+        <Tooltip content="Remove this item">
+          <Button
+            onClick={() => deleteBulkItem(currentCardIndex)}
+            variant="outline"
+            className="border-error/40 text-error hover:bg-error/10 hover:text-error px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            aria-label="Remove this item"
+          >
+            <X className="size-4" />
+          </Button>
+        </Tooltip>
         <Button
           onClick={() => {
             if (currentCardIndex < bulkItems.length - 1) {

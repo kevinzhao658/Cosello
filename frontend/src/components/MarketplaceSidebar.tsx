@@ -1,5 +1,6 @@
 import { memo, useRef, useState, useMemo } from "react";
 import { Search, Menu, X } from "lucide-react";
+import { Tooltip } from "./ui/tooltip";
 import { useClickOutside } from "../hooks/useClickOutside";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
@@ -149,31 +150,32 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                 const cid = String(community.id);
                 const isSelected = selectedMarketCommunities.includes(cid);
                 return (
-                  <button
-                    key={cid}
-                    type="button"
-                    onClick={() => onToggleCommunity(cid)}
-                    title={community.name}
-                    aria-pressed={isSelected}
-                    className="flex flex-col items-center gap-1.5 w-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
-                  >
-                    <span
-                      className={`size-14 rounded-full flex items-center justify-center border bg-surface-card text-sm font-medium text-ink transition-colors ${
-                        isSelected
-                          ? "border-primary ring-2 ring-primary-soft"
-                          : "border-hairline hover:border-border-strong"
-                      }`}
+                  <Tooltip key={cid} content={community.name}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleCommunity(cid)}
+                      aria-pressed={isSelected}
+                      aria-label={community.name}
+                      className="flex flex-col items-center gap-1.5 w-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
                     >
-                      {communityInitials(community.name)}
-                    </span>
-                    <span
-                      className={`text-[11px] leading-tight text-center truncate w-full ${
-                        isSelected ? "text-primary font-semibold" : "text-ink"
-                      }`}
-                    >
-                      {community.name.split(" ").slice(0, 2).join(" ")}
-                    </span>
-                  </button>
+                      <span
+                        className={`size-14 rounded-full flex items-center justify-center border bg-surface-card text-sm font-medium text-ink transition-colors ${
+                          isSelected
+                            ? "border-primary ring-2 ring-primary-soft"
+                            : "border-hairline hover:border-border-strong"
+                        }`}
+                      >
+                        {communityInitials(community.name)}
+                      </span>
+                      <span
+                        className={`text-[11px] leading-tight text-center truncate w-full ${
+                          isSelected ? "text-primary font-semibold" : "text-ink"
+                        }`}
+                      >
+                        {community.name.split(" ").slice(0, 2).join(" ")}
+                      </span>
+                    </button>
+                  </Tooltip>
                 );
               })}
               {extraComms.length > 0 && (
