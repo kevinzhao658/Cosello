@@ -37,6 +37,7 @@ import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } 
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
 import { getChipClass } from "../../lib/listings";
+import { FOCUS_RING, TAB_BTN_BASE, SEG_BTN_BASE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
@@ -146,15 +147,6 @@ interface PunchlistResponse {
 type AccountTab = "overview" | "listings" | "saved" | "settings";
 
 const ACCOUNT_TAB_STORAGE_KEY = "myaccount_tab";
-
-const TAB_BTN_BASE =
-  "relative inline-flex items-center gap-2 h-9 px-4 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
-
-const SEG_BTN_BASE =
-  "inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
 
 interface MyAccountPageProps {
   onNavigate: (page: string) => void;

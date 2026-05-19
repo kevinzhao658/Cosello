@@ -1,9 +1,7 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { X, UserPlus, User, Loader2, Trash2 } from "lucide-react";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../constants";
 
 export interface FriendListItem {
   id: string;

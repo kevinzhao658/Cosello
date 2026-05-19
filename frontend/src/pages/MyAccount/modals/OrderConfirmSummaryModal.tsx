@@ -3,9 +3,7 @@ import { Button } from "../../../components/ui/button";
 import { X, Check, MapPin } from "lucide-react";
 import { formatTitle } from "../../../lib/format";
 import type { MyListing } from "../../../lib/types";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../constants";
 
 export interface OrderConfirmSummaryOrder {
   buyer_reviewed: boolean;

@@ -3,9 +3,7 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, User, Loader2 } from "lucide-react";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../constants";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5";

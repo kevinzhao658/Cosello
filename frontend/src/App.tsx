@@ -954,10 +954,14 @@ export default function App() {
                   >
                     Marketplace
                   </DropdownMenuItem>
+                  {/* Not `disabled` — Radix DropdownMenuItem sets pointer-events:none
+                      when disabled, which suppresses the Tooltip trigger.
+                      Style as disabled, no-op the select, keep hover events. */}
                   <Tooltip content="Coming soon" side="right">
                     <DropdownMenuItem
-                      disabled
-                      className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink"
+                      onSelect={(e) => e.preventDefault()}
+                      aria-disabled="true"
+                      className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink data-[highlighted]:bg-transparent"
                     >
                       Communities
                     </DropdownMenuItem>
