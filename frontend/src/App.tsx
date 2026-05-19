@@ -13,6 +13,7 @@ import {
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import { useOrderModals } from "./contexts/OrderModalsContext";
+import { FOCUS_RING } from "./pages/MyAccount/constants";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
@@ -74,6 +75,12 @@ export default function App() {
   // owns the publish payload; the wizard owns the photo state and the publish
   // network call (called via the imperative handle after seeding productDetails).
   const [newListingMode, setNewListingMode] = useState<"ai" | "manual">("ai");
+  // Below lg: the preview/checklist column collapses into a floating overlay
+  // that the user opens via a jade circle button — keeps mid-flow vertical
+  // space clear and stops the preview from pushing the form below the fold.
+  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false);
+  const previewToggleRef = useRef<HTMLButtonElement | null>(null);
+  const previewCloseRef = useRef<HTMLButtonElement | null>(null);
   const [manualBrand, setManualBrand] = useState("");
   const [manualName, setManualName] = useState("");
   const [manualDescription, setManualDescription] = useState("");
@@ -748,6 +755,31 @@ export default function App() {
     }
   }, [needsRegistration, pendingSignupToken]);
 
+  // Preview overlay (New Listing, below lg:) — ESC closes, focus moves to the
+  // close button on open and back to the toggle on close. Effect short-circuits
+  // when the overlay isn't open so the listeners don't sit live on other pages.
+  useEffect(() => {
+    if (!previewOverlayOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewOverlayOpen(false);
+    };
+    window.addEventListener("keydown", handleKey);
+    const focusFrame = requestAnimationFrame(() => {
+      previewCloseRef.current?.focus();
+    });
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      cancelAnimationFrame(focusFrame);
+      previewToggleRef.current?.focus();
+    };
+  }, [previewOverlayOpen]);
+
+  // Auto-close the preview overlay when leaving the New Listing page so it
+  // doesn't reopen with stale state next time the user lands there.
+  useEffect(() => {
+    if (page !== "newlisting" && previewOverlayOpen) setPreviewOverlayOpen(false);
+  }, [page, previewOverlayOpen]);
+
   const userInitials = (() => {
     const name = user?.display_name?.trim();
     if (!name) return "";
@@ -760,6 +792,114 @@ export default function App() {
     `relative bg-transparent border-none cursor-pointer text-sm transition-colors px-1 ${
       active ? "text-primary font-semibold" : "text-muted hover:text-ink"
     }`;
+
+  // Preview card + "Before you publish" checklist for the New Listing page.
+  // Rendered both inside the lg:+ sticky aside and inside the below-lg:
+  // floating drawer so the two share a single source of truth.
+  const newListingPreviewContent = (
+    <>
+      <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+      <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+          <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+        </div>
+        <div className="relative aspect-square bg-surface-soft">
+          {aiCoverImageUrl ? (
+            <img
+              src={aiCoverImageUrl}
+              alt="Listing cover preview"
+              className="absolute inset-0 size-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
+              <ImagePlus className="size-8" aria-hidden="true" />
+              <span className="text-[11px]">Photo preview after publish</span>
+            </div>
+          )}
+        </div>
+        <div className="p-3 space-y-1">
+          <p className="text-sm font-medium text-ink line-clamp-1">
+            {(() => {
+              if (newListingMode === "manual") {
+                const brand = manualBrand.trim();
+                const name = manualName.trim();
+                if (brand && name) return `${brand} — ${name}`;
+                return brand || name || "Untitled";
+              }
+              const brand = aiProductDetails?.brand?.trim() ?? "";
+              const name = aiProductDetails?.name?.trim() ?? "";
+              if (brand && name) return `${brand} — ${name}`;
+              return brand || name || "Untitled";
+            })()}
+          </p>
+          <p className="text-xs text-muted line-clamp-1">
+            {(() => {
+              const location = newListingMode === "manual"
+                ? (manualPickup.trim() || user?.neighborhood || "West Village")
+                : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
+              const condition = newListingMode === "manual"
+                ? manualCondition
+                : (aiProductDetails?.condition?.trim() ?? "");
+              return condition ? `${location} · ${condition}` : location;
+            })()}
+          </p>
+          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
+            {(() => {
+              if (newListingMode === "manual") {
+                return manualPrice ? `$${manualPrice}` : "$—";
+              }
+              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const num = raw ? Number.parseFloat(raw) : NaN;
+              return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
+            })()}
+          </p>
+        </div>
+      </article>
+
+      <div className="bg-canvas border border-hairline rounded-md p-4">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
+        <ul className="space-y-2">
+          {(() => {
+            const isManual = newListingMode === "manual";
+            const hasBrandOrName = isManual
+              ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
+              : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+            const hasPrice = (() => {
+              if (isManual) {
+                return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+              }
+              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const num = raw ? Number.parseFloat(raw) : NaN;
+              return Number.isFinite(num) && num > 0;
+            })();
+            const hasDescription = isManual
+              ? manualDescription.trim().length >= 20
+              : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+            const rows: ReadonlyArray<readonly [string, boolean]> = [
+              ["At least one photo", wizardImageCount > 0],
+              ["Brand or name", hasBrandOrName],
+              ["Price set", hasPrice],
+              ["Description 20+ chars", hasDescription],
+            ];
+            return rows;
+          })().map(([label, done]) => (
+            <li key={label} className="flex items-center gap-2.5 text-sm">
+              <span
+                aria-hidden="true"
+                className={`inline-flex items-center justify-center size-4 rounded-full border ${
+                  done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
+                }`}
+              >
+                <Check className="size-3" />
+              </span>
+              <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -1409,114 +1549,63 @@ export default function App() {
                 )}
               </div>
 
-              {/* Right — sticky preview column */}
-              <aside className="lg:sticky lg:top-20 self-start space-y-4">
-                <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
-                <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                    <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                  </div>
-                  <div className="relative aspect-square bg-surface-soft">
-                    {/* Cover image — first uploaded photo (or first segmentation
-                        thumb once AI segmentation runs). The wizard exposes the
-                        URL via getCoverImageUrl() and fires onCoverImageChange
-                        when it changes. */}
-                    {aiCoverImageUrl ? (
-                      <img
-                        src={aiCoverImageUrl}
-                        alt="Listing cover preview"
-                        className="absolute inset-0 size-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
-                        <ImagePlus className="size-8" aria-hidden="true" />
-                        <span className="text-[11px]">Photo preview after publish</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-3 space-y-1">
-                    <p className="text-sm font-medium text-ink line-clamp-1">
-                      {(() => {
-                        if (newListingMode === "manual") {
-                          const brand = manualBrand.trim();
-                          const name = manualName.trim();
-                          if (brand && name) return `${brand} — ${name}`;
-                          return brand || name || "Untitled";
-                        }
-                        const brand = aiProductDetails?.brand?.trim() ?? "";
-                        const name = aiProductDetails?.name?.trim() ?? "";
-                        if (brand && name) return `${brand} — ${name}`;
-                        return brand || name || "Untitled";
-                      })()}
-                    </p>
-                    <p className="text-xs text-muted line-clamp-1">
-                      {(() => {
-                        const location = newListingMode === "manual"
-                          ? (manualPickup.trim() || user?.neighborhood || "West Village")
-                          : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
-                        const condition = newListingMode === "manual"
-                          ? manualCondition
-                          : (aiProductDetails?.condition?.trim() ?? "");
-                        return condition ? `${location} · ${condition}` : location;
-                      })()}
-                    </p>
-                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
-                      {(() => {
-                        if (newListingMode === "manual") {
-                          return manualPrice ? `$${manualPrice}` : "$—";
-                        }
-                        const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-                        const num = raw ? Number.parseFloat(raw) : NaN;
-                        return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-                      })()}
-                    </p>
-                  </div>
-                </article>
-
-                <div className="bg-canvas border border-hairline rounded-md p-4">
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
-                  <ul className="space-y-2">
-                    {(() => {
-                      const isManual = newListingMode === "manual";
-                      const hasBrandOrName = isManual
-                        ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
-                        : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
-                      const hasPrice = (() => {
-                        if (isManual) {
-                          return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
-                        }
-                        const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-                        const num = raw ? Number.parseFloat(raw) : NaN;
-                        return Number.isFinite(num) && num > 0;
-                      })();
-                      const hasDescription = isManual
-                        ? manualDescription.trim().length >= 20
-                        : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
-                      const rows: ReadonlyArray<readonly [string, boolean]> = [
-                        ["At least one photo", wizardImageCount > 0],
-                        ["Brand or name", hasBrandOrName],
-                        ["Price set", hasPrice],
-                        ["Description 20+ chars", hasDescription],
-                      ];
-                      return rows;
-                    })().map(([label, done]) => (
-                      <li key={label} className="flex items-center gap-2.5 text-sm">
-                        <span
-                          aria-hidden="true"
-                          className={`inline-flex items-center justify-center size-4 rounded-full border ${
-                            done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
-                          }`}
-                        >
-                          <Check className="size-3" />
-                        </span>
-                        <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              {/* Right — sticky preview column on lg:+ only. Below lg: this
+                  block is hidden (the floating overlay drawer below holds
+                  the same content). */}
+              <aside className="hidden lg:block lg:sticky lg:top-20 self-start space-y-4" aria-label="Listing preview">
+                {newListingPreviewContent}
               </aside>
             </div>
+            {/* Floating preview toggle + slide-in drawer — below lg: only.
+                Drawer slides in from the right with a backdrop; ESC closes
+                via the effect above. lg:hidden on both keeps the desktop
+                experience untouched. */}
+            <button
+              ref={previewToggleRef}
+              type="button"
+              onClick={() => setPreviewOverlayOpen(true)}
+              aria-label="Show listing preview"
+              aria-haspopup="dialog"
+              aria-expanded={previewOverlayOpen}
+              className={`lg:hidden fixed bottom-5 right-5 z-30 size-12 rounded-full bg-primary text-on-primary shadow-card hover:bg-primary-hover transition-colors flex items-center justify-center ${FOCUS_RING} ${previewOverlayOpen ? "hidden" : ""}`}
+            >
+              <Eye className="size-5" aria-hidden="true" />
+            </button>
+            {previewOverlayOpen && (
+              <div
+                className="lg:hidden fixed inset-0 z-40"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Listing preview"
+              >
+                <button
+                  type="button"
+                  aria-label="Close preview"
+                  tabIndex={-1}
+                  onClick={() => setPreviewOverlayOpen(false)}
+                  className="absolute inset-0 bg-ink/30 backdrop-blur-sm"
+                />
+                <div
+                  className="absolute inset-y-0 right-0 w-[min(380px,100vw)] bg-canvas border-l border-hairline shadow-overlay h-full overflow-y-auto motion-safe:transition-transform"
+                >
+                  <div className="sticky top-0 bg-canvas border-b border-hairline px-5 py-3 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-ink">Preview</p>
+                    <button
+                      ref={previewCloseRef}
+                      type="button"
+                      onClick={() => setPreviewOverlayOpen(false)}
+                      aria-label="Close preview"
+                      className={`inline-flex items-center justify-center size-8 rounded-md text-muted hover:text-ink hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    {newListingPreviewContent}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}
