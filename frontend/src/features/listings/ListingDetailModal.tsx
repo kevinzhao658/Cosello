@@ -241,7 +241,26 @@ export function ListingDetailModal({
                   <Check className="size-4" /> Order confirmed
                 </div>
               ) : (
-                <Button onClick={onOpenBuy} className="w-full h-12 rounded-md">Buy now</Button>
+                <>
+                  <Button onClick={onOpenBuy} className="w-full h-12 rounded-md">Buy now</Button>
+                  <div className="flex gap-2" title="Offers coming soon">
+                    <input
+                      type="text"
+                      disabled
+                      placeholder="Make an offer"
+                      aria-label="Make an offer (coming soon)"
+                      className="flex-1 h-12 px-3 rounded-md border border-hairline bg-surface-soft text-muted text-sm placeholder:text-muted-soft cursor-not-allowed"
+                    />
+                    <button
+                      type="button"
+                      disabled
+                      aria-label="Send offer (coming soon)"
+                      className="h-12 px-5 rounded-md bg-primary/40 text-on-primary text-sm font-semibold cursor-not-allowed"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </>
               )}
 
               {listing.description && (
