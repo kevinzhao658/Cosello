@@ -1583,11 +1583,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         {/* ── Tab strip ────────────────────────────────── */}
         <div role="tablist" aria-label="Account sections" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md mb-8">
           {([
-            ["overview", "Overview"],
-            ["listings", "Listings"],
-            ["saved", "Saved"],
-            ["settings", "Settings"],
-          ] as const).map(([id, label]) => {
+            ["overview", "Overview", null],
+            ["listings", "Listings", myListings.length || null],
+            ["saved", "Saved", (wishlistItemsWithFolder.length || wishlistItems.length) || null],
+            ["settings", "Settings", null],
+          ] as const).map(([id, label, count]) => {
             const active = accountTab === id;
             return (
               <button
@@ -1599,6 +1599,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 className={`${TAB_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
               >
                 {label}
+                {count != null && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${active ? "bg-primary-soft text-primary" : "bg-surface-strong text-muted"}`}>
+                    {count}
+                  </span>
+                )}
               </button>
             );
           })}
