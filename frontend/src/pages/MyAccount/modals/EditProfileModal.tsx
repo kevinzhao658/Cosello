@@ -4,6 +4,12 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, User, Loader2 } from "lucide-react";
 
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+
+const LABEL_CLASS =
+  "block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5";
+
 export interface EditProfileModalProps {
   open: boolean;
   editFirstName: string;
@@ -38,58 +44,61 @@ export function EditProfileModal({
   if (!open) return null;
   return (
     <ModalShell open onClose={onClose} z={50}>
-      <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors">
+      <div className="relative bg-canvas border border-hairline rounded-md max-w-sm w-full mx-4 shadow-overlay max-h-[90vh] flex flex-col">
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className={`absolute top-3 right-3 size-9 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center ${FOCUS_RING}`}
+        >
           <X className="size-5" />
         </button>
 
-        <div className="flex items-center gap-3 mb-5">
-          <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-            <User className="size-5 text-fuchsia-400" />
+        <div className="px-6 pt-6 pb-2">
+          <div className="flex items-center gap-3">
+            <div className="size-10 bg-primary-soft rounded-full flex items-center justify-center">
+              <User className="size-5 text-primary" />
+            </div>
+            <h3 className="text-xl font-extrabold text-ink tracking-display">Edit Profile</h3>
           </div>
-          <h3 className="text-lg font-medium">Edit Profile</h3>
         </div>
 
-        <div className="space-y-4">
+        <div className="px-6 pb-6 space-y-4 overflow-y-auto">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">First Name</label>
+              <label className={LABEL_CLASS}>First Name</label>
               <Input
                 type="text"
                 placeholder="First"
                 value={editFirstName}
                 onChange={(e) => setEditFirstName(e.target.value)}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
               />
             </div>
             <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">Last Name</label>
+              <label className={LABEL_CLASS}>Last Name</label>
               <Input
                 type="text"
                 placeholder="Last"
                 value={editLastName}
                 onChange={(e) => setEditLastName(e.target.value)}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">Default Pickup Address</label>
+            <label className={LABEL_CLASS}>Default Pickup Address</label>
             <Input
               type="text"
               placeholder="Street address"
               value={editPickupAddress}
               onChange={(e) => setEditPickupAddress(e.target.value)}
-              className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
             />
-            <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+            <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
               Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
             </p>
           </div>
 
           <div className="relative">
-            <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">Neighborhood</label>
+            <label className={LABEL_CLASS}>Neighborhood</label>
             <Input
               ref={editNeighborhoodRef}
               type="text"
@@ -103,14 +112,12 @@ export function EditProfileModal({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && editIsValidNeighborhood) onSubmit();
               }}
-              className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
             />
 
             {editShowSuggestions && editFilteredNeighborhoods.length > 0 && (
               <div
                 ref={editSuggestionsRef}
-                className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-white/20 shadow-lg"
-                style={{ backgroundColor: "#18181b" }}
+                className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-overlay"
               >
                 {editFilteredNeighborhoods.map((n) => (
                   <button
@@ -120,11 +127,11 @@ export function EditProfileModal({
                       setEditNeighborhood(n);
                       setEditShowSuggestions(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors ${
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
                       n.toLowerCase() === editNeighborhood.trim().toLowerCase()
-                        ? "text-fuchsia-400"
-                        : "text-white"
-                    }`}
+                        ? "text-primary font-semibold"
+                        : "text-ink"
+                    } ${FOCUS_RING}`}
                   >
                     {n}
                   </button>
@@ -133,10 +140,7 @@ export function EditProfileModal({
             )}
 
             {editShowSuggestions && editFilteredNeighborhoods.length === 0 && editNeighborhood.trim() && (
-              <div
-                className="absolute z-50 mt-1 w-full rounded-md border border-white/20 shadow-lg px-3 py-2 text-sm text-white/40"
-                style={{ backgroundColor: "#18181b" }}
-              >
+              <div className="absolute z-50 mt-1 w-full rounded-md border border-hairline bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
                 No matching neighborhoods
               </div>
             )}
@@ -144,17 +148,17 @@ export function EditProfileModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">City</label>
-              <Input type="text" value="New York" disabled className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed" />
+              <label className={LABEL_CLASS}>City</label>
+              <Input type="text" value="New York" disabled />
             </div>
             <div>
-              <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">State</label>
-              <Input type="text" value="NY" disabled className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed" />
+              <label className={LABEL_CLASS}>State</label>
+              <Input type="text" value="NY" disabled />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">Zip Code</label>
+            <label className={LABEL_CLASS}>Zip Code</label>
             <Input
               type="text"
               placeholder="e.g., 10001"
@@ -163,22 +167,19 @@ export function EditProfileModal({
                 const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
                 setEditZipCode(val);
               }}
-              className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
             />
           </div>
 
-          {editProfileError && <p className="text-sm text-red-400">{editProfileError}</p>}
+          {editProfileError && <p className="text-sm text-error">{editProfileError}</p>}
+        </div>
 
+        <div className="border-t border-hairline px-6 py-4 flex items-center justify-end gap-2">
           <Button
             onClick={onSubmit}
             disabled={isUpdatingProfile || !editIsValidNeighborhood || !editFirstName.trim() || !editLastName.trim()}
-            className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            size="sm"
           >
-            {isUpdatingProfile ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              "Save Changes"
-            )}
+            {isUpdatingProfile ? <Loader2 className="size-4 motion-safe:animate-spin" /> : "Save Changes"}
           </Button>
         </div>
       </div>
