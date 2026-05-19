@@ -3,6 +3,7 @@ import { X, MapPin, User, Loader2, Pencil, Check, ChevronRight } from "lucide-re
 import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { formatTitle } from "../../lib/format";
+import { PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import type { Listing } from "../../lib/types";
 
 export type SellerProfile = {
@@ -87,7 +88,7 @@ export function ListingDetailModal({
   const heroCommunity =
     listing.allCommunities?.find((c) => c.is_mutual)
     ?? listing.allCommunities?.[0]
-    ?? null;
+    ?? PLACEHOLDER_COMMUNITY;
   const mutualCommunities = listing.mutualCommunities ?? [];
   const isOwn = isAuthenticated && listing.userId === currentUserId;
   const isSold = listing.status === "sold";
@@ -138,25 +139,20 @@ export function ListingDetailModal({
 
         {/* Right: details column */}
         <div className="p-6 overflow-y-auto max-h-[90vh]">
-          {/* Trust strip */}
-          {heroCommunity || listing.seller_name ? (
-            <div className="flex items-center gap-2 text-xs text-muted mb-3">
-              {heroCommunity && (
-                <>
-                  <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                  <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
-                </>
-              )}
-              {listing.seller_name && (
-                <>
-                  {heroCommunity && <span aria-hidden="true">·</span>}
-                  <span className="truncate">@{listing.seller_name}</span>
-                </>
-              )}
-              <span aria-hidden="true">·</span>
-              <span className="truncate">Listed {relativeTimeFrom(listing.postedAt)}</span>
-            </div>
-          ) : null}
+          {/* Trust strip — community always renders via PLACEHOLDER_COMMUNITY
+              fallback until the sell-flow community selector ships. */}
+          <div className="flex items-center gap-2 text-xs text-muted mb-3">
+            <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+            <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
+            {listing.seller_name && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="truncate">@{listing.seller_name}</span>
+              </>
+            )}
+            <span aria-hidden="true">·</span>
+            <span className="truncate">Listed {relativeTimeFrom(listing.postedAt)}</span>
+          </div>
 
           {/* Title */}
           <h1 className="text-display-md font-extrabold text-ink tracking-display leading-tight">

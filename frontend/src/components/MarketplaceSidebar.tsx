@@ -104,7 +104,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                   type="button"
                   onClick={onToggleMyListings}
                   aria-pressed={showMyListings}
-                  className={`rounded-full px-3 py-1.5 text-sm border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                  className={`rounded-full px-2.5 py-1 text-xs border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
                     showMyListings
                       ? "bg-primary-tint text-primary border-primary"
                       : "bg-canvas border-hairline text-body hover:border-border-strong hover:text-ink"
@@ -121,7 +121,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                     type="button"
                     onClick={() => onToggleCategory(slug as CategorySlug)}
                     aria-pressed={isSelected}
-                    className={`rounded-full px-3 py-1.5 text-sm border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                    className={`rounded-full px-2.5 py-1 text-xs border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
                       isSelected
                         ? "bg-primary-tint text-primary border-primary"
                         : "bg-canvas border-hairline text-body hover:border-border-strong hover:text-ink"
@@ -155,10 +155,10 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                     onClick={() => onToggleCommunity(cid)}
                     title={community.name}
                     aria-pressed={isSelected}
-                    className="flex flex-col items-center gap-1.5 w-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
+                    className="flex flex-col items-center gap-1.5 w-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
                   >
                     <span
-                      className={`size-10 rounded-full flex items-center justify-center border bg-surface-card text-[13px] font-medium text-ink transition-colors ${
+                      className={`size-14 rounded-full flex items-center justify-center border bg-surface-card text-sm font-medium text-ink transition-colors ${
                         isSelected
                           ? "border-primary ring-2 ring-primary-soft"
                           : "border-hairline hover:border-border-strong"
@@ -183,9 +183,9 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                     aria-haspopup="true"
                     aria-expanded={commMenuOpen}
                     onClick={() => setCommMenuOpen((v) => !v)}
-                    className="flex flex-col items-center gap-1.5 w-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
+                    className="flex flex-col items-center gap-1.5 w-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
                   >
-                    <span className="size-10 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-base">
+                    <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
                       …
                     </span>
                     <span className="text-[11px] leading-tight text-center text-ink">More</span>

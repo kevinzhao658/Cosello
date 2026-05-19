@@ -25,6 +25,7 @@ import { ListingDetailModal, type SellerProfile } from "./features/listings/List
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
+import { PLACEHOLDER_COMMUNITY } from "./lib/listings";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
@@ -1162,7 +1163,7 @@ export default function App() {
                       : [listing.imageUrl];
                     const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
                       ?? listing.allCommunities?.[0]
-                      ?? null;
+                      ?? PLACEHOLDER_COMMUNITY;
                     const isOwn = isAuthenticated && listing.userId === user?.id;
                     const isWishlisted = wishlist.has(listing.id);
                     return (
@@ -1172,23 +1173,19 @@ export default function App() {
                         className="group bg-canvas border border-hairline rounded-md overflow-hidden cursor-pointer hover:shadow-hover transition-shadow motion-safe:animate-mkt-card-in"
                         style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
                       >
-                        {/* Trust band */}
-                        {heroCommunity ? (
-                          <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                            <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                            <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
-                            {listing.seller_name && (
-                              <>
-                                <span className="text-muted">·</span>
-                                <span className="text-muted truncate">@{listing.seller_name}</span>
-                              </>
-                            )}
-                          </div>
-                        ) : listing.seller_name ? (
-                          <div className="flex items-center gap-2 px-3 py-2 bg-surface-soft border-b border-hairline text-xs">
-                            <span className="text-muted truncate">@{listing.seller_name}</span>
-                          </div>
-                        ) : null}
+                        {/* Trust band — always renders community shape.
+                            Falls back to PLACEHOLDER_COMMUNITY until the
+                            sell-flow community selector lands (backlog.md). */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                          <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
+                          {listing.seller_name && (
+                            <>
+                              <span className="text-muted">·</span>
+                              <span className="text-muted truncate">@{listing.seller_name}</span>
+                            </>
+                          )}
+                        </div>
 
                         {/* Photo */}
                         <div className="relative aspect-square bg-surface-soft">
