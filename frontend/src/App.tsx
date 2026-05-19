@@ -27,6 +27,7 @@ import type { ProductDetails } from "./features/sell-wizard/useSellWizard";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
+import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
@@ -81,6 +82,7 @@ export default function App() {
   const [manualPickup, setManualPickup] = useState("");
   const [manualTags, setManualTags] = useState<string[]>([]);
   const [manualTagInput, setManualTagInput] = useState("");
+  const [manualCategoryAttributes, setManualCategoryAttributes] = useState<Record<string, string>>({});
   const [isPublishingManual, setIsPublishingManual] = useState(false);
 
   const [page, setPage] = useState<Page>(() => {
@@ -214,6 +216,7 @@ export default function App() {
     setManualPickup("");
     setManualTags([]);
     setManualTagInput("");
+    setManualCategoryAttributes({});
     setWizardImageCount(0);
     setAiProductDetails(null);
     setAiCoverImageUrl(null);
@@ -262,7 +265,7 @@ export default function App() {
         location: user?.neighborhood || "",
         tags: manualTags,
         category: manualCategory,
-        categoryAttributes: {},
+        categoryAttributes: manualCategoryAttributes,
         identifierConfidence: "high" as const,
         retrieval_fallback: false,
       };
@@ -272,7 +275,7 @@ export default function App() {
     } finally {
       setIsPublishingManual(false);
     }
-  }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualPickup, manualTags, user, resetNewListingForm]);
+  }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualCategoryAttributes, manualPickup, manualTags, user, resetNewListingForm]);
 
   const handleSaveListingFromMarket = async (patch: ListingUpdatePatch) => {
     if (!listingDetailData || !token) return;
@@ -1229,7 +1232,13 @@ export default function App() {
                               <button
                                 key={c.slug}
                                 type="button"
-                                onClick={() => setManualCategory(c.slug)}
+                                onClick={() => {
+                                  setManualCategory(c.slug);
+                                  // Different category → different schema. Drop
+                                  // stale attribute values so they don't ship
+                                  // alongside fields the new category doesn't have.
+                                  setManualCategoryAttributes({});
+                                }}
                                 aria-pressed={active}
                                 className={getChipClass(active)}
                               >
@@ -1238,6 +1247,19 @@ export default function App() {
                             );
                           })}
                         </div>
+                        {/* Per-category dynamic fields (size/gender for clothing,
+                            carry_difficulty for furniture, etc.). Renders nothing
+                            for "other" since its schema has no extra fields. */}
+                        {Object.keys(categorySchemas).length > 0 && (
+                          <div className="mt-3">
+                            <CategoryAttributeFields
+                              category={manualCategory}
+                              schemas={categorySchemas}
+                              attributes={manualCategoryAttributes}
+                              onChange={(key, value) => setManualCategoryAttributes((prev) => ({ ...prev, [key]: value }))}
+                            />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <span className="text-xs text-muted uppercase tracking-wider">Condition</span>

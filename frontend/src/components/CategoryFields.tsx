@@ -26,11 +26,11 @@ interface CategorySelectorProps {
 export function CategorySelector({ category, schemas, onChange }: CategorySelectorProps) {
   return (
     <div>
-      <label className="text-xs text-white/40 uppercase tracking-wider">Category</label>
+      <label className="text-xs text-muted uppercase tracking-wider">Category</label>
       <select
         value={category}
         onChange={(e) => onChange(e.target.value as CategorySlug)}
-        className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9"
+        className="mt-1 w-full bg-canvas border border-border-strong text-ink rounded-md px-3 py-2 text-sm h-9 focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas transition-colors"
       >
         {Object.entries(schemas).map(([slug, schema]) => (
           <option key={slug} value={slug}>{schema.label}</option>
@@ -77,15 +77,20 @@ export function CategoryAttributeFields({
         const needsAmberOutline = isLowConfidence && field.key === "brand_or_creator";
         const value = attributes[field.key] || "";
         const isRecommendedEmpty = field.required && !value;
+        const borderClass = needsAmberOutline
+          ? "border-warning/60"
+          : isRecommendedEmpty
+            ? "border-primary/40"
+            : "border-border-strong";
 
         return (
           <div key={field.key} className={field.key === "dimensions" ? "col-span-2" : ""}>
-            <label className="text-xs text-white/40 uppercase tracking-wider inline-flex items-center gap-1">
+            <label className="text-xs text-muted uppercase tracking-wider inline-flex items-center gap-1">
               {field.label}
               {field.tooltip && (
                 <span className="group relative">
-                  <HelpCircle className="size-3 text-white/20 hover:text-white/40 cursor-help" />
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 border border-white/20 rounded text-xs text-white/70 whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
+                  <HelpCircle className="size-3 text-muted-soft hover:text-muted cursor-help" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 bg-ink text-on-dark rounded-md text-[11px] leading-snug whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity shadow-overlay z-10">
                     {field.tooltip}
                   </span>
                 </span>
@@ -95,9 +100,7 @@ export function CategoryAttributeFields({
               <select
                 value={value}
                 onChange={(e) => onChange(field.key, e.target.value)}
-                className={`mt-1 w-full bg-white/5 border text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9 ${
-                  needsAmberOutline ? "border-amber-400/60" : isRecommendedEmpty ? "border-cyan-400/30" : "border-white/20"
-                }`}
+                className={`mt-1 w-full bg-canvas border text-ink rounded-md px-3 py-2 text-sm h-9 focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas transition-colors ${borderClass}`}
               >
                 <option value="">Select...</option>
                 {field.options.map((opt) => (
@@ -110,16 +113,14 @@ export function CategoryAttributeFields({
                 value={value}
                 onChange={(e) => onChange(field.key, e.target.value)}
                 placeholder={field.label}
-                className={`mt-1 w-full bg-white/5 border text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 ${
-                  needsAmberOutline ? "border-amber-400/60" : isRecommendedEmpty ? "border-cyan-400/30" : "border-white/20"
-                }`}
+                className={`mt-1 w-full bg-canvas border text-ink placeholder:text-muted-soft rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas transition-colors ${borderClass}`}
               />
             )}
           </div>
         );
       })}
       {allFields.some((f) => f.required && !attributes[f.key]) && (
-        <p className="text-[10px] text-cyan-400/50 mt-1 col-span-2">Filling in highlighted fields increases your chances of selling</p>
+        <p className="text-[11px] text-muted mt-1 col-span-2">Filling in highlighted fields increases your chances of selling.</p>
       )}
     </div>
   );
