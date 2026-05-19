@@ -69,6 +69,26 @@ Convention:
 - **Why deferred:** Explicitly out of scope for the mobile-friendly redesign (user decision 2026-05-18 — responsive web only for the third feature).
 - **Decision needed when revisited:** Capacitor wrap vs React Native rewrite vs Swift native.
 
+### Edit pending order from buyer-side tile (hover affordance)
+- **What:** R-5.6 Task #21 part 2 — a hover-revealed Edit icon next to the "Pending" overlay on a buyer's pending order tile (MyAccount → Listings → Buying segment). Clicking opens the BuyModal in edit mode pre-seeded with the existing `selected_pickup_slots`.
+- **Why deferred:** BuyModal requires a full `Listing` object but the buyer-side OrderData payload only carries `listing_id`, `listing_title`, `listing_image`, `listing_price`. There's no `GET /api/listings/{id}` endpoint to hydrate a Listing from the order — the current Edit-pickup-slots flow only works from inside ListingDetailModal where the Listing object is already in memory.
+- **Backend need:** Either (a) a `GET /api/listings/{id}` single-listing endpoint that returns the full Listing shape, or (b) extend `GET /api/orders/status/{listing_id}` to embed the full listing payload alongside the order. (a) is the cleaner shape and also unblocks any future deep-linking via listing id.
+- **Frontend need:** Lift an `openEditOrder(orderId, listingId)` helper into App.tsx that fetches the listing, then calls the existing `openEditPickupSlots(listing, orderId, existingSlots)`. Plumb as a prop into MyAccountPage. On the buyer-side tile, render a jade circle (`size-6 rounded-full bg-canvas/95 backdrop-blur-sm border border-hairline inline-flex items-center justify-center text-ink hover:bg-surface-soft`) with a Pencil icon to the right of the Pending overlay, shown via `group-hover` on the article.
+- **Status:** R-5.6 shipped the prominent "Pending" overlay (uppercase tracking-widest jade pill matching the marketplace "Sold" treatment) but deferred the hover-edit affordance per the brief's escape hatch — current workaround is to click into the listing detail modal from outside MyAccount and use the existing Edit pickup slots button there.
+
+### Live chat (buyer ↔ seller messaging)
+- **What:** Real-time messaging between buyer and seller, gated to active or completed transactions for trust.
+- **Why deferred:** No messaging infrastructure today. The notifications panel and design both reference an `unread_messages` punchlist row that currently returns empty.
+- **Backend need:** `messages` table (buyer_id, seller_id, listing_id, body, read_at, created_at), realtime channel for live delivery, `GET /api/messages?listing_id=X`, `POST /api/messages`, mark-read endpoint. Probably scoped to a PurchaseOrder context initially (no DMs outside a transaction).
+- **Surfaces:** Message icon in global nav (currently a placeholder, no route). Per-listing chat thread accessible from BuyModal / Listing Detail / Order Management. Inline chat affordance in seller-side punchlist row "Respond to messages".
+- **Frontend need:** Chat thread UI, optimistic message send + revert on failure, presence/typing indicator (optional), unread count integration into Bell unread dot.
+
+### Footer menu
+- **What:** Persistent site footer with utility links — About, Trust & Safety, Privacy, Terms, Help & Support, Communities Guidelines, Pickup Etiquette, social links.
+- **Why deferred:** Current design has no footer; the focus has been the main-app surfaces. Without a footer, users can't easily reach legal/policy pages or discover supporting content.
+- **Surfaces:** Bottom of every authenticated and unauthenticated page; collapsed link list on mobile, multi-column on desktop.
+- **Decisions needed:** Which pages exist today (Help & Support exists but needs reskin — backlog item below), which need to be created (Trust & Safety, Privacy, Terms), what social handles to surface.
+
 ---
 
 ## Tech debt

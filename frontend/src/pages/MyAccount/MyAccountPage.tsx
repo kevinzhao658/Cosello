@@ -3204,14 +3204,26 @@ function ListingsTabContent({
                   ? "bg-warning/10 text-warning"
                   : "bg-primary text-on-primary";
 
+              // Pending buyer-side orders get the distinct "Pending" overlay
+              // (uppercase tracking-widest jade pill) mirroring the marketplace
+              // "Sold" overlay treatment — a clearer trust signal that this is
+              // a live order awaiting the seller. Other states keep the
+              // standard rounded-full status pill.
+              const isPending = order.status === "pending" && !["declined", "withdrawn", "expired"].includes(viewState);
               return (
                 <article key={order.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
                   <div className="relative aspect-square bg-surface-soft">
                     <img src={order.listing_image} alt="" className="absolute inset-0 size-full object-cover" />
-                    <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      {statusLabel}
-                    </span>
+                    {isPending ? (
+                      <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-primary px-2 py-1 rounded-sm">
+                        Pending
+                      </span>
+                    ) : (
+                      <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                        {statusLabel}
+                      </span>
+                    )}
                   </div>
                   <div className="p-3 flex-1 flex flex-col gap-1">
                     <p className="text-sm font-medium text-ink line-clamp-1">{order.listing_title}</p>
