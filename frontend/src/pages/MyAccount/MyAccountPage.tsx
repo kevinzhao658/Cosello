@@ -627,6 +627,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         setShowDeclineConfirm(null);
         fetchMyListings();
         fetchAllOrders();
+        fetchPunchlist();
       }
     } catch {
       // ignore
@@ -927,6 +928,20 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       supabase.removeChannel(channel);
     };
   }, [user?.id, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+
+  // When a notification routes the user here, force a fresh fetch of
+  // orders/listings/punchlist so the auto-open watcher below has up-to-date
+  // state. Without this, a buyer's just-created pending order may not be in
+  // mySellerOrders/myListings yet (the Supabase realtime channel covers the
+  // already-mounted case but not the navigate-from-elsewhere case where
+  // initial mount may have fetched before the order was committed).
+  useEffect(() => {
+    if (!pendingListingId) return;
+    fetchAllOrders();
+    fetchMyListings();
+    fetchPunchlist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingListingId]);
 
   // Auto-open order modal when routed from notification
   useEffect(() => {
