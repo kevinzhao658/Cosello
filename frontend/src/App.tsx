@@ -12,6 +12,7 @@ import {
 } from "./components/ui/dropdown-menu";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
+import { useOrderModals } from "./contexts/OrderModalsContext";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
@@ -41,6 +42,7 @@ type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "hel
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
+  const { openOrderConfirmSummary } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
   const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
@@ -486,6 +488,20 @@ export default function App() {
     if (withListing || noListing) {
       markNotificationRead(notificationId);
     }
+    // Buyer-side confirmation-flow notifications open the OrderConfirmSummary
+    // modal in place. The modal's "Confirm pickup" CTA leads into the
+    // attestation + rating chain. No /account routing needed — the modal
+    // surfaces wherever the user happened to be when the notification landed.
+    const inPlaceTypes = ["order_confirmed", "address_released", "order_completed", "review_submitted"];
+    if (inPlaceTypes.includes(type) && listingId) {
+      setNotificationsOpen(false);
+      openOrderConfirmSummary(listingId);
+      return;
+    }
+    // `purchase` (seller-side new order) and `order_updated` (buyer/seller
+    // mutual updates) keep their existing /account routing — `purchase` opens
+    // OrderManagementModal in MyAccountPage (still inline; see backlog
+    // "OrderManagementModal full lift").
     if (withListing && listingId) {
       setNotificationsOpen(false);
       setPendingListingId(listingId);
@@ -494,13 +510,14 @@ export default function App() {
       setNotificationsOpen(false);
       setPage("account");
     }
-  }, [markNotificationRead]);
+  }, [markNotificationRead, openOrderConfirmSummary]);
 
   const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
     setNotificationsOpen(false);
-    if (listingId) setPendingListingId(listingId);
-    setPage("account");
-  }, []);
+    // The "Confirm pickup" inline CTA on the address_released notification —
+    // route through the same in-place modal flow as a click on the body.
+    if (listingId) openOrderConfirmSummary(listingId);
+  }, [openOrderConfirmSummary]);
 
   useEffect(() => {
     if (!isAuthenticated || !token) return;

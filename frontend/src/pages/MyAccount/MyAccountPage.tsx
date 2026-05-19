@@ -33,20 +33,19 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
 import { supabase } from "../../lib/supabase";
 import { useClickOutside } from "../../hooks/useClickOutside";
-import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "../../lib/pickupTime";
+import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
 import { apiFetch } from "../../lib/api";
-import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
+import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData } from "../../lib/types";
 import { getChipClass } from "../../lib/listings";
 import { FOCUS_RING, TAB_BTN_BASE, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
   getBuyerOrderViewState,
+  getPickupCountdown,
   getSellerListingCtaState,
 } from "../../lib/orderStatus";
-import { RatingModal } from "./modals/RatingModal";
-import { PickupAttestationModal } from "./modals/PickupAttestationModal";
-import { OrderConfirmSummaryModal } from "./modals/OrderConfirmSummaryModal";
+import { useOrderModals } from "../../contexts/OrderModalsContext";
 import { FriendsListModal } from "./modals/FriendsListModal";
 import { JoinCommunityModal } from "./modals/JoinCommunityModal";
 import { CreateCommunityModal } from "./modals/CreateCommunityModal";
@@ -92,31 +91,6 @@ interface ProfileStats {
   friends_count: number;
   avg_seller_rating: number;
   avg_buyer_rating: number;
-}
-
-interface OrderData {
-  id: number;
-  listing_id: string;
-  listing_title: string;
-  listing_image: string;
-  listing_price: string;
-  buyer_id: string;
-  buyer_name: string;
-  buyer_picture?: string | null;
-  seller_id: string;
-  seller_name: string;
-  seller_picture?: string | null;
-  status: string;
-  selected_pickup_slots: { date: string; time: string }[];
-  confirmed_time?: string;
-  created_at: string | null;
-  role: string;
-  buyer_reviewed: boolean;
-  seller_reviewed: boolean;
-  pickup_address: string | null;
-  address_released: boolean;
-  is_neighborhood: boolean;
-  pickup_notified: boolean;
 }
 
 interface WishlistFolder {
@@ -344,19 +318,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [withdrawingOrderId, setWithdrawingOrderId] = useState<number | null>(null);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState<number | null>(null);
 
-  // Order confirmation summary
-  const [showConfirmSummary, setShowConfirmSummary] = useState(false);
-  const [confirmSummaryData, setConfirmSummaryData] = useState<{
-    listing: MyListing;
-    buyerName: string;
-    slot: { date: string; time: string };
-    role: "seller" | "buyer";
-    confirmedTime?: string;
-    pickupAddress?: string | null;
-    order: OrderData;
-  } | null>(null);
-  const [showPickupAttestation, setShowPickupAttestation] = useState(false);
-
   // Purchases / seller orders
   const [myPurchases, setMyPurchases] = useState<OrderData[]>([]);
   const [mySellerOrders, setMySellerOrders] = useState<OrderData[]>([]);
@@ -397,31 +358,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return () => clearInterval(timer);
   }, []);
 
-  const getPickupCountdown = (order: OrderData): { expired: boolean; label: string; diff: number } => {
-    if (order.status !== "confirmed" || order.selected_pickup_slots.length === 0) {
-      return { expired: false, label: "", diff: Infinity };
-    }
-    const slot = order.selected_pickup_slots[0];
-    let targetHour = 18;
-    let targetMin = 0;
-    if (order.confirmed_time) {
-      const clock = parseClockPeriod(order.confirmed_time);
-      if (clock) {
-        targetHour = clock.hour;
-        targetMin = clock.minute;
-      }
-    } else {
-      const endHour = parseSlotEndHour(slot.time);
-      if (endHour !== null) targetHour = endHour;
-      const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
-      if (legacyEnd[slot.time]) targetHour = legacyEnd[slot.time];
-    }
-    const target = buildSlotTarget(slot.date, targetHour, targetMin);
-    const diff = target.getTime() - Date.now();
-    if (diff <= 0) return { expired: true, label: "Ready", diff };
-    return { expired: false, label: formatCountdown(diff).label, diff };
-  };
-
   const isSlotExpired = (slot: { date: string; time: string }): boolean => {
     const endHour = parseSlotEndHour(slot.time) ?? 18;
     const slotEnd = buildSlotTarget(slot.date, endHour);
@@ -460,45 +396,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   }, [countdownTick, token, myPurchases, mySellerOrders]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Rating modal
-  const [showRatingModal, setShowRatingModal] = useState(false);
-  const [ratingOrder, setRatingOrder] = useState<OrderData | null>(null);
-  const [ratingValue, setRatingValue] = useState(0);
-  const [ratingHover, setRatingHover] = useState(0);
-  const [ratingComment, setRatingComment] = useState("");
-  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
-
-  const openRatingModal = (order: OrderData) => {
-    setRatingOrder(order);
-    setRatingValue(0);
-    setRatingHover(0);
-    setRatingComment("");
-    setShowRatingModal(true);
-  };
-
-  const handleSubmitRating = async () => {
-    if (!token || !ratingOrder || ratingValue === 0) return;
-    setIsSubmittingRating(true);
-    try {
-      const res = await apiFetch(`/api/orders/${ratingOrder.id}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rating: ratingValue, comment: ratingComment }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Failed to submit review" }));
-        throw new Error(err.detail || "Failed to submit review");
-      }
-      setShowRatingModal(false);
-      setRatingOrder(null);
-      fetchAllOrders();
-      fetchMyListings();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setIsSubmittingRating(false);
-    }
-  };
+  // Rating + confirmation modals are owned by OrderModalsContext (App-level).
+  // MyAccountPage opens them via the hooked openers; on rating success the
+  // provider fires the subscribeAfterAction subscribers — we wire ours below
+  // to keep myPurchases/mySellerOrders/myListings/punchlist fresh.
+  const { openOrderConfirmSummary: ctxOpenOrderConfirmSummary, showOrderConfirmSummary, openRatingModal, subscribeAfterAction } = useOrderModals();
 
   const fetchAllOrders = useCallback(async () => {
     if (!token) return;
@@ -535,44 +437,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  const openConfirmedOrderSummary = async (listingId: string) => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/orders");
-      if (res.ok) {
-        const allOrders: OrderData[] = await res.json();
-        const order = allOrders.find((o) => o.listing_id === listingId && o.status === "confirmed");
-        if (order) {
-          const slot = order.selected_pickup_slots[0];
-          setConfirmSummaryData({
-            listing: {
-              id: order.listing_id,
-              title: order.listing_title,
-              description: "",
-              price: order.listing_price,
-              condition: "",
-              location: "",
-              tags: [],
-              imageUrl: order.listing_image,
-              postedAt: 0,
-              status: "sold",
-              brand: "",
-              name: order.listing_title,
-            },
-            buyerName: order.buyer_name,
-            slot: slot || { date: "", time: "" },
-            role: order.role as "seller" | "buyer",
-            confirmedTime: order.confirmed_time,
-            pickupAddress: order.address_released ? order.pickup_address : null,
-            order,
-          });
-          setShowConfirmSummary(true);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  };
+  const openConfirmedOrderSummary = ctxOpenOrderConfirmSummary;
 
   const handleConfirmSlot = async (orderId: number, slot: { date: string; time: string }, order: OrderData, confirmedTime: string) => {
     if (!token) return;
@@ -589,7 +454,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         setSelectedSlot(null);
         setConfirmTime("");
         if (orderModalListing) {
-          setConfirmSummaryData({
+          showOrderConfirmSummary({
             listing: orderModalListing,
             buyerName: order.buyer_name,
             slot,
@@ -597,7 +462,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             confirmedTime,
             order,
           });
-          setShowConfirmSummary(true);
           onAddToHistory?.({
             id: orderModalListing.id,
             title: formatTitle(orderModalListing.brand, orderModalListing.name),
@@ -909,6 +773,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchPunchlist();
   }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders, fetchPunchlist]);
 
+  // Refetch when an OrderModalsProvider action settles (rating submit). The
+  // Supabase realtime channel below also catches the underlying purchase_orders
+  // row update, but the explicit subscription is the deterministic path —
+  // realtime is best-effort.
+  useEffect(() => {
+    return subscribeAfterAction(() => {
+      fetchAllOrders();
+      fetchMyListings();
+      fetchPunchlist();
+    });
+  }, [subscribeAfterAction, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+
   // Realtime: refresh orders + punchlist on purchase_orders changes
   useEffect(() => {
     if (!user?.id) return;
@@ -958,7 +834,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     const purchase = myPurchases.find((o) => o.listing_id === pendingListingId && o.status === "confirmed");
     if (purchase) {
       const slot = purchase.selected_pickup_slots[0];
-      setConfirmSummaryData({
+      showOrderConfirmSummary({
         listing: {
           id: purchase.listing_id,
           title: purchase.listing_title,
@@ -980,7 +856,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         pickupAddress: purchase.address_released ? purchase.pickup_address : null,
         order: purchase,
       });
-      setShowConfirmSummary(true);
       onClearPendingListing?.();
       return;
     }
@@ -2175,30 +2050,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         />
       )}
 
-      <OrderConfirmSummaryModal
-        open={showConfirmSummary}
-        data={confirmSummaryData}
-        countdownExpired={confirmSummaryData ? getPickupCountdown(confirmSummaryData.order).expired : false}
-        onClose={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-        onConfirmPickup={() => setShowPickupAttestation(true)}
-        onDone={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-      />
-
-      <PickupAttestationModal
-        open={showPickupAttestation && !!confirmSummaryData}
-        onClose={() => setShowPickupAttestation(false)}
-        onStillWaiting={() => {
-          setShowPickupAttestation(false);
-          setShowConfirmSummary(false);
-          setConfirmSummaryData(null);
-        }}
-        onConfirm={() => {
-          if (!confirmSummaryData) return;
-          setShowPickupAttestation(false);
-          setShowConfirmSummary(false);
-          openRatingModal(confirmSummaryData.order);
-        }}
-      />
+      {/* OrderConfirmSummaryModal + PickupAttestationModal + RatingModal
+          render at App-level via OrderModalsProvider so notification clicks
+          open them in place without routing to /account. See
+          contexts/OrderModalsContext.tsx. */}
 
       {/* Order Management Modal — inline (preserved). Color tokens updated. */}
       {showOrderModal && orderModalListing && (
@@ -2402,19 +2257,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         </ModalShell>
       )}
 
-      <RatingModal
-        open={showRatingModal}
-        order={ratingOrder}
-        ratingValue={ratingValue}
-        ratingHover={ratingHover}
-        ratingComment={ratingComment}
-        isSubmitting={isSubmittingRating}
-        onClose={() => { setShowRatingModal(false); setRatingOrder(null); }}
-        onHoverChange={setRatingHover}
-        onValueChange={setRatingValue}
-        onCommentChange={setRatingComment}
-        onSubmit={handleSubmitRating}
-      />
     </section>
   );
 }

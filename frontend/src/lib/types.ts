@@ -90,3 +90,32 @@ export interface ListingUpdatePatch {
   category?: CategorySlug;
   categoryAttributes?: Record<string, string>;
 }
+
+// Order payload returned by `GET /api/orders` (and the per-order shapes used by
+// the seller-confirm, buyer-confirm summary, attestation, and rating modals).
+// Lifted out of MyAccountPage so App-level notification → modal handlers can
+// fetch and pass the same shape.
+export interface OrderData {
+  id: number;
+  listing_id: string;
+  listing_title: string;
+  listing_image: string;
+  listing_price: string;
+  buyer_id: string;
+  buyer_name: string;
+  buyer_picture?: string | null;
+  seller_id: string;
+  seller_name: string;
+  seller_picture?: string | null;
+  status: string;
+  selected_pickup_slots: { date: string; time: string }[];
+  confirmed_time?: string;
+  created_at: string | null;
+  role: string;
+  buyer_reviewed: boolean;
+  seller_reviewed: boolean;
+  pickup_address: string | null;
+  address_released: boolean;
+  is_neighborhood: boolean;
+  pickup_notified: boolean;
+}

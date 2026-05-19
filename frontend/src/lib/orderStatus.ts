@@ -1,3 +1,39 @@
+import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "./pickupTime";
+
+interface PickupCountdownOrder {
+  status: string;
+  selected_pickup_slots: { date: string; time: string }[];
+  confirmed_time?: string;
+}
+
+// Pickup-countdown derivation for a confirmed order. Returns expired + a
+// human-readable label + the raw diff so callers can drive both UI text and
+// gating logic.
+export function getPickupCountdown(order: PickupCountdownOrder): { expired: boolean; label: string; diff: number } {
+  if (order.status !== "confirmed" || order.selected_pickup_slots.length === 0) {
+    return { expired: false, label: "", diff: Infinity };
+  }
+  const slot = order.selected_pickup_slots[0];
+  let targetHour = 18;
+  let targetMin = 0;
+  if (order.confirmed_time) {
+    const clock = parseClockPeriod(order.confirmed_time);
+    if (clock) {
+      targetHour = clock.hour;
+      targetMin = clock.minute;
+    }
+  } else {
+    const endHour = parseSlotEndHour(slot.time);
+    if (endHour !== null) targetHour = endHour;
+    const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
+    if (legacyEnd[slot.time]) targetHour = legacyEnd[slot.time];
+  }
+  const target = buildSlotTarget(slot.date, targetHour, targetMin);
+  const diff = target.getTime() - Date.now();
+  if (diff <= 0) return { expired: true, label: "Ready", diff };
+  return { expired: false, label: formatCountdown(diff).label, diff };
+}
+
 // View states for a buyer's order row in MyAccountPage purchases list. These
 // are derived from raw OrderData.status plus pickup-countdown / review state
 // so the four parallel ternaries (container className, message text, badge,

@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SettingsProvider } from "./contexts/SettingsContext";
+import { OrderModalsProvider } from "./contexts/OrderModalsContext";
 import { TooltipProvider } from "./components/ui/tooltip";
 import App from "./App";
 import "./styles/index.css";
@@ -17,9 +18,11 @@ window.scrollTo(0, 0);
 createRoot(document.getElementById("root")!).render(
   <SettingsProvider>
     <AuthProvider>
-      <TooltipProvider delayDuration={300} skipDelayDuration={150}>
-        <App />
-      </TooltipProvider>
+      <OrderModalsProvider>
+        <TooltipProvider delayDuration={300} skipDelayDuration={150}>
+          <App />
+        </TooltipProvider>
+      </OrderModalsProvider>
     </AuthProvider>
   </SettingsProvider>
 );
