@@ -23,9 +23,10 @@ import { NotificationsPanel } from "./features/notifications/NotificationsPanel"
 import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
 import { ListingDetailModal, type SellerProfile } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
+import type { ProductDetails } from "./features/sell-wizard/useSellWizard";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import { PLACEHOLDER_COMMUNITY, CONDITIONS } from "./lib/listings";
+import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
@@ -58,6 +59,13 @@ export default function App() {
   // (preview cover, checklist, photo counter). The wizard fires onImagesChange
   // on every state.uploadedImages change.
   const [wizardImageCount, setWizardImageCount] = useState(0);
+  // Mirrors of wizard-internal state for the right-column preview on
+  // #newlisting. The wizard fires onProductDetailsChange whenever its AI-generated
+  // productDetails updates, and onCoverImageChange whenever the first
+  // upload/segmentation thumb resolves. Both are read-only views — App.tsx
+  // never writes back through these.
+  const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
+  const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
 
   // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
   // flow and a blank-form manual flow. Manual form fields live here so the page
@@ -207,6 +215,8 @@ export default function App() {
     setManualTags([]);
     setManualTagInput("");
     setWizardImageCount(0);
+    setAiProductDetails(null);
+    setAiCoverImageUrl(null);
   }, []);
 
   // Manual-mode publish. Seeds the wizard's productDetails from the page-level
@@ -1133,6 +1143,8 @@ export default function App() {
                     onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
                     onPhaseChange={setWizardPhase}
                     onImagesChange={setWizardImageCount}
+                    onProductDetailsChange={setAiProductDetails}
+                    onCoverImageChange={setAiCoverImageUrl}
                   />
                 </section>
 
@@ -1219,11 +1231,7 @@ export default function App() {
                                 type="button"
                                 onClick={() => setManualCategory(c.slug)}
                                 aria-pressed={active}
-                                className={`h-8 px-3 rounded-full text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                                  active
-                                    ? "bg-primary text-on-primary"
-                                    : "bg-surface-soft text-body border border-hairline hover:border-border-strong hover:text-ink"
-                                }`}
+                                className={getChipClass(active)}
                               >
                                 {c.label}
                               </button>
@@ -1243,11 +1251,7 @@ export default function App() {
                                 role="radio"
                                 aria-checked={active}
                                 onClick={() => setManualCondition(c)}
-                                className={`h-8 px-3 rounded-full text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                                  active
-                                    ? "bg-primary text-on-primary"
-                                    : "bg-surface-soft text-body border border-hairline hover:border-border-strong hover:text-ink"
-                                }`}
+                                className={getChipClass(active)}
                               >
                                 {c}
                               </button>
@@ -1260,7 +1264,9 @@ export default function App() {
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
                       <header className="flex items-baseline justify-between">
                         <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
-                        <span className="text-xs text-muted">{manualDescription.length} characters</span>
+                        <span className={`text-xs ${manualDescription.length >= 20 ? "text-primary" : "text-muted"}`}>
+                          {manualDescription.length} / 20+ chars
+                        </span>
                       </header>
                       <textarea
                         value={manualDescription}
@@ -1273,16 +1279,13 @@ export default function App() {
                         <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {manualTags.map((t) => (
-                            <span
-                              key={t}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-primary-soft border border-primary/20 text-primary-active"
-                            >
+                            <span key={t} className={getChipClass(true)}>
                               {t}
                               <button
                                 type="button"
                                 aria-label={`Remove ${t}`}
                                 onClick={() => setManualTags((prev) => prev.filter((x) => x !== t))}
-                                className="hover:text-ink transition-colors"
+                                className="text-on-primary/80 hover:text-on-primary transition-colors"
                               >
                                 <X className="size-3" />
                               </button>
@@ -1300,7 +1303,7 @@ export default function App() {
                               setManualTagInput("");
                             }}
                             placeholder={manualTags.length ? "Add another…" : "typewriter, 1960s…"}
-                            className="w-32 px-2.5 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
+                            className="flex-1 min-w-32 max-w-xs px-2.5 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
                           />
                         </div>
                       </div>
@@ -1362,40 +1365,58 @@ export default function App() {
                     <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
                   </div>
                   <div className="relative aspect-square bg-surface-soft">
-                    {/* Cover image — first uploaded photo. Wizard owns the
-                        blob URLs; we read the count above and only show the
-                        cover when at least one exists. The actual cover URL
-                        isn't exposed via the imperative handle yet (intentional —
-                        keeps the contract minimal); the preview shows a tinted
-                        placeholder until publish. */}
-                    {wizardImageCount > 0 ? (
-                      <div className="absolute inset-0 flex items-center justify-center bg-primary-soft text-primary">
-                        <ImagePlus className="size-8" aria-hidden="true" />
-                      </div>
+                    {/* Cover image — first uploaded photo (or first segmentation
+                        thumb once AI segmentation runs). The wizard exposes the
+                        URL via getCoverImageUrl() and fires onCoverImageChange
+                        when it changes. */}
+                    {aiCoverImageUrl ? (
+                      <img
+                        src={aiCoverImageUrl}
+                        alt="Listing cover preview"
+                        className="absolute inset-0 size-full object-cover"
+                      />
                     ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-muted-soft">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
                         <ImagePlus className="size-8" aria-hidden="true" />
+                        <span className="text-[11px]">Photo preview after publish</span>
                       </div>
                     )}
                   </div>
                   <div className="p-3 space-y-1">
                     <p className="text-sm font-medium text-ink line-clamp-1">
                       {(() => {
-                        if (newListingMode !== "manual") {
-                          return wizardImageCount > 0 ? "Your listing title" : "Untitled";
+                        if (newListingMode === "manual") {
+                          const brand = manualBrand.trim();
+                          const name = manualName.trim();
+                          if (brand && name) return `${brand} — ${name}`;
+                          return brand || name || "Untitled";
                         }
-                        const brand = manualBrand.trim();
-                        const name = manualName.trim();
+                        const brand = aiProductDetails?.brand?.trim() ?? "";
+                        const name = aiProductDetails?.name?.trim() ?? "";
                         if (brand && name) return `${brand} — ${name}`;
                         return brand || name || "Untitled";
                       })()}
                     </p>
                     <p className="text-xs text-muted line-clamp-1">
-                      {(newListingMode === "manual" ? manualPickup.trim() : "") || user?.neighborhood || "West Village"}
-                      {newListingMode === "manual" ? ` · ${manualCondition}` : ""}
+                      {(() => {
+                        const location = newListingMode === "manual"
+                          ? (manualPickup.trim() || user?.neighborhood || "West Village")
+                          : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
+                        const condition = newListingMode === "manual"
+                          ? manualCondition
+                          : (aiProductDetails?.condition?.trim() ?? "");
+                        return condition ? `${location} · ${condition}` : location;
+                      })()}
                     </p>
                     <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
-                      {newListingMode === "manual" && manualPrice ? `$${manualPrice}` : "$—"}
+                      {(() => {
+                        if (newListingMode === "manual") {
+                          return manualPrice ? `$${manualPrice}` : "$—";
+                        }
+                        const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+                        const num = raw ? Number.parseFloat(raw) : NaN;
+                        return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
+                      })()}
                     </p>
                   </div>
                 </article>
@@ -1403,12 +1424,30 @@ export default function App() {
                 <div className="bg-canvas border border-hairline rounded-md p-4">
                   <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
                   <ul className="space-y-2">
-                    {([
-                      ["At least one photo", wizardImageCount > 0],
-                      ["Brand or name", newListingMode === "manual" ? (manualBrand.trim().length > 0 || manualName.trim().length > 0) : false],
-                      ["Price set", newListingMode === "manual" ? /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0 : false],
-                      ["Description 20+ chars", newListingMode === "manual" ? manualDescription.trim().length >= 20 : false],
-                    ] as const).map(([label, done]) => (
+                    {(() => {
+                      const isManual = newListingMode === "manual";
+                      const hasBrandOrName = isManual
+                        ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
+                        : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+                      const hasPrice = (() => {
+                        if (isManual) {
+                          return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+                        }
+                        const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+                        const num = raw ? Number.parseFloat(raw) : NaN;
+                        return Number.isFinite(num) && num > 0;
+                      })();
+                      const hasDescription = isManual
+                        ? manualDescription.trim().length >= 20
+                        : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+                      const rows: ReadonlyArray<readonly [string, boolean]> = [
+                        ["At least one photo", wizardImageCount > 0],
+                        ["Brand or name", hasBrandOrName],
+                        ["Price set", hasPrice],
+                        ["Description 20+ chars", hasDescription],
+                      ];
+                      return rows;
+                    })().map(([label, done]) => (
                       <li key={label} className="flex items-center gap-2.5 text-sm">
                         <span
                           aria-hidden="true"

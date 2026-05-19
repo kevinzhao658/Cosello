@@ -26,6 +26,8 @@ export interface SellWizardHandle {
   resetForLogout: () => void;
   addImages: (files: FileList | File[]) => void;
   getImageCount: () => number;
+  getProductDetails: () => ProductDetails | null;
+  getCoverImageUrl: () => string | null;
   setProductDetails: (details: ProductDetails) => void;
   setPostPickupLocation: (value: string) => void;
 }
@@ -47,6 +49,8 @@ export interface SellWizardProps {
   onSwitchToBuy: () => void;
   onPhaseChange?: (phase: "review" | "reason" | "cards" | "pickup" | null) => void;
   onImagesChange?: (count: number) => void;
+  onProductDetailsChange?: (details: ProductDetails | null) => void;
+  onCoverImageChange?: (url: string | null) => void;
 }
 
 const priceStringToCents = (raw: string): number | null => {
@@ -68,6 +72,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onSwitchToBuy,
   onPhaseChange,
   onImagesChange,
+  onProductDetailsChange,
+  onCoverImageChange,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
   const [state, actions] = useSellWizard();
@@ -86,10 +92,28 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // any leftover URLs are released even if the wizard is torn down without
   // hitting CLEAR/DELETE paths.
   const uploadedImagesRef = useRef(uploadedImages);
+  const productDetailsRef = useRef(productDetails);
+  const segmentationRef = useRef(segmentation);
+  const computeCoverImageUrl = useCallback((): string | null => {
+    const images = uploadedImagesRef.current;
+    if (images.length > 0) return images[0].preview;
+    const seg = segmentationRef.current;
+    if (seg && seg.image_urls.length > 0) return seg.image_urls[0];
+    return null;
+  }, []);
   useEffect(() => {
     uploadedImagesRef.current = uploadedImages;
     onImagesChange?.(uploadedImages.length);
-  }, [uploadedImages, onImagesChange]);
+    onCoverImageChange?.(computeCoverImageUrl());
+  }, [uploadedImages, onImagesChange, onCoverImageChange, computeCoverImageUrl]);
+  useEffect(() => {
+    productDetailsRef.current = productDetails;
+    onProductDetailsChange?.(productDetails);
+  }, [productDetails, onProductDetailsChange]);
+  useEffect(() => {
+    segmentationRef.current = segmentation;
+    onCoverImageChange?.(computeCoverImageUrl());
+  }, [segmentation, onCoverImageChange, computeCoverImageUrl]);
   useEffect(() => {
     return () => {
       for (const img of uploadedImagesRef.current) {
@@ -535,9 +559,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     resetForLogout,
     addImages: addImagesFromFiles,
     getImageCount: () => uploadedImagesRef.current.length,
+    getProductDetails: () => productDetailsRef.current,
+    getCoverImageUrl: computeCoverImageUrl,
     setProductDetails: (details) => actions.setProductDetails(details),
     setPostPickupLocation: (value) => actions.setPostPickupLocation(value),
-  }), [handlePostListing, resetForLogout, addImagesFromFiles, actions]);
+  }), [handlePostListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
 
   const handleBulkPostListing = async () => {
     if (bulkItems.length === 0 || uploadedImages.length === 0) return;

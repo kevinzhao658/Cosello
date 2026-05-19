@@ -9,3 +9,12 @@ export const PLACEHOLDER_COMMUNITY = {
   id: "__placeholder__",
   name: "Cosello",
 } as const;
+
+const CHIP_BASE =
+  "h-8 px-3 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+
+export function getChipClass(active: boolean): string {
+  return active
+    ? `${CHIP_BASE} bg-primary text-on-primary`
+    : `${CHIP_BASE} bg-surface-soft text-body border border-hairline hover:border-border-strong hover:text-ink`;
+}
