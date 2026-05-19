@@ -51,11 +51,11 @@ export const GroupCard = memo(function GroupCard({
 }: GroupCardProps) {
   return (
     <div
-      className={`inline-flex flex-col items-center gap-1 rounded-lg p-1 transition-colors ${
-        bulkReviewPhase === "review" && isDropTarget ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""
+      className={`inline-flex flex-col items-center gap-1 rounded-md p-1 transition-colors ${
+        bulkReviewPhase === "review" && isDropTarget ? "bg-primary-soft ring-1 ring-primary" : ""
       } ${
         bulkReviewPhase === "cards" || bulkReviewPhase === "pickup"
-          ? `cursor-pointer hover:bg-white/5 ${isActiveCard ? "bg-fuchsia-500/10 ring-1 ring-fuchsia-400/60" : ""}`
+          ? `cursor-pointer hover:bg-surface-soft ${isActiveCard ? "bg-primary-soft ring-1 ring-primary" : ""}`
           : ""
       }`}
       onClick={bulkReviewPhase === "cards" || bulkReviewPhase === "pickup" ? () => onCardSelect(groupIdx) : undefined}
@@ -63,7 +63,7 @@ export const GroupCard = memo(function GroupCard({
       onDragLeave={bulkReviewPhase === "review" ? onDragLeave : undefined}
       onDrop={bulkReviewPhase === "review" ? () => onDrop(groupIdx) : undefined}
     >
-      <span className="text-xs text-white/40 leading-none pl-0.5">{groupIdx + 1}</span>
+      <span className="text-xs text-muted leading-none pl-0.5">{groupIdx + 1}</span>
       <div className="flex flex-nowrap items-center gap-1">
         {group.map((imgIdx) => {
           const img = uploadedImages[imgIdx];
@@ -76,18 +76,18 @@ export const GroupCard = memo(function GroupCard({
               draggable={bulkReviewPhase === "review"}
               onDragStart={bulkReviewPhase === "review" ? () => onDragStart(imgIdx, groupIdx) : undefined}
               onDragEnd={bulkReviewPhase === "review" ? onDragEnd : undefined}
-              className={`relative size-16 rounded-lg border border-white/20 transition-opacity shrink-0 ${
+              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 ${
                 bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
               } ${isDragging ? "opacity-40" : "opacity-100"}`}
             >
-              <img src={previewSrc} alt={`Photo ${imgIdx + 1}`} className="size-full object-cover rounded-lg" draggable={false} />
+              <img src={previewSrc} alt={`Photo ${imgIdx + 1}`} className="size-full object-cover rounded-md" draggable={false} />
               {bulkReviewPhase === "review" && (
                 <button
                   type="button"
                   aria-label={`Delete photo ${imgIdx + 1}`}
                   onMouseDown={onDeleteMouseDown}
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteClick(imgIdx); }}
-                  className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                  className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
                   <X className="size-3" />
                 </button>
@@ -97,11 +97,11 @@ export const GroupCard = memo(function GroupCard({
         })}
       </div>
       {bulkReviewPhase === "reason" ? (
-        <p className="text-xs text-white text-center mt-1">
+        <p className="text-xs text-ink text-center mt-1">
           {[brandHint, nameHint].filter(Boolean).join(" ") || "—"}
         </p>
       ) : bulkReviewPhase === "cards" || bulkReviewPhase === "pickup" ? (
-        <p className="text-xs text-white text-center mt-1 whitespace-pre-line">{bulkItemTitle ? wrapAt(bulkItemTitle) : "—"}</p>
+        <p className="text-xs text-ink text-center mt-1 whitespace-pre-line">{bulkItemTitle ? wrapAt(bulkItemTitle) : "—"}</p>
       ) : (
         <div className="flex items-start gap-3 w-full justify-center">
           <div className="flex flex-col items-center gap-0.5">
@@ -114,9 +114,9 @@ export const GroupCard = memo(function GroupCard({
               maxLength={80}
               aria-label={`Brand for item ${groupIdx + 1}`}
               style={{ fieldSizing: "content" } as React.CSSProperties}
-              className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
+              className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-border-strong pb-0.5 text-xs text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors text-center"
             />
-            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Brand</label>
+            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-muted uppercase leading-none">Brand</label>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <input
@@ -128,9 +128,9 @@ export const GroupCard = memo(function GroupCard({
               maxLength={120}
               aria-label={`Name for item ${groupIdx + 1}`}
               style={{ fieldSizing: "content" } as React.CSSProperties}
-              className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-white/40 pb-0.5 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-white transition-colors text-center"
+              className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-border-strong pb-0.5 text-xs text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors text-center"
             />
-            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-white/40 uppercase leading-none">Name</label>
+            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-muted uppercase leading-none">Name</label>
           </div>
         </div>
       )}

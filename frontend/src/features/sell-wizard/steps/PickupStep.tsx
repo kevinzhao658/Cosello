@@ -17,22 +17,23 @@ export function PickupStep({
   return (
     <div className="space-y-4 max-w-md mx-auto">
       <div>
-        <label className="text-xs text-white/40 uppercase tracking-wider">Pickup location</label>
+        <label htmlFor="bulk-pickup-location" className="text-xs text-muted uppercase tracking-wider">Pickup location</label>
         <Input
+          id="bulk-pickup-location"
           value={bulkPickupLocation}
           onChange={(e) => onChange(e.target.value)}
           placeholder="e.g. Lower East Side, NYC"
           maxLength={200}
-          className="mt-1 bg-white/5 border-white/20 text-white"
+          className="mt-1"
         />
-        <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+        <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
           Your address will not be shared until pickup is confirmed.
         </p>
       </div>
       <Button
         onClick={onPost}
         disabled={isPostingBulk}
-        className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-full disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
       >
         {isPostingBulk ? (
           <Loader2 className="size-4 animate-spin" />

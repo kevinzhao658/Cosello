@@ -754,15 +754,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                     >
                       {dragImageState && (
                         <div className={`w-0.5 h-full mx-auto rounded-full transition-all ${
-                          dragOverGap === groupIdx ? "bg-fuchsia-400 w-1" : "bg-white/15"
+                          dragOverGap === groupIdx ? "bg-primary w-1" : "bg-hairline"
                         }`} />
                       )}
                     </div>
                     <div
-                      className={`relative flex items-center gap-1.5 rounded-lg px-1.5 py-1 border shrink-0 transition-all cursor-pointer ${
-                        isDropTarget ? "bg-white/10 ring-1 ring-white/40 border-white/30" :
-                        isActive ? "border-fuchsia-400/60 bg-fuchsia-500/5" : "border-white/30"
-                      }`}
+                      className={`relative flex items-center gap-1.5 rounded-md px-1.5 py-1 border shrink-0 transition-colors cursor-pointer ${
+                        isDropTarget ? "bg-primary-soft ring-1 ring-primary border-primary" :
+                        isActive ? "border-primary bg-primary-soft" : "border-hairline"
+                      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas`}
                       onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
                       onDragLeave={() => actions.dragOverGroup(null)}
                       onDrop={() => handleDrop(groupIdx)}
@@ -771,7 +771,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                         actions.setPhase("cards");
                       }}
                     >
-                      <span className="absolute -top-1.5 -left-1.5 size-4 rounded-full bg-white/90 flex items-center justify-center text-[8px] font-bold text-black z-10">
+                      <span className="absolute -top-1.5 -left-1.5 size-4 rounded-full bg-ink flex items-center justify-center text-[8px] font-bold text-on-dark z-10">
                         {groupIdx + 1}
                       </span>
                       {item.imageIndices.map((imgIdx) => {
@@ -784,14 +784,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                             draggable
                             onDragStart={() => handleDragStart(imgIdx, groupIdx)}
                             onDragEnd={handleDragEnd}
-                            className={`relative size-16 rounded-lg border border-white/20 cursor-grab active:cursor-grabbing transition-opacity ${
+                            className={`relative size-16 rounded-md border border-hairline cursor-grab active:cursor-grabbing transition-opacity ${
                               isDragging ? "opacity-40" : "opacity-100"
                             }`}
                           >
                             <img
                               src={img.preview}
                               alt={`Upload ${imgIdx + 1}`}
-                              className="size-full object-cover rounded-lg"
+                              className="size-full object-cover rounded-md"
                               draggable={false}
                             />
                             <button
@@ -799,7 +799,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
@@ -820,14 +820,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               >
                 {dragImageState && (
                   <div className={`w-0.5 h-full mx-auto rounded-full transition-all ${
-                    dragOverGap === bulkItems.length ? "bg-fuchsia-400 w-1" : "bg-white/15"
+                    dragOverGap === bulkItems.length ? "bg-primary w-1" : "bg-hairline"
                   }`} />
                 )}
               </div>
               <div className="shrink-0 ml-auto flex flex-col gap-1">
                 <button
+                  type="button"
                   onClick={clearAllUploads}
-                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                  className="text-[10px] text-muted hover:text-error transition-colors px-2 py-1 rounded-md border border-transparent hover:border-error/30 hover:bg-error/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
                   Clear all
                 </button>
@@ -859,7 +860,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                       aria-label={`Delete photo ${index + 1}`}
                       onMouseDown={handleDeletePhotoMouseDown}
                       onClick={handleDeletePhotoClick(index)}
-                      className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-full bg-black/55 text-white text-xs hover:bg-black/70 transition-colors"
+                      className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-full bg-ink/70 text-on-dark text-xs hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
                       <X className="size-3" />
                     </button>
