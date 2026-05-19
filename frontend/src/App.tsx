@@ -1104,7 +1104,8 @@ export default function App() {
                 <DropdownMenuContent
                   align="end"
                   sideOffset={8}
-                  className="w-56 bg-canvas border border-hairline shadow-overlay rounded-md p-1"
+                  collisionPadding={8}
+                  className="w-56 bg-canvas border border-hairline shadow-overlay rounded-md p-1 z-[60]"
                 >
                   <DropdownMenuItem
                     onSelect={() => setPage("home")}
