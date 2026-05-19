@@ -1612,28 +1612,35 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
         {/* ── Tab panels ────────────────────────────────── */}
         {accountTab === "overview" && (
-          <div id="account-panel-overview" role="tabpanel" className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
-            <OverviewListingsPanel
-              listingsTab={listingsTab}
-              setListingsTab={setListingsTab}
-              myListings={myListings}
-              myPurchases={myPurchases}
-              mySellerOrders={mySellerOrders}
-              openEditListing={openEditListing}
-              openOrderModal={openOrderModal}
-              openConfirmedOrderSummary={openConfirmedOrderSummary}
-              openRatingModal={openRatingModal}
-              getListingTimeInfo={getListingTimeInfo}
-              getPickupCountdown={getPickupCountdown}
-              onNavigate={onNavigate}
+          <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
+            <OverviewCommunitiesRow
+              communities={communities}
+              openCommunityDetail={openCommunityDetail}
+              openJoinModal={() => setShowJoinModal(true)}
             />
-            <PunchlistPanel
-              punchlist={punchlist}
-              onConfirmPickup={(p) => {
-                const listing = myListings.find((l) => l.id === p.listing_id);
-                if (listing) openOrderModal(listing);
-              }}
-            />
+            <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
+              <OverviewListingsPanel
+                listingsTab={listingsTab}
+                setListingsTab={setListingsTab}
+                myListings={myListings}
+                myPurchases={myPurchases}
+                mySellerOrders={mySellerOrders}
+                openEditListing={openEditListing}
+                openOrderModal={openOrderModal}
+                openConfirmedOrderSummary={openConfirmedOrderSummary}
+                openRatingModal={openRatingModal}
+                getListingTimeInfo={getListingTimeInfo}
+                getPickupCountdown={getPickupCountdown}
+                onNavigate={onNavigate}
+              />
+              <PunchlistPanel
+                punchlist={punchlist}
+                onConfirmPickup={(p) => {
+                  const listing = myListings.find((l) => l.id === p.listing_id);
+                  if (listing) openOrderModal(listing);
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -2407,6 +2414,148 @@ function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange
         className={`inline-block size-5 transform rounded-full bg-canvas shadow-card transition-transform motion-safe:duration-150 ${checked ? "translate-x-5" : "translate-x-0.5"}`}
       />
     </button>
+  );
+}
+
+// ── Overview: Communities row (circular tiles) ─────────────
+function communityInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "··";
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return trimmed.slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+const COMM_TILE_BTN =
+  `flex flex-col items-center gap-1.5 w-[72px] rounded-md ${FOCUS_RING}`;
+const COMM_TILE_LABEL =
+  "text-[11px] leading-tight text-center truncate w-full text-ink";
+
+function OverviewCommunitiesRow({
+  communities,
+  openCommunityDetail,
+  openJoinModal,
+}: {
+  communities: CommunityData[];
+  openCommunityDetail: (c: CommunityData) => void;
+  openJoinModal: () => void;
+}) {
+  const VISIBLE = 6;
+  const visible = communities.slice(0, VISIBLE);
+  const extra = communities.slice(VISIBLE);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  useClickOutside(popoverRef, () => setMoreOpen(false), moreOpen);
+
+  const isEmpty = communities.length === 0;
+
+  return (
+    <section
+      aria-label="Your communities"
+      className="bg-canvas border border-hairline rounded-md p-4"
+    >
+      <div className="flex items-baseline justify-between gap-2 mb-3">
+        <h2 className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">
+          Communities
+        </h2>
+        {!isEmpty && (
+          <span className="text-[11px] text-muted">
+            {communities.length} {communities.length === 1 ? "community" : "communities"}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        {visible.map((c) => (
+          <Tooltip key={c.id} content={c.name}>
+            <button
+              type="button"
+              onClick={() => openCommunityDetail(c)}
+              aria-label={c.name}
+              className={COMM_TILE_BTN}
+            >
+              <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
+                {c.image ? (
+                  <img src={c.image} alt="" className="size-full object-cover" />
+                ) : (
+                  communityInitials(c.name)
+                )}
+              </span>
+              <span className={COMM_TILE_LABEL}>
+                {c.name.split(" ").slice(0, 2).join(" ")}
+              </span>
+            </button>
+          </Tooltip>
+        ))}
+
+        {extra.length > 0 && (
+          <div ref={popoverRef} className="relative inline-block">
+            <button
+              type="button"
+              aria-haspopup="true"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+              className={COMM_TILE_BTN}
+            >
+              <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
+                …
+              </span>
+              <span className={COMM_TILE_LABEL}>More</span>
+            </button>
+            {moreOpen && (
+              <div
+                role="menu"
+                className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
+              >
+                <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
+                  More communities
+                </div>
+                {extra.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      openCommunityDetail(c);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft text-left ${FOCUS_RING}`}
+                  >
+                    <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
+                      {c.image ? (
+                        <img src={c.image} alt="" className="size-full object-cover" />
+                      ) : (
+                        communityInitials(c.name)
+                      )}
+                    </span>
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <Tooltip content="Join or create a community">
+          <button
+            type="button"
+            onClick={openJoinModal}
+            aria-label="Join or create a community"
+            className={COMM_TILE_BTN}
+          >
+            <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
+              <Plus className="size-5" aria-hidden="true" />
+            </span>
+            <span className={COMM_TILE_LABEL}>Join or create</span>
+          </button>
+        </Tooltip>
+      </div>
+
+      {isEmpty && (
+        <p className="text-xs text-muted mt-2">
+          Join a community to surface trust signals on your listings.
+        </p>
+      )}
+    </section>
   );
 }
 
