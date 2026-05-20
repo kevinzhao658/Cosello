@@ -20,6 +20,7 @@ import {
   LogOut,
   AlertTriangle,
   Users,
+  UserPlus,
   RotateCcw,
   Star,
   ChevronDown,
@@ -1396,13 +1397,52 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 </>
               )}
             </div>
+            <div className="mt-2 text-sm text-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <button
+                type="button"
+                onClick={openFriendsModal}
+                className={`inline-flex items-center gap-1 rounded-sm hover:text-ink transition-colors ${FOCUS_RING}`}
+              >
+                <span className="font-semibold text-ink">{stats.friends_count}</span>
+                <span>{stats.friends_count === 1 ? "friend" : "friends"}</span>
+              </button>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={() => setAccountTab("overview")}
+                className={`inline-flex items-center gap-1 rounded-sm hover:text-ink transition-colors ${FOCUS_RING}`}
+              >
+                <span className="font-semibold text-ink">{communities.length}</span>
+                <span>{communities.length === 1 ? "community" : "communities"}</span>
+              </button>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={() => setAccountTab("listings")}
+                className={`inline-flex items-center gap-1 rounded-sm hover:text-ink transition-colors ${FOCUS_RING}`}
+              >
+                <span className="font-semibold text-ink">{myListings.length}</span>
+                <span>{myListings.length === 1 ? "listing" : "listings"}</span>
+              </button>
+            </div>
           </div>
-          <button
-            onClick={openEditProfileModal}
-            className={`inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
-          >
-            Edit profile
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={openEditProfileModal}
+              className={`inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+            >
+              Edit profile
+            </button>
+            <button
+              type="button"
+              onClick={openAddFriendsModal}
+              className={`inline-flex items-center gap-1.5 h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold transition-colors ${FOCUS_RING}`}
+            >
+              <UserPlus className="size-4" />
+              Add Friends
+            </button>
+          </div>
         </div>
 
         {/* ── Tab strip ────────────────────────────────── */}
