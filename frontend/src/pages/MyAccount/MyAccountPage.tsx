@@ -24,7 +24,6 @@ import {
   RotateCcw,
   Star,
   ChevronDown,
-  ShieldCheck,
   Trash2,
   Globe,
   ChevronRight,
@@ -39,7 +38,7 @@ import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData } from "../../lib/types";
 import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
-import { FOCUS_RING, TAB_BTN_BASE, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
+import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
@@ -1427,7 +1426,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // ── Derived data ───────────────────────────────────────
   const avgRating = ((stats.avg_seller_rating + stats.avg_buyer_rating) / 2).toFixed(2);
-  const memberSince = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const sellingActiveCount = myListings.filter((l) => !getListingTimeInfo(l.postedAt).expired).length;
   const sellingDraftCount = myListings.filter((l) => l.status === "draft").length;
@@ -1461,56 +1459,43 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             <h1 className="text-2xl font-extrabold text-ink tracking-display leading-tight">
               {user?.display_name || "Your account"}
             </h1>
-            <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5">
-              <span className="inline-flex items-center gap-1">
-                <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted mt-2">
+              <span className="inline-flex items-center gap-1 text-primary font-semibold">
+                <Check className="size-4" aria-hidden="true" />
                 Verified
               </span>
               {stats.total_listings > 0 && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1">
-                    {avgRating}
-                    <Star className="size-3 fill-ink text-ink" aria-hidden="true" />
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 text-ink font-semibold">
+                      {avgRating}
+                      <Star className="size-3.5 fill-ink text-ink" aria-hidden="true" />
+                    </span>
+                    {sellingSoldCount > 0 && (
+                      <span>· {sellingSoldCount} {sellingSoldCount === 1 ? "sale" : "sales"}</span>
+                    )}
                   </span>
                 </>
               )}
-              <span aria-hidden="true">·</span>
-              <span>Member since {memberSince}</span>
+              {stats.friends_count > 0 && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    onClick={openFriendsModal}
+                    className={`rounded-sm hover:text-ink motion-safe:transition-colors ${FOCUS_RING}`}
+                  >
+                    {stats.friends_count} {stats.friends_count === 1 ? "friend" : "friends"}
+                  </button>
+                </>
+              )}
               {user?.neighborhood && (
                 <>
                   <span aria-hidden="true">·</span>
                   <span>{user.neighborhood}, NY</span>
                 </>
               )}
-            </div>
-            <div className="mt-2 text-sm text-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-              <button
-                type="button"
-                onClick={openFriendsModal}
-                className={`inline-flex items-center gap-1 rounded-sm hover:text-ink transition-colors ${FOCUS_RING}`}
-              >
-                <span className="font-semibold text-ink">{stats.friends_count}</span>
-                <span>{stats.friends_count === 1 ? "friend" : "friends"}</span>
-              </button>
-              <span aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={() => setAccountTab("overview")}
-                className={`inline-flex items-center gap-1 rounded-sm hover:text-ink transition-colors ${FOCUS_RING}`}
-              >
-                <span className="font-semibold text-ink">{communities.length}</span>
-                <span>{communities.length === 1 ? "community" : "communities"}</span>
-              </button>
-              <span aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={() => setAccountTab("listings")}
-                className={`inline-flex items-center gap-1 rounded-sm hover:text-ink transition-colors ${FOCUS_RING}`}
-              >
-                <span className="font-semibold text-ink">{myListings.length}</span>
-                <span>{myListings.length === 1 ? "listing" : "listings"}</span>
-              </button>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1533,7 +1518,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         </div>
 
         {/* ── Tab strip ────────────────────────────────── */}
-        <div role="tablist" aria-label="Account sections" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md mb-8">
+        <div role="tablist" aria-label="Account sections" className="flex items-end gap-8 border-b border-hairline mb-8">
           {([
             ["overview", "Overview", null],
             ["listings", "Listings", myListings.length || null],
@@ -1548,13 +1533,17 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 aria-selected={active}
                 aria-controls={`account-panel-${id}`}
                 onClick={() => setAccountTab(id)}
-                className={`${TAB_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
+                className={`relative inline-flex flex-col items-center gap-1 pb-3 px-1 motion-safe:transition-colors ${FOCUS_RING} ${active ? "text-ink" : "text-muted hover:text-ink"}`}
               >
-                {label}
-                {count != null && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${active ? "bg-primary-soft text-primary" : "bg-surface-strong text-muted"}`}>
-                    {count}
-                  </span>
+                <span className="text-base font-bold">{label}</span>
+                <span className={`text-[11px] font-semibold leading-none min-h-[12px] ${count != null ? "text-muted" : "invisible"}`}>
+                  {count ?? "0"}
+                </span>
+                {active && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -bottom-px left-0 right-0 h-[3px] bg-primary rounded-full"
+                  />
                 )}
               </button>
             );

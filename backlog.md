@@ -97,7 +97,28 @@ Convention:
 
 ---
 
+## Data gaps
+
+### `AuthUser` missing `verified` and `created_at`
+- **What:** The MyAccount header meta strip (R-5.11) calls for a "Member since Mar 2024" entry and conditionally hides the jade "Verified" badge based on a `verified` flag. Neither field exists on `AuthUser` in `frontend/src/contexts/AuthContext.tsx`.
+- **Current state:** "Verified" is rendered unconditionally for any signed-in user (matches prior behavior — the old `ShieldCheck · Verified` chip was also unconditional). The Member-since line is omitted entirely; the previous implementation computed `new Date()` on render, which faked the data and would have read "Member since May 2026" on every visit.
+- **Backend:** `users` table likely has a `created_at` already (SQLAlchemy default). Surface it in the `/api/auth/profile` response and the auth token payload. The `verified` flag is a new concept tied to phone/identity verification — out of scope until Twilio integration lands.
+- **Surfaces:** MyAccount header meta strip (R-5.11), any future profile/trust surfaces.
+
+---
+
 ## Tech debt
+
+### Unused `TAB_BTN_BASE` export
+- **What:** `frontend/src/pages/MyAccount/constants.ts` exports `TAB_BTN_BASE` (pill-segmented base class). After R-5.11 swapped the account tab strip to the editorial underlined style, no callsite references it. The selling/buying segmented toggles use `SEG_BTN_BASE`, not `TAB_BTN_BASE`.
+- **Action:** Delete the export, or keep if a future segmented-pill control is anticipated. Single-line removal.
+- **Surfaced by:** R-5.11 (2026-05-20).
+
+### Extract listing handlers into `backend/routers/listings.py`
+- **What:** Listings live in `backend/main.py` (~700 LOC of handlers in a single file) while every other domain (auth, orders, wishlist, communities, punchlist) lives in `backend/routers/*.py`. Inconsistent.
+- **Why it matters:** Adding new listing endpoints (R-5.8 DELETE, future drafts/analytics) means touching the giant main.py instead of a focused router file. main.py grows hostile.
+- **Effort:** Move existing handlers into `routers/listings.py`, register via `app.include_router(...)` in main.py. ~700 LOC migration, mechanical. Verify migration block + seed paths still work.
+- **Surfaced by:** R-5.8 backend agent (2026-05-19) when adding DELETE endpoint.
 
 ### Three unextracted MyAccountPage modals
 - `ListingsModal` (~305 lines)
