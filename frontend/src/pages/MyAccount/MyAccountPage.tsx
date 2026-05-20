@@ -53,6 +53,7 @@ import { CreateCommunityModal } from "./modals/CreateCommunityModal";
 import { ShareCommunityModal } from "./modals/ShareCommunityModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
+import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
 
 interface CommunityData {
   id: number;
@@ -306,6 +307,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
+  // Remove listing modal
+  const [removingListing, setRemovingListing] = useState<MyListing | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const openRemoveListing = (listing: MyListing) => setRemovingListing(listing);
+  const closeRemoveListing = () => {
+    if (isRemoving) return;
+    setRemovingListing(null);
+  };
+
   // Order management — modal itself lives at App level via OrderModalsProvider
   // (R-5.7.3 lift). MyAccountPage only retains the withdraw-confirmation
   // dialog state, since withdraw lives on the buyer's purchases card, not
@@ -463,6 +473,36 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       // ignore
     } finally {
       setRelistingId(null);
+    }
+  };
+
+  const handleConfirmRemoveListing = async () => {
+    if (!token || !removingListing) return;
+    setIsRemoving(true);
+    try {
+      const res = await apiFetch(`/api/listings/${removingListing.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setRemovingListing(null);
+        fetchMyListings();
+        fetchAllOrders();
+        fetchPunchlist();
+      } else {
+        let message = "Failed to remove listing.";
+        try {
+          const data = (await res.json()) as { detail?: string };
+          if (data?.detail) message = data.detail;
+        } catch {
+          // ignore
+        }
+        if (res.status === 400) message = "Sold listings cannot be removed.";
+        else if (res.status === 403) message = "You can only remove your own listings.";
+        else if (res.status === 404) message = "Listing no longer exists.";
+        alert(message);
+      }
+    } catch {
+      alert("Network error — listing was not removed.");
+    } finally {
+      setIsRemoving(false);
     }
   };
 
@@ -1348,7 +1388,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const buyingActiveCount = myPurchases.filter((o) => o.status === "pending" || o.status === "confirmed").length;
   const buyingCompletedCount = myPurchases.filter((o) => o.status === "completed").length;
-  const buyingDeclinedCount = myPurchases.filter((o) => o.status === "declined" || o.status === "withdrawn" || o.status === "expired").length;
+  const buyingDeclinedCount = myPurchases.filter((o) => o.status === "declined" || o.status === "withdrawn" || o.status === "expired" || o.status === "cancelled_by_seller").length;
 
   const visibleSavedItems = wishlistItemsWithFolder.length > 0
     ? (selectedFolderId === "all"
@@ -1525,6 +1565,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               buyingCompletedCount={buyingCompletedCount}
               buyingDeclinedCount={buyingDeclinedCount}
               openEditListing={openEditListing}
+              openRemoveListing={openRemoveListing}
               openOrderModal={openOrderManagement}
               openConfirmedOrderSummary={openConfirmedOrderSummary}
               openRatingModal={openRatingModal}
@@ -1709,6 +1750,36 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onClose={() => setShowFriendsModal(false)}
         onViewUser={onViewUser}
         onRemoveFriend={handleRemoveFriend}
+      />
+
+      <RemoveListingConfirmModal
+        open={removingListing != null}
+        listing={
+          removingListing
+            ? {
+                id: removingListing.id,
+                brand: removingListing.brand ?? null,
+                name: removingListing.name ?? null,
+                imageUrl: removingListing.imageUrl ?? null,
+              }
+            : null
+        }
+        pendingOrderCount={
+          removingListing
+            ? mySellerOrders.filter(
+                (o) =>
+                  o.listing_id === removingListing.id &&
+                  o.status !== "completed" &&
+                  o.status !== "declined" &&
+                  o.status !== "withdrawn" &&
+                  o.status !== "expired" &&
+                  o.status !== "cancelled_by_seller",
+              ).length
+            : 0
+        }
+        isRemoving={isRemoving}
+        onClose={closeRemoveListing}
+        onConfirm={handleConfirmRemoveListing}
       />
 
       {/* Community Detail Modal — inline (preserved). Color tokens updated. */}
@@ -2369,12 +2440,13 @@ function OverviewListingsPanel({
                 const statusLabel = viewState === "declined" ? "Declined"
                   : viewState === "withdrawn" ? "Withdrawn"
                   : viewState === "expired" ? "Expired"
+                  : viewState === "cancelledBySeller" ? "Cancelled by seller"
                   : viewState === "waitingForOther" ? "Awaiting seller"
                   : viewState === "pickupReady" ? "Pickup ready"
                   : viewState === "confirmedCountdown" ? "Confirmed"
                   : order.status === "completed" ? "Completed"
                   : "Pending";
-                const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "waitingForOther");
+                const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "cancelledBySeller" || viewState === "waitingForOther");
                 return (
                   <button
                     key={order.id}
@@ -2397,7 +2469,7 @@ function OverviewListingsPanel({
                     <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
                         ? "bg-surface-strong text-muted"
-                        : viewState === "waitingForOther"
+                        : viewState === "cancelledBySeller" || viewState === "waitingForOther"
                           ? "bg-warning/10 text-warning"
                           : "bg-primary text-on-primary"
                     }`}>
@@ -2558,6 +2630,7 @@ function ListingsTabContent({
   buyingCompletedCount,
   buyingDeclinedCount,
   openEditListing,
+  openRemoveListing,
   openOrderModal,
   openConfirmedOrderSummary,
   openRatingModal,
@@ -2585,6 +2658,7 @@ function ListingsTabContent({
   buyingCompletedCount: number;
   buyingDeclinedCount: number;
   openEditListing: (l: MyListing) => void;
+  openRemoveListing: (l: MyListing) => void;
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
   openRatingModal: (o: OrderData) => void;
@@ -2639,7 +2713,7 @@ function ListingsTabContent({
     if (listingsFilter === "all") return true;
     if (listingsFilter === "active") return o.status === "pending" || o.status === "confirmed";
     if (listingsFilter === "completed") return o.status === "completed";
-    if (listingsFilter === "inactive") return o.status === "declined" || o.status === "withdrawn" || o.status === "expired";
+    if (listingsFilter === "inactive") return o.status === "declined" || o.status === "withdrawn" || o.status === "expired" || o.status === "cancelled_by_seller";
     return true;
   });
 
@@ -2791,6 +2865,17 @@ function ListingsTabContent({
                           ) : (
                             <span className="flex-1 text-[11px] text-muted text-right pr-1">{timeInfo.label}</span>
                           )}
+                          {listing.status !== "sold" && (
+                            <Tooltip content="Remove listing">
+                              <button
+                                onClick={() => openRemoveListing(listing)}
+                                className={`inline-flex items-center justify-center size-8 rounded-md border border-error/30 text-error bg-canvas hover:bg-error/5 hover:text-error transition-colors ${FOCUS_RING}`}
+                                aria-label="Remove listing"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </Tooltip>
+                          )}
                         </>
                       )}
                     </div>
@@ -2818,6 +2903,7 @@ function ListingsTabContent({
               const statusLabel = viewState === "declined" ? "Declined"
                 : viewState === "withdrawn" ? "Withdrawn"
                 : viewState === "expired" ? "Expired"
+                : viewState === "cancelledBySeller" ? "Cancelled by seller"
                 : viewState === "waitingForOther" ? "Awaiting seller"
                 : viewState === "pickupReady" ? "Pickup ready"
                 : viewState === "confirmedCountdown" ? "Confirmed"
@@ -2825,7 +2911,7 @@ function ListingsTabContent({
                 : "Pending";
               const statusClass = ["declined", "withdrawn", "expired"].includes(viewState) || order.status === "completed"
                 ? "bg-surface-strong text-muted"
-                : viewState === "waitingForOther"
+                : viewState === "cancelledBySeller" || viewState === "waitingForOther"
                   ? "bg-warning/10 text-warning"
                   : "bg-primary text-on-primary";
 
@@ -2834,7 +2920,7 @@ function ListingsTabContent({
               // "Sold" overlay treatment — a clearer trust signal that this is
               // a live order awaiting the seller. Other states keep the
               // standard rounded-full status pill.
-              const isPending = order.status === "pending" && !["declined", "withdrawn", "expired"].includes(viewState);
+              const isPending = order.status === "pending" && !["declined", "withdrawn", "expired", "cancelledBySeller"].includes(viewState);
               return (
                 <article key={order.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
                   <div className="relative aspect-square bg-surface-soft">
