@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
 import anthropic
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -1732,6 +1732,59 @@ async def update_listing(
         listing.category_attributes = json.dumps(attrs)
     db.commit()
     return listing.to_dict()
+
+
+# Statuses that mean an order is already terminal — cascade-cancel must skip
+# these so we don't overwrite completed sales, prior buyer/seller cancellations,
+# or expired pickup windows. Active statuses (pending, confirmed) get flipped.
+# `cancelled_by_seller` is a new status introduced by this endpoint.
+_TERMINAL_ORDER_STATUSES = (
+    "completed",
+    "declined",
+    "withdrawn",
+    "expired",
+    "cancelled_by_seller",
+)
+
+
+@app.delete("/api/listings/{listing_id}", status_code=204)
+async def delete_listing(
+    listing_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your listing")
+    if listing.status == "sold":
+        raise HTTPException(status_code=400, detail="Sold listings cannot be removed")
+
+    listing_title = listing.title_str
+
+    active_orders = (
+        db.query(PurchaseOrder)
+        .filter(
+            PurchaseOrder.listing_id == listing_id,
+            PurchaseOrder.status.notin_(_TERMINAL_ORDER_STATUSES),
+        )
+        .all()
+    )
+    for order in active_orders:
+        order.status = "cancelled_by_seller"
+        db.add(Notification(
+            user_id=order.buyer_id,
+            type="order_cancelled",
+            title="Order Cancelled",
+            message=f'Seller removed the listing "{listing_title}" — your order has been cancelled.',
+            related_user_id=current_user.id,
+            listing_id=listing_id,
+        ))
+
+    db.delete(listing)
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.get("/api/wishlist")
