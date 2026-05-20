@@ -168,6 +168,10 @@ export default function App() {
 
   // Wishlist state
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  // Listings currently playing the one-shot save-pulse animation. Items are
+  // added when the heart toggles unsaved → saved and cleared onAnimationEnd
+  // so each save plays the pulse exactly once.
+  const [pulseSavedIds, setPulseSavedIds] = useState<Set<string>>(new Set());
   const [wishlistItems, setWishlistItems] = useState<Listing[]>([]);
 
   // Profile dropdown state (custom, not Radix)
@@ -727,6 +731,13 @@ export default function App() {
           wishlisted ? next.add(listingId) : next.delete(listingId);
           return next;
         });
+        if (wishlisted) {
+          setPulseSavedIds((prev) => {
+            const next = new Set(prev);
+            next.add(listingId);
+            return next;
+          });
+        }
       }
     } catch (err) {
       console.error("Failed to toggle wishlist:", err);
@@ -1901,9 +1912,25 @@ export default function App() {
                               onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
                               aria-label={isWishlisted ? "Remove from saves" : "Save"}
                               aria-pressed={isWishlisted}
-                              className="absolute top-2 right-2 size-8 rounded-full bg-canvas/90 backdrop-blur-sm border border-hairline inline-flex items-center justify-center text-muted hover:text-ink transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                              className={`absolute top-2 right-2 size-8 rounded-full backdrop-blur-sm border border-hairline inline-flex items-center justify-center transition-[transform,box-shadow,background-color,color] duration-150 ease-out hover:shadow-card hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                                isWishlisted
+                                  ? "bg-primary-soft/80 text-primary hover:bg-primary-soft"
+                                  : "bg-canvas/90 text-muted hover:bg-canvas hover:text-primary"
+                              }`}
                             >
-                              <Heart className={`size-4 ${isWishlisted ? "text-primary fill-primary" : ""}`} />
+                              <Heart
+                                className={`size-4 ${isWishlisted ? "fill-primary" : ""} ${
+                                  pulseSavedIds.has(listing.id) ? "motion-safe:animate-save-pulse" : ""
+                                }`}
+                                onAnimationEnd={() => {
+                                  if (!pulseSavedIds.has(listing.id)) return;
+                                  setPulseSavedIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(listing.id);
+                                    return next;
+                                  });
+                                }}
+                              />
                             </button>
                           )}
                           {listing.status === "sold" && (
