@@ -28,6 +28,7 @@ import {
   Trash2,
   Globe,
   ChevronRight,
+  ImagePlus,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings } from "../../contexts/SettingsContext";
@@ -276,6 +277,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [editCommunityShowSuggestions, setEditCommunityShowSuggestions] = useState(false);
   const editCommunityNeighborhoodRef = useRef<HTMLInputElement>(null);
   const editCommunitySuggestionsRef = useRef<HTMLDivElement>(null);
+  // Pending photo file held until the user clicks Save; preview is a blob URL
+  // that the modal cleanup revokes.
+  const [editCommunityImageFile, setEditCommunityImageFile] = useState<File | null>(null);
+  const [editCommunityImagePreview, setEditCommunityImagePreview] = useState<string | null>(null);
+  const editCommunityImageInputRef = useRef<HTMLInputElement>(null);
 
   const [pendingRequests, setPendingRequests] = useState<{ id: number; user_id: string; display_name: string | null; neighborhood: string | null; profile_picture: string | null }[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
@@ -1117,13 +1123,53 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setEditCommunityPickupAddress(selectedCommunity.pickup_address || "");
     setEditCommunityZipCode(selectedCommunity.zip_code || "");
     setEditCommunityIsPublic(selectedCommunity.is_public);
+    clearEditCommunityImage();
     setIsEditingCommunity(true);
   };
+
+  const clearEditCommunityImage = () => {
+    if (editCommunityImagePreview) URL.revokeObjectURL(editCommunityImagePreview);
+    setEditCommunityImageFile(null);
+    setEditCommunityImagePreview(null);
+    if (editCommunityImageInputRef.current) editCommunityImageInputRef.current.value = "";
+  };
+
+  const handleEditCommunityImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    // 5MB ceiling matches the Supabase Storage bucket budget.
+    if (file.size > 5 * 1024 * 1024) return;
+    if (editCommunityImagePreview) URL.revokeObjectURL(editCommunityImagePreview);
+    setEditCommunityImageFile(file);
+    setEditCommunityImagePreview(URL.createObjectURL(file));
+  };
+
+  // Revoke any held blob URL when the modal closes.
+  useEffect(() => {
+    if (!isEditingCommunity && editCommunityImagePreview) {
+      URL.revokeObjectURL(editCommunityImagePreview);
+      setEditCommunityImagePreview(null);
+      setEditCommunityImageFile(null);
+    }
+  }, [isEditingCommunity, editCommunityImagePreview]);
 
   const handleSaveCommunity = async () => {
     if (!selectedCommunity || !token) return;
     setIsSavingCommunity(true);
     try {
+      // Upload the new photo first (separate multipart endpoint) so the JSON
+      // PUT below sees a consistent record. If the upload fails we bail out
+      // without touching the other fields.
+      if (editCommunityImageFile) {
+        const fd = new FormData();
+        fd.append("image", editCommunityImageFile);
+        const imgRes = await apiFetch(`/api/communities/${selectedCommunity.id}/image`, {
+          method: "PUT",
+          body: fd,
+        });
+        if (!imgRes.ok) return;
+      }
       const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1140,6 +1186,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         const updated = await res.json();
         setSelectedCommunity(updated);
         setCommunities((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        clearEditCommunityImage();
         setIsEditingCommunity(false);
         onCommunitiesChanged?.();
       }
@@ -1834,6 +1881,48 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   <h3 className={`text-lg ${MODAL_TITLE}`}>Edit community</h3>
                 </div>
                 <div className="flex-1 overflow-y-auto min-h-0 space-y-4">
+                  {selectedCommunity.created_by === user?.id && (
+                    <div className="flex items-center gap-4">
+                      <div className="size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
+                        {editCommunityImagePreview ? (
+                          <img src={editCommunityImagePreview} alt="" className="size-full object-cover" />
+                        ) : selectedCommunity.image ? (
+                          <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover" />
+                        ) : (
+                          <span className="text-base font-semibold text-muted">
+                            {selectedCommunity.name.trim().charAt(0).toUpperCase() || "?"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <input
+                          ref={editCommunityImageInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEditCommunityImageChange}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => editCommunityImageInputRef.current?.click()}
+                          className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border-strong text-xs font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                        >
+                          <ImagePlus className="size-3.5" />
+                          {editCommunityImageFile ? "Replace photo" : "Change photo"}
+                        </button>
+                        {editCommunityImageFile && (
+                          <button
+                            type="button"
+                            onClick={clearEditCommunityImage}
+                            className={`text-[11px] text-muted hover:text-ink text-left ${FOCUS_RING} rounded`}
+                          >
+                            Discard
+                          </button>
+                        )}
+                        <p className="text-[11px] text-muted">Up to 5 MB. JPG, PNG, or WebP.</p>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <label className="text-xs text-muted mb-1 block">Name</label>
                     <Input value={editCommunityName} onChange={(e) => setEditCommunityName(e.target.value)} />
@@ -1906,7 +1995,14 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     disabled={isSavingCommunity || !editCommunityName.trim()}
                     className={`flex-1 h-9 px-4 rounded-md bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                   >
-                    {isSavingCommunity ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Save"}
+                    {isSavingCommunity ? (
+                      <span className="inline-flex items-center justify-center gap-2">
+                        <Loader2 className="size-4 animate-spin" />
+                        {editCommunityImageFile ? "Uploading…" : ""}
+                      </span>
+                    ) : (
+                      "Save"
+                    )}
                   </button>
                 </div>
               </>
