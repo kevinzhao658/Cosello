@@ -2134,7 +2134,7 @@ function OverviewCommunitiesRow({
             <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
               <Plus className="size-5" aria-hidden="true" />
             </span>
-            <span className={COMM_TILE_LABEL}>Join or create</span>
+            <span className={COMM_TILE_LABEL}>Join Community</span>
           </button>
         </Tooltip>
       </div>

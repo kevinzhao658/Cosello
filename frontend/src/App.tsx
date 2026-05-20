@@ -2095,7 +2095,7 @@ export default function App() {
 
               <div className="pt-4 border-t border-white/10">
                 <p className="text-white/40">
-                  If you have questions about these terms, contact us at <span className="text-cyan-400">support@cosello.app</span>.
+                  If you have questions about these terms, contact us at <span className="text-cyan-400">info@cosello.io</span>.
                 </p>
               </div>
             </div>
@@ -2126,11 +2126,11 @@ export default function App() {
               Have a question, concern, or feedback? We'd love to hear from you. Reach out to our support team and we'll get back to you as soon as possible.
             </p>
             <a
-              href="mailto:support@cosello.app"
+              href="mailto:info@cosello.io"
               className="mt-4 inline-flex items-center gap-2 bg-surface-soft border border-hairline rounded-md px-4 py-3 text-sm font-semibold text-primary hover:bg-primary-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               <MessageSquare className="size-4 text-primary shrink-0" />
-              support@cosello.app
+              info@cosello.io
             </a>
           </div>
 
