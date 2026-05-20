@@ -39,6 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const session = data.session;
       if (session) {
         setToken(session.access_token);
+        // Realtime channels created elsewhere (MyAccountPage's purchase_orders
+        // subscription) inherit whatever JWT the realtime socket was opened
+        // with. On a cold restore the socket has already connected as anon,
+        // so RLS-gated subscriptions silently return nothing. Push the
+        // restored access_token into the realtime client so RLS sees
+        // auth.uid() and the seller receives INSERT events for new pending
+        // orders without a page refresh.
+        supabase.realtime.setAuth(session.access_token);
         const cachedProfile = localStorage.getItem("auth_user");
         if (cachedProfile) {
           try {
@@ -57,10 +65,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(null);
         setUser(null);
         localStorage.removeItem("auth_user");
+        supabase.realtime.setAuth(null);
         return;
       }
-      // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED — sync the access token.
+      // SIGNED_IN, TOKEN_REFRESHED, USER_UPDATED — sync the access token,
+      // and keep realtime authenticated against the freshest JWT.
       setToken(session.access_token);
+      supabase.realtime.setAuth(session.access_token);
     });
 
     return () => {

@@ -502,18 +502,22 @@ export default function App() {
   }, []);
 
   const handleNotifClick = useCallback((notificationId: number, type: string, listingId: string | null) => {
-    const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","review_submitted","address_released","order_completed"].includes(type);
+    const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","pickup_ready","review_submitted","address_released","order_completed"].includes(type);
     const noListing = ["order_declined","order_cancelled","order_expired"].includes(type);
-    // Order-related notifs clear themselves on click — join_request/etc. require
-    // explicit accept/reject action so we leave them unread.
-    if (withListing || noListing) {
+    // Order-related notifs clear themselves on click — join_request still
+    // requires explicit accept/reject action so we leave it unread.
+    // request_accepted is terminal (informational) — clear it on click even
+    // though it has no listing_id to route to.
+    if (withListing || noListing || type === "request_accepted") {
       markNotificationRead(notificationId);
     }
-    // Buyer-side confirmation-flow notifications open the OrderConfirmSummary
-    // modal in place. The modal's "Confirm pickup" CTA leads into the
-    // attestation + rating chain. No /account routing needed — the modal
-    // surfaces wherever the user happened to be when the notification landed.
-    const inPlaceTypes = ["order_confirmed", "address_released", "order_completed", "review_submitted"];
+    // Confirmation-flow notifications open the OrderConfirmSummary modal in
+    // place. The modal's "Confirm pickup" CTA leads into the attestation +
+    // rating chain. pickup_ready fires to both buyer and seller after the
+    // seller hits "Notify pickup ready", so both sides land in the same
+    // summary view. No /account routing needed — the modal surfaces wherever
+    // the user happened to be when the notification landed.
+    const inPlaceTypes = ["order_confirmed", "pickup_ready", "address_released", "order_completed", "review_submitted"];
     if (inPlaceTypes.includes(type) && listingId) {
       setNotificationsOpen(false);
       openOrderConfirmSummary(listingId);
