@@ -1,23 +1,24 @@
-// Global modal surface for the three order-flow modals — OrderConfirmSummary,
-// PickupAttestation, RatingModal — so a notification click opens the relevant
-// modal IN PLACE on whatever page the user is on, instead of routing them to
-// MyAccount first.
-//
-// Scope intentionally excludes OrderManagementModal (the seller-side
-// pending-order picker). That modal is still defined inline in MyAccountPage
-// and the `purchase` notification keeps its current /account-routing flow —
-// see backlog.md "OrderManagementModal full lift to App" for the follow-up.
+// Global modal surface for the four order-flow modals — OrderConfirmSummary,
+// PickupAttestation, RatingModal, and (R-5.7.3) OrderManagementModal — so a
+// notification click opens the relevant modal IN PLACE on whatever page the
+// user is on, instead of routing them to MyAccount first.
 //
 // Provider lives in App.tsx so the modals render once at the top level.
 // MyAccountPage's internal callers (Punchlist row, Listings-tab tiles,
 // pendingListingId auto-open watcher) use the same openers via the
 // `useOrderModals` hook — no duplicate state.
 //
-// After-action callbacks: rating + attestation success mutates server-side
-// state that MyAccountPage's local lists mirror (myPurchases, mySellerOrders,
-// myListings, punchlist). MyAccountPage subscribes to `subscribeAfterAction`
-// to refetch its data when it's mounted. App's notification handlers don't
-// need to subscribe because their data is fetched on demand.
+// After-action callbacks: rating, attestation, slot-confirm, and decline
+// success mutates server-side state that MyAccountPage's local lists mirror
+// (myPurchases, mySellerOrders, myListings, punchlist). MyAccountPage
+// subscribes to `subscribeAfterAction` to refetch its data when it's
+// mounted. App's notification handlers don't need to subscribe because
+// their data is fetched on demand.
+//
+// `subscribeListingSold` is the seller-side analogue of subscribeAfterAction
+// for the "sold" history entry — MyAccountPage's onAddToHistory effect
+// subscribes to it so a confirmed sale on any page still lands in the
+// account history list when the user opens that tab.
 import {
   createContext,
   useCallback,
@@ -38,6 +39,7 @@ import {
 } from "../pages/MyAccount/modals/OrderConfirmSummaryModal";
 import { PickupAttestationModal } from "../pages/MyAccount/modals/PickupAttestationModal";
 import { RatingModal } from "../pages/MyAccount/modals/RatingModal";
+import { OrderManagementModal } from "../features/orders/OrderManagementModal";
 
 interface OrderModalsContextValue {
   // Buyer- or seller-side confirmation summary for a `confirmed`-status order
@@ -51,9 +53,24 @@ interface OrderModalsContextValue {
   showOrderConfirmSummary: (data: ConfirmSummaryData) => void;
   // Direct opener — caller already has the order in hand.
   openRatingModal: (order: OrderData) => void;
-  // Subscribe to refresh signals fired after a successful rating submit. Used
-  // by MyAccountPage to refetch its own lists. Returns an unsubscribe fn.
+  // Seller-side pending-order picker. Direct opener — caller has the MyListing
+  // already (used by Punchlist + Listings tile + pendingListingId effect in
+  // MyAccountPage). For the `purchase` notification path App.tsx synthesizes
+  // a partial MyListing from /api/orders.
+  openOrderManagement: (listing: MyListing) => void;
+  // Subscribe to refresh signals fired after a successful rating submit, slot
+  // confirm, or decline. Used by MyAccountPage to refetch its own lists.
+  // Returns an unsubscribe fn.
   subscribeAfterAction: (cb: () => void) => () => void;
+  // Subscribe to "listing sold" events fired after a successful slot confirm
+  // turns a listing into a sale. MyAccountPage subscribes to push the sold
+  // entry into its history list.
+  subscribeListingSold: (cb: (listing: MyListing) => void) => () => void;
+  // App.tsx registers its openUserDashboard via this so the buyer-avatar
+  // click in OrderManagementModal can navigate to the buyer's profile. The
+  // provider is mounted outside App.tsx in main.tsx, so we can't take this
+  // as a constructor prop — register-on-mount keeps the wiring shallow.
+  registerViewUserHandler: (handler: ((userId: string) => void) | null) => void;
 }
 
 const OrderModalsContext = createContext<OrderModalsContextValue | undefined>(undefined);
@@ -84,6 +101,9 @@ export function OrderModalsProvider({ children }: { children: ReactNode }) {
   const [ratingComment, setRatingComment] = useState("");
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
 
+  // ── OrderManagement state ──────────────────────────────────
+  const [orderMgmtListing, setOrderMgmtListing] = useState<MyListing | null>(null);
+
   // After-action subscribers — Set so MyAccountPage's effect can register and
   // unregister cleanly. Use a ref so the openers' identity doesn't churn when
   // subscribers change.
@@ -96,6 +116,28 @@ export function OrderModalsProvider({ children }: { children: ReactNode }) {
     return () => {
       afterActionSubscribers.current.delete(cb);
     };
+  }, []);
+
+  // Listing-sold subscribers — same pattern as after-action, separate event so
+  // MyAccountPage's history-tracking concern stays decoupled from the refetch
+  // fan-out.
+  const listingSoldSubscribers = useRef(new Set<(l: MyListing) => void>());
+  const fireListingSold = useCallback((listing: MyListing) => {
+    listingSoldSubscribers.current.forEach((cb) => cb(listing));
+  }, []);
+  const subscribeListingSold = useCallback((cb: (listing: MyListing) => void) => {
+    listingSoldSubscribers.current.add(cb);
+    return () => {
+      listingSoldSubscribers.current.delete(cb);
+    };
+  }, []);
+
+  const viewUserHandlerRef = useRef<((userId: string) => void) | null>(null);
+  const registerViewUserHandler = useCallback((handler: ((userId: string) => void) | null) => {
+    viewUserHandlerRef.current = handler;
+  }, []);
+  const handleViewUser = useCallback((userId: string) => {
+    viewUserHandlerRef.current?.(userId);
   }, []);
 
   // Recompute when an open ConfirmSummary's underlying order's countdown
@@ -120,6 +162,10 @@ export function OrderModalsProvider({ children }: { children: ReactNode }) {
   const showOrderConfirmSummary = useCallback((data: ConfirmSummaryData) => {
     setConfirmSummaryData(data);
     setShowConfirmSummary(true);
+  }, []);
+
+  const openOrderManagement = useCallback((listing: MyListing) => {
+    setOrderMgmtListing(listing);
   }, []);
 
   const openOrderConfirmSummary = useCallback(async (listingId: string) => {
@@ -189,8 +235,11 @@ export function OrderModalsProvider({ children }: { children: ReactNode }) {
     openOrderConfirmSummary,
     showOrderConfirmSummary,
     openRatingModal,
+    openOrderManagement,
     subscribeAfterAction,
-  }), [openOrderConfirmSummary, showOrderConfirmSummary, openRatingModal, subscribeAfterAction]);
+    subscribeListingSold,
+    registerViewUserHandler,
+  }), [openOrderConfirmSummary, showOrderConfirmSummary, openRatingModal, openOrderManagement, subscribeAfterAction, subscribeListingSold, registerViewUserHandler]);
 
   const confirmExpired = confirmSummaryData ? getPickupCountdown(confirmSummaryData.order).expired : false;
 
@@ -235,6 +284,16 @@ export function OrderModalsProvider({ children }: { children: ReactNode }) {
         onValueChange={setRatingValue}
         onCommentChange={setRatingComment}
         onSubmit={handleSubmitRating}
+      />
+
+      <OrderManagementModal
+        open={!!orderMgmtListing}
+        listing={orderMgmtListing}
+        onClose={() => setOrderMgmtListing(null)}
+        onConfirmedSummary={showOrderConfirmSummary}
+        onAfterAction={fireAfterAction}
+        onListingSold={fireListingSold}
+        onViewUser={handleViewUser}
       />
     </OrderModalsContext.Provider>
   );

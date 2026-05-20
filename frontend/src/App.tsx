@@ -34,7 +34,7 @@ import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, type ViewSource } from "./lib/events";
-import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema } from "./lib/types";
+import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
 import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
@@ -43,7 +43,7 @@ type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "hel
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
-  const { openOrderConfirmSummary } = useOrderModals();
+  const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
   const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
@@ -310,10 +310,20 @@ export default function App() {
     }
   };
 
-  const openUserDashboard = (userId: string) => {
+  const openUserDashboard = useCallback((userId: string) => {
     if (!token || userId === user?.id) return;
     setViewingUserId(userId);
-  };
+  }, [token, user?.id]);
+
+  // Register openUserDashboard with the OrderModalsProvider so the lifted
+  // OrderManagementModal's buyer-avatar click can navigate to the buyer
+  // profile from any page. The provider lives in main.tsx (outside App), so
+  // it can't take this as a prop — the register-on-mount pattern keeps the
+  // wiring shallow.
+  useEffect(() => {
+    registerViewUserHandler(openUserDashboard);
+    return () => registerViewUserHandler(null);
+  }, [registerViewUserHandler, openUserDashboard]);
 
   const listingViewSourceRef = useRef<ViewSource>("direct");
 
@@ -505,10 +515,44 @@ export default function App() {
       openOrderConfirmSummary(listingId);
       return;
     }
-    // `purchase` (seller-side new order) and `order_updated` (buyer/seller
-    // mutual updates) keep their existing /account routing — `purchase` opens
-    // OrderManagementModal in MyAccountPage (still inline; see backlog
-    // "OrderManagementModal full lift").
+    // Seller-side `purchase` (new pending order on one of your listings) —
+    // R-5.7.3 lifts OrderManagementModal to App level, so the click opens
+    // the picker IN PLACE. We synthesize a partial MyListing from the
+    // /api/orders payload (which carries listing_title/_image/_price) so
+    // the modal header has something to render before the order list
+    // populates. After-action subscribers (MyAccountPage when mounted)
+    // refetch on success; otherwise next mount picks up fresh state.
+    if (type === "purchase" && listingId) {
+      setNotificationsOpen(false);
+      (async () => {
+        try {
+          const res = await apiFetch("/api/orders");
+          if (!res.ok) return;
+          const allOrders: OrderData[] = await res.json();
+          const order = allOrders.find((o) => o.listing_id === listingId && o.role === "seller");
+          if (!order) return;
+          openOrderManagement({
+            id: listingId,
+            title: order.listing_title,
+            description: "",
+            price: order.listing_price,
+            condition: "",
+            location: "",
+            tags: [],
+            imageUrl: order.listing_image,
+            postedAt: 0,
+            status: "active",
+            brand: "",
+            name: order.listing_title,
+          });
+        } catch {
+          // ignore — modal stays closed on failure
+        }
+      })();
+      return;
+    }
+    // `order_updated` (buyer/seller mutual updates) and other listing-bearing
+    // notifs keep their existing /account routing.
     if (withListing && listingId) {
       setNotificationsOpen(false);
       setPendingListingId(listingId);
@@ -517,7 +561,7 @@ export default function App() {
       setNotificationsOpen(false);
       setPage("account");
     }
-  }, [markNotificationRead, openOrderConfirmSummary]);
+  }, [markNotificationRead, openOrderConfirmSummary, openOrderManagement]);
 
   const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
     setNotificationsOpen(false);

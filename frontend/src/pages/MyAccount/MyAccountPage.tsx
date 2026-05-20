@@ -305,16 +305,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  // Order management
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [orderModalListing, setOrderModalListing] = useState<MyListing | null>(null);
-  const [listingOrders, setListingOrders] = useState<OrderData[]>([]);
-  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
-  const [confirmingOrderId, setConfirmingOrderId] = useState<number | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<{ orderId: number; slot: { date: string; time: string }; order: OrderData } | null>(null);
-  const [confirmTime, setConfirmTime] = useState("");
-  const [decliningOrderId, setDecliningOrderId] = useState<number | null>(null);
-  const [showDeclineConfirm, setShowDeclineConfirm] = useState<number | null>(null);
+  // Order management — modal itself lives at App level via OrderModalsProvider
+  // (R-5.7.3 lift). MyAccountPage only retains the withdraw-confirmation
+  // dialog state, since withdraw lives on the buyer's purchases card, not
+  // inside the seller-side order picker.
   const [withdrawingOrderId, setWithdrawingOrderId] = useState<number | null>(null);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState<number | null>(null);
 
@@ -400,7 +394,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   // MyAccountPage opens them via the hooked openers; on rating success the
   // provider fires the subscribeAfterAction subscribers — we wire ours below
   // to keep myPurchases/mySellerOrders/myListings/punchlist fresh.
-  const { openOrderConfirmSummary: ctxOpenOrderConfirmSummary, showOrderConfirmSummary, openRatingModal, subscribeAfterAction } = useOrderModals();
+  const { openOrderConfirmSummary: ctxOpenOrderConfirmSummary, showOrderConfirmSummary, openRatingModal, openOrderManagement, subscribeAfterAction, subscribeListingSold } = useOrderModals();
 
   const fetchAllOrders = useCallback(async () => {
     if (!token) return;
@@ -418,87 +412,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   }, [token]);
 
-  const openOrderModal = async (listing: MyListing) => {
-    setOrderModalListing(listing);
-    setShowOrderModal(true);
-    setIsLoadingOrders(true);
-    try {
-      const res = await apiFetch("/api/orders");
-      if (res.ok) {
-        const allOrders: OrderData[] = await res.json();
-        setListingOrders(
-          allOrders.filter((o) => o.listing_id === listing.id && o.role === "seller" && o.status === "pending"),
-        );
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoadingOrders(false);
-    }
-  };
-
   const openConfirmedOrderSummary = ctxOpenOrderConfirmSummary;
-
-  const handleConfirmSlot = async (orderId: number, slot: { date: string; time: string }, order: OrderData, confirmedTime: string) => {
-    if (!token) return;
-    setConfirmingOrderId(orderId);
-    try {
-      const res = await apiFetch(`/api/orders/${orderId}/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed_slot: slot, confirmed_time: confirmedTime }),
-      });
-      if (res.ok) {
-        setShowOrderModal(false);
-        setOrderModalListing(null);
-        setSelectedSlot(null);
-        setConfirmTime("");
-        if (orderModalListing) {
-          showOrderConfirmSummary({
-            listing: orderModalListing,
-            buyerName: order.buyer_name,
-            slot,
-            role: "seller",
-            confirmedTime,
-            order,
-          });
-          onAddToHistory?.({
-            id: orderModalListing.id,
-            title: formatTitle(orderModalListing.brand, orderModalListing.name),
-            imageUrl: orderModalListing.imageUrl,
-            price: orderModalListing.price,
-            type: "sold",
-          });
-        }
-        fetchMyListings();
-        fetchAllOrders();
-        fetchPunchlist();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setConfirmingOrderId(null);
-    }
-  };
-
-  const handleDeclineOrder = async (orderId: number) => {
-    if (!token) return;
-    setDecliningOrderId(orderId);
-    try {
-      const res = await apiFetch(`/api/orders/${orderId}/decline`, { method: "POST" });
-      if (res.ok) {
-        setListingOrders((prev) => prev.filter((o) => o.id !== orderId));
-        setShowDeclineConfirm(null);
-        fetchMyListings();
-        fetchAllOrders();
-        fetchPunchlist();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setDecliningOrderId(null);
-    }
-  };
 
   const handleWithdrawOrder = async (orderId: number) => {
     if (!token) return;
@@ -773,10 +687,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchPunchlist();
   }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders, fetchPunchlist]);
 
-  // Refetch when an OrderModalsProvider action settles (rating submit). The
-  // Supabase realtime channel below also catches the underlying purchase_orders
-  // row update, but the explicit subscription is the deterministic path —
-  // realtime is best-effort.
+  // Refetch when an OrderModalsProvider action settles (rating submit, slot
+  // confirm, decline). The Supabase realtime channel below also catches the
+  // underlying purchase_orders row update, but the explicit subscription is
+  // the deterministic path — realtime is best-effort.
   useEffect(() => {
     return subscribeAfterAction(() => {
       fetchAllOrders();
@@ -784,6 +698,22 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       fetchPunchlist();
     });
   }, [subscribeAfterAction, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+
+  // History entries for confirmed sales fire through the same provider so
+  // App-level openers (the `purchase` notification path) land in history
+  // even when MyAccountPage was already mounted somewhere else first.
+  useEffect(() => {
+    if (!onAddToHistory) return;
+    return subscribeListingSold((listing) => {
+      onAddToHistory({
+        id: listing.id,
+        title: formatTitle(listing.brand, listing.name),
+        imageUrl: listing.imageUrl,
+        price: listing.price,
+        type: "sold",
+      });
+    });
+  }, [subscribeListingSold, onAddToHistory]);
 
   // Realtime: refresh orders + punchlist on purchase_orders changes
   useEffect(() => {
@@ -827,7 +757,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       (o) => o.listing_id === pendingListingId && o.status === "pending",
     );
     if (listing && (hasPendingSellerOrder || (listing.pendingOrderCount ?? 0) > 0)) {
-      openOrderModal(listing);
+      openOrderManagement(listing);
       onClearPendingListing?.();
       return;
     }
@@ -1520,7 +1450,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 myPurchases={myPurchases}
                 mySellerOrders={mySellerOrders}
                 openEditListing={openEditListing}
-                openOrderModal={openOrderModal}
+                openOrderModal={openOrderManagement}
                 openConfirmedOrderSummary={openConfirmedOrderSummary}
                 openRatingModal={openRatingModal}
                 getListingTimeInfo={getListingTimeInfo}
@@ -1531,7 +1461,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 punchlist={punchlist}
                 onConfirmPickup={(p) => {
                   const listing = myListings.find((l) => l.id === p.listing_id);
-                  if (listing) openOrderModal(listing);
+                  if (listing) openOrderManagement(listing);
                 }}
               />
             </div>
@@ -1555,7 +1485,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               buyingCompletedCount={buyingCompletedCount}
               buyingDeclinedCount={buyingDeclinedCount}
               openEditListing={openEditListing}
-              openOrderModal={openOrderModal}
+              openOrderModal={openOrderManagement}
               openConfirmedOrderSummary={openConfirmedOrderSummary}
               openRatingModal={openRatingModal}
               handleRelist={handleRelist}
@@ -2050,212 +1980,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         />
       )}
 
-      {/* OrderConfirmSummaryModal + PickupAttestationModal + RatingModal
-          render at App-level via OrderModalsProvider so notification clicks
-          open them in place without routing to /account. See
-          contexts/OrderModalsContext.tsx. */}
-
-      {/* Order Management Modal — inline (preserved). Color tokens updated. */}
-      {showOrderModal && orderModalListing && (
-        <ModalShell
-          open
-          onClose={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
-          z={50}
-        >
-          <div className="relative border border-hairline rounded-md p-6 max-w-md w-full mx-4 shadow-overlay max-h-[85vh] overflow-y-auto bg-canvas">
-            <button
-              onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
-              className={`absolute top-4 right-4 text-muted hover:text-ink transition-colors ${FOCUS_RING} rounded`}
-              aria-label="Close"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <img
-                src={orderModalListing.imageUrl}
-                alt={formatTitle(orderModalListing.brand, orderModalListing.name)}
-                className="size-12 rounded-md object-cover border border-hairline shrink-0"
-              />
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-ink truncate">{formatTitle(orderModalListing.brand, orderModalListing.name)}</h3>
-                <p className="text-xs text-primary font-semibold">${orderModalListing.price}</p>
-              </div>
-            </div>
-
-            <p className="text-[10px] text-muted uppercase tracking-wider mb-3">Pending orders</p>
-
-            {isLoadingOrders ? (
-              <div className="py-8 text-center"><Loader2 className="size-5 animate-spin mx-auto text-primary" /></div>
-            ) : listingOrders.length === 0 ? (
-              <div className="py-8 text-center">
-                <p className="text-xs text-muted">No pending orders</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {listingOrders.map((order) => {
-                  const timeLabels: Record<string, string> = { morning: "8 AM – 12 PM", afternoon: "12 – 5 PM", evening: "5 – 9 PM" };
-                  const isSelected = selectedSlot?.orderId === order.id;
-                  const generateTimeOptions = (timeWindow: string): string[] => {
-                    const parseHour = (s: string): number => {
-                      const m = s.trim().match(/^(\d{1,2})\s*(AM|PM)$/i);
-                      if (!m) return 0;
-                      let h = parseInt(m[1]);
-                      if (m[2].toUpperCase() === "PM" && h !== 12) h += 12;
-                      if (m[2].toUpperCase() === "AM" && h === 12) h = 0;
-                      return h;
-                    };
-                    const label = timeLabels[timeWindow] || timeWindow;
-                    const parts = label.split("–").map((s) => s.trim());
-                    if (parts.length !== 2) return [];
-                    const startH = parseHour(parts[0]);
-                    const endH = parseHour(parts[1]);
-                    const options: string[] = [];
-                    for (let h = startH; h < endH; h++) {
-                      for (const m of [0, 30]) {
-                        const hour = h % 12 || 12;
-                        const ampm = h >= 12 ? "PM" : "AM";
-                        options.push(`${hour}:${m.toString().padStart(2, "0")} ${ampm}`);
-                      }
-                    }
-                    const endHour = endH % 12 || 12;
-                    const endAmpm = endH >= 12 ? "PM" : "AM";
-                    options.push(`${endHour}:00 ${endAmpm}`);
-                    return options;
-                  };
-
-                  return (
-                    <div key={order.id} className="bg-surface-soft border border-hairline rounded-md p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <button
-                          onClick={() => onViewUser?.(order.buyer_id)}
-                          className={`flex items-center gap-2.5 hover:opacity-80 transition-opacity ${FOCUS_RING} rounded`}
-                        >
-                          <div className="size-8 rounded-full bg-canvas border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-                            {order.buyer_picture ? <img src={order.buyer_picture} alt="" className="size-full object-cover" /> : <User className="size-3.5 text-muted" />}
-                          </div>
-                          <div className="text-left">
-                            <p className="text-sm font-semibold text-ink">{order.buyer_name}</p>
-                            {order.created_at && (
-                              <p className="text-[11px] text-muted mt-0.5">
-                                {new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                              </p>
-                            )}
-                          </div>
-                        </button>
-                        <div className="flex items-center gap-2">
-                          {showDeclineConfirm !== order.id && (
-                            <button
-                              onClick={() => setShowDeclineConfirm(order.id)}
-                              className={`text-[11px] text-error hover:underline ${FOCUS_RING} rounded`}
-                            >
-                              Decline
-                            </button>
-                          )}
-                          <span className="text-[10px] text-primary bg-primary-soft px-2 py-0.5 rounded-full border border-primary/20">Pending</span>
-                        </div>
-                      </div>
-
-                      {showDeclineConfirm === order.id ? (
-                        <div className="bg-error/5 border border-error/20 rounded-md p-3">
-                          <p className="text-xs text-body mb-3">Decline this order?</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setShowDeclineConfirm(null)}
-                              className={`flex-1 text-xs h-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft ${FOCUS_RING}`}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => handleDeclineOrder(order.id)}
-                              disabled={decliningOrderId === order.id}
-                              className={`flex-1 text-xs h-8 rounded-md bg-error text-on-primary font-semibold hover:bg-error/90 disabled:opacity-50 ${FOCUS_RING}`}
-                            >
-                              {decliningOrderId === order.id ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Decline"}
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="text-[10px] text-muted uppercase tracking-wider mb-2">Select pickup window</p>
-                          <div className="space-y-1.5">
-                            {order.selected_pickup_slots.map((slot, i) => {
-                              const dateStr = new Date(slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-                              const isThisSelected = isSelected && selectedSlot.slot.date === slot.date && selectedSlot.slot.time === slot.time;
-                              const expired = isSlotExpired(slot);
-                              return (
-                                <button
-                                  key={i}
-                                  onClick={() => {
-                                    if (expired) return;
-                                    if (isThisSelected) {
-                                      setSelectedSlot(null);
-                                      setConfirmTime("");
-                                    } else {
-                                      setSelectedSlot({ orderId: order.id, slot, order });
-                                      setConfirmTime("");
-                                    }
-                                  }}
-                                  disabled={expired}
-                                  className={`w-full flex items-center justify-between px-3 py-2 rounded-md border text-left transition-colors ${FOCUS_RING} ${
-                                    expired
-                                      ? "border-hairline-soft bg-surface-soft opacity-50 cursor-not-allowed"
-                                      : isThisSelected
-                                        ? "border-primary bg-primary-soft"
-                                        : "border-hairline bg-canvas hover:border-primary hover:bg-primary-soft/50"
-                                  }`}
-                                >
-                                  <div>
-                                    <p className={`text-xs ${expired ? "text-muted line-through" : "text-ink"}`}>{dateStr}</p>
-                                    <p className={`text-[11px] ${expired ? "text-muted-soft" : "text-muted"}`}>{timeLabels[slot.time] || slot.time}</p>
-                                  </div>
-                                  {expired ? (
-                                    <span className="text-[10px] text-muted italic">Expired</span>
-                                  ) : (
-                                    <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isThisSelected ? "border-primary bg-primary" : "border-border-strong"}`}>
-                                      {isThisSelected && <Check className="size-2.5 text-on-primary" />}
-                                    </div>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {isSelected && (() => {
-                            const timeOptions = generateTimeOptions(selectedSlot.slot.time);
-                            const slotDateStr = new Date(selectedSlot.slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-                            return (
-                              <div className="mt-3 pt-3 border-t border-hairline">
-                                <p className="text-[10px] text-muted uppercase tracking-wider mb-2">Choose exact pickup time</p>
-                                <p className="text-xs text-muted mb-2">{slotDateStr} — {timeLabels[selectedSlot.slot.time] || selectedSlot.slot.time}</p>
-                                <select
-                                  value={confirmTime}
-                                  onChange={(e) => setConfirmTime(e.target.value)}
-                                  className={`w-full px-3 py-2 rounded-md bg-canvas border border-hairline text-sm text-ink ${FOCUS_RING} mb-3`}
-                                >
-                                  <option value="">Select a time…</option>
-                                  {timeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                                <button
-                                  onClick={() => handleConfirmSlot(selectedSlot.orderId, selectedSlot.slot, selectedSlot.order, confirmTime)}
-                                  disabled={!confirmTime || confirmingOrderId === order.id}
-                                  className={`w-full h-9 rounded-md text-sm font-semibold bg-primary text-on-primary hover:bg-primary-hover transition-colors disabled:opacity-50 ${FOCUS_RING}`}
-                                >
-                                  {confirmingOrderId === order.id ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Confirm pickup"}
-                                </button>
-                              </div>
-                            );
-                          })()}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </ModalShell>
-      )}
+      {/* OrderConfirmSummaryModal + PickupAttestationModal + RatingModal +
+          OrderManagementModal (R-5.7.3) all render at App-level via
+          OrderModalsProvider so notification clicks open them in place
+          without routing to /account. See contexts/OrderModalsContext.tsx. */}
 
     </section>
   );
