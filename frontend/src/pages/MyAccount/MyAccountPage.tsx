@@ -37,7 +37,7 @@ import { useClickOutside } from "../../hooks/useClickOutside";
 import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData } from "../../lib/types";
-import { getChipClass } from "../../lib/listings";
+import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { FOCUS_RING, TAB_BTN_BASE, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
@@ -3280,38 +3280,71 @@ function SavedTabContent({
               const selected = selectedIds.has(item.id);
               const folderId = "folder_id" in item ? item.folder_id : null;
               const folder = folderId != null ? folders.find((f) => f.id === folderId) : null;
+              const listing = item as Listing;
+              const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
+                ?? listing.allCommunities?.[0]
+                ?? PLACEHOLDER_COMMUNITY;
+              const images = listing.imageUrls && listing.imageUrls.length > 0
+                ? listing.imageUrls
+                : [listing.imageUrl];
               return (
                 <article
                   key={item.id}
-                  className={`bg-canvas border rounded-md overflow-hidden flex flex-col transition-shadow ${
+                  onClick={() => openListingDetail?.(listing)}
+                  className={`group bg-canvas border rounded-md overflow-hidden cursor-pointer transition-shadow ${
                     selected ? "border-primary ring-2 ring-primary" : "border-hairline hover:shadow-hover"
                   }`}
                 >
+                  {/* Trust band — mirrors marketplace card.
+                      Falls back to PLACEHOLDER_COMMUNITY when the wishlist
+                      payload omits allCommunities enrichment. */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                    <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
+                    {listing.seller_name && (
+                      <>
+                        <span className="text-muted">·</span>
+                        <span className="text-muted truncate">@{listing.seller_name}</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Photo */}
                   <div className="relative aspect-square bg-surface-soft">
                     <img
-                      src={item.imageUrls && item.imageUrls.length > 0 ? item.imageUrls[0] : item.imageUrl}
-                      alt=""
-                      className="absolute inset-0 size-full object-cover cursor-pointer"
-                      onClick={() => openListingDetail?.(item as Listing)}
+                      src={images[0]}
+                      alt={formatTitle(listing.brand ?? "", listing.name ?? "")}
+                      className="absolute inset-0 size-full object-cover"
+                      loading="lazy"
                     />
                     <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
                       aria-label={selected ? "Deselect" : "Select"}
+                      aria-pressed={selected}
                       className={`absolute top-2 left-2 size-6 rounded-full flex items-center justify-center transition-colors ${FOCUS_RING} ${
                         selected ? "bg-primary text-on-primary" : "bg-canvas/90 text-muted hover:text-ink border border-hairline"
                       }`}
                     >
                       {selected ? <Check className="size-3.5" /> : <span className="size-3 rounded-full border-2 border-current" />}
                     </button>
+                    {listing.status === "sold" && (
+                      <span className="absolute top-2 right-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
+                        Sold
+                      </span>
+                    )}
                     {folder && (
                       <div className="absolute bottom-2 right-2 flex items-center gap-0.5 bg-canvas/90 px-2 py-1 rounded-full border border-hairline" title={folder.name}>
                         <FolderIcon className="size-3 text-primary" />
                       </div>
                     )}
                   </div>
+
+                  {/* Body */}
                   <div className="p-3 space-y-1">
-                    <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(item.brand ?? "", item.name ?? "")}</p>
-                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${item.price}</p>
+                    <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand ?? "", listing.name ?? "")}</p>
+                    <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
+                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
                   </div>
                 </article>
               );
