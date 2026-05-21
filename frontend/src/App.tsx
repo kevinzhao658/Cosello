@@ -19,6 +19,7 @@ const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
 const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { EditListingModal } from "./components/EditListingModal";
+import { ListingImage } from "./components/ui/ListingImage";
 import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
@@ -1904,11 +1905,12 @@ export default function App() {
 
                         {/* Photo */}
                         <div className="relative aspect-square bg-surface-soft">
-                          <img
+                          <ListingImage
                             src={images[0]}
                             alt={formatTitle(listing.brand, listing.name)}
+                            size="card"
+                            priority={idx < 4}
                             className="absolute inset-0 size-full object-cover"
-                            loading="lazy"
                           />
                           {!isOwn && isAuthenticated && (
                             <button

@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { PriceInput } from "./ui/price-input";
 import { ModalShell } from "./ui/ModalShell";
+import { ListingImage } from "./ui/ListingImage";
 import { CategorySelector, CategoryAttributeFields } from "./CategoryFields";
 import { CONDITIONS } from "../lib/listings";
 import type {
@@ -122,18 +123,20 @@ export function EditListingModal({
 
         {previewUrls.length > 0 && (
           <div className="mb-4">
-            <img
+            <ListingImage
               src={previewUrls[0]}
               alt=""
+              size="modalPreview"
               className="block mx-auto w-full max-w-md max-h-[50vh] object-contain rounded-md border border-hairline bg-surface-soft"
             />
             {previewUrls.length > 1 && (
               <div className="flex gap-2 mt-2 overflow-x-auto pb-1 justify-center">
                 {previewUrls.slice(1).map((url, i) => (
-                  <img
+                  <ListingImage
                     key={i}
                     src={url}
                     alt=""
+                    size="small"
                     className="size-14 rounded-md object-cover border border-hairline shrink-0"
                   />
                 ))}

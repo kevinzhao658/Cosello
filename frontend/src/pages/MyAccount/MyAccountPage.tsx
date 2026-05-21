@@ -40,6 +40,7 @@ import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData 
 import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
+import { ListingImage } from "../../components/ui/ListingImage";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
   getBuyerOrderViewState,
@@ -2492,7 +2493,7 @@ function OverviewListingsPanel({
                     className={`w-full grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <img src={listing.imageUrl} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+                      <ListingImage src={listing.imageUrl} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
                         <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
@@ -2580,7 +2581,7 @@ function OverviewListingsPanel({
                     className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <img src={order.listing_image} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+                      <ListingImage src={order.listing_image} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
                     </div>
                     <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
@@ -2725,7 +2726,7 @@ function PunchlistPanel({
                     return (
                       <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
                         {pickup?.listing_image && (
-                          <img src={pickup.listing_image} alt="" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
+                          <ListingImage src={pickup.listing_image} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-ink truncate">
@@ -2954,7 +2955,7 @@ function ListingsTabContent({
                     <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
                   </div>
                   <div className="relative aspect-square bg-surface-soft">
-                    <img src={listing.imageUrl} alt="" className="absolute inset-0 size-full object-cover" />
+                    <ListingImage src={listing.imageUrl} alt="" size="card" className="absolute inset-0 size-full object-cover" />
                     <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                       {statusLabel}
@@ -3085,7 +3086,7 @@ function ListingsTabContent({
                     )}
                   </div>
                   <div className="relative aspect-square bg-surface-soft">
-                    <img src={order.listing_image} alt="" className="absolute inset-0 size-full object-cover" />
+                    <ListingImage src={order.listing_image} alt="" size="card" className="absolute inset-0 size-full object-cover" />
                     {isPending ? (
                       <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-primary px-2 py-1 rounded-sm">
                         Pending

@@ -116,6 +116,7 @@ export function ListingDetailModal({
               src={images[safeIndex]}
               alt={formatTitle(listing.brand, listing.name)}
               className="absolute inset-0 size-full object-cover"
+              decoding="async"
             />
           </div>
           {thumbs.length > 1 && (
@@ -131,7 +132,7 @@ export function ListingDetailModal({
                     i === safeIndex ? "border-primary ring-2 ring-primary-soft" : "border-hairline hover:border-border-strong"
                   }`}
                 >
-                  <img src={url} alt="" className="size-full object-cover" />
+                  <img src={url} alt="" className="size-full object-cover" decoding="async" />
                 </button>
               ))}
             </div>
