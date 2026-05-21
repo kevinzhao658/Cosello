@@ -1,6 +1,8 @@
 ---
+name: frontend-dev
+description: Frontend developer on the Coworkers team. Owns React/TypeScript UI work in `frontend/`. Use when implementing UI changes, components, routing, client-side state, or any user-facing surface for Cosello. Coordinate with backend-dev when an API contract changes.
 model: sonnet
-allowedTools:
+tools:
   - Read
   - Edit
   - Write
