@@ -95,6 +95,20 @@ Convention:
 - **Surfaces:** Bottom of every authenticated and unauthenticated page; collapsed link list on mobile, multi-column on desktop.
 - **Decisions needed:** Which pages exist today (Help & Support exists but needs reskin — backlog item below), which need to be created (Trust & Safety, Privacy, Terms), what social handles to surface.
 
+### Dark mode token set
+- **What:** Parallel `[data-theme="dark"]` token block in `theme.css` mirroring every Brutalist Trade token (canvas → ink, ink → canvas, surface-* inverted, hairline/border-strong dark variants, primary-soft / primary-tint dark-friendly bg, etc.).
+- **Current state:** Settings → Accessibility → "Dark mode" toggle is wired (R-5.13). `SettingsProvider` sets `data-theme="dark"` on `<html>` when enabled and persists to localStorage. Visually inert today — no dark token set exists.
+- **Why deferred:** Brutalist Trade theme is intentionally light-only for MVP. Dark-mode tokens are a design decision that should follow the same brand audit as the light tokens (contrast, jade accent variant, surface hierarchy in dark) rather than a mechanical inversion.
+- **Surfaces:** Every page that reads canvas / ink / surface-* / hairline / border-strong tokens (i.e. everything).
+- **Effort:** Audit existing tokens → choose dark counterparts → add `[data-theme="dark"] :root { ... }` block to `theme.css`. No code changes needed in SettingsProvider; the attribute is already toggled.
+
+### Color-blind accent palette
+- **What:** `[data-cb="protanopia" | "deuteranopia" | "tritanopia"]` blocks in `theme.css` that remap the jade accent (`--primary`, `--primary-soft`, `--primary-tint`, `--on-primary`) and the warning hue (`--warning`) to palette-safe alternates for each form of color blindness.
+- **Current state:** Settings → Accessibility → "Color-blind mode" segmented control wired (R-5.13). `SettingsProvider` sets `data-cb="<mode>"` on `<html>` when non-`off` and persists to localStorage. Visually inert today — Brutalist Trade's single jade accent is already sufficiently distinguishable in most cases, so the deferred work is the targeted hue remap, not a full re-theme.
+- **Why deferred:** Single-accent design is mostly accessible by construction. The remap is a polish item to surface when accessibility audits land.
+- **Surfaces:** Every accent-bearing surface (CTAs, jade pills, trust band dot, status pills, warning pills).
+- **Effort:** Pick color-blind-safe alternates per mode, drop in CSS variable overrides under each `[data-cb=...]` selector. No code changes in SettingsProvider.
+
 ---
 
 ## Data gaps

@@ -30,7 +30,7 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
-import { useSettings } from "../../contexts/SettingsContext";
+import { useSettings, type Settings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
 import { supabase } from "../../lib/supabase";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -145,7 +145,7 @@ interface MyAccountPageProps {
 
 export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
-  const { settings, updateSetting } = useSettings();
+  const { settings, updateSetting, resetSettings } = useSettings();
 
   // ── Tab state (persisted) ──────────────────────────────
   const [accountTab, setAccountTab] = useState<AccountTab>(() => {
@@ -1669,6 +1669,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             <SettingsTabContent
               settings={settings}
               updateSetting={updateSetting}
+              resetSettings={resetSettings}
               openEditProfileModal={openEditProfileModal}
               openAddFriendsModal={openAddFriendsModal}
               openFriendsModal={openFriendsModal}
@@ -3546,6 +3547,7 @@ function FolderIcon({ className, filled }: { className?: string; filled?: boolea
 function SettingsTabContent({
   settings,
   updateSetting,
+  resetSettings,
   openEditProfileModal,
   openAddFriendsModal,
   openFriendsModal,
@@ -3555,8 +3557,9 @@ function SettingsTabContent({
   openJoinModal,
   logout,
 }: {
-  settings: { fontSize: "default" | "large" | "extra-large"; reduceMotion: boolean; highContrast: boolean; compactMode: boolean };
-  updateSetting: <K extends "fontSize" | "reduceMotion" | "highContrast" | "compactMode">(k: K, v: { fontSize: "default" | "large" | "extra-large"; reduceMotion: boolean; highContrast: boolean; compactMode: boolean }[K]) => void;
+  settings: Settings;
+  updateSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
+  resetSettings: () => void;
   openEditProfileModal: () => void;
   openAddFriendsModal: () => void;
   openFriendsModal: () => void;
@@ -3566,13 +3569,82 @@ function SettingsTabContent({
   openJoinModal: () => void;
   logout: () => Promise<void>;
 }) {
-  const fontSizes: [typeof settings.fontSize, string][] = [
+  const fontSizes: [Settings["fontSize"], string][] = [
     ["default", "Default"],
     ["large", "Large"],
     ["extra-large", "Extra large"],
   ];
+  const colorBlindModes: [Settings["colorBlindMode"], string][] = [
+    ["off", "Off"],
+    ["protanopia", "Protanopia"],
+    ["deuteranopia", "Deuteranopia"],
+    ["tritanopia", "Tritanopia"],
+  ];
+
+  // Reset-to-default uses an inline two-stage confirm: first click swaps
+  // the button into Confirm/Cancel pair, auto-reverting after 3s so a
+  // stray click can never wipe settings without intent. Confirmed reset
+  // shows a 2s "Settings reset." inline note.
+  const [resetConfirming, setResetConfirming] = useState(false);
+  const [resetNoticeVisible, setResetNoticeVisible] = useState(false);
+  useEffect(() => {
+    if (!resetConfirming) return;
+    const t = setTimeout(() => setResetConfirming(false), 3000);
+    return () => clearTimeout(t);
+  }, [resetConfirming]);
+  useEffect(() => {
+    if (!resetNoticeVisible) return;
+    const t = setTimeout(() => setResetNoticeVisible(false), 2000);
+    return () => clearTimeout(t);
+  }, [resetNoticeVisible]);
+  const handleResetConfirm = () => {
+    resetSettings();
+    setResetConfirming(false);
+    setResetNoticeVisible(true);
+  };
+
   return (
     <div className="max-w-2xl space-y-8">
+      <section>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h3 className={`text-base ${PANEL_TITLE}`}>General</h3>
+          <div className="flex items-center gap-2">
+            {resetNoticeVisible && (
+              <span className="text-xs text-muted" role="status" aria-live="polite">
+                Settings reset.
+              </span>
+            )}
+            {resetConfirming ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleResetConfirm}
+                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                >
+                  Confirm reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetConfirming(false)}
+                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md text-muted hover:text-ink text-xs font-semibold ${FOCUS_RING}`}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setResetConfirming(true)}
+                className={`inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
+              >
+                Reset to default
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="text-sm text-muted mb-4">Restore every device setting on this page to its default value.</p>
+      </section>
+
       <section>
         <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Accessibility</h3>
         <p className="text-sm text-muted mb-4">Stored on this device, applied across Cosello.</p>
@@ -3614,6 +3686,38 @@ function SettingsTabContent({
             subtitle="Tighten spacing across cards, sections, and layouts."
             control={<ToggleSwitch checked={settings.compactMode} onChange={(v) => updateSetting("compactMode", v)} label="Compact mode" />}
           />
+          {/* Dark mode + Color-blind mode wire the integration points
+              (data-theme / data-cb on <html>) but the Brutalist Trade
+              theme is light-only with a single jade accent today —
+              they're visually inert until the parallel token blocks
+              ship (see backlog.md). */}
+          <SettingRow
+            title="Dark mode"
+            subtitle="Use a dark surface palette across Cosello."
+            control={<ToggleSwitch checked={settings.darkMode} onChange={(v) => updateSetting("darkMode", v)} label="Dark mode" />}
+          />
+          <div className="flex items-center justify-between gap-4 p-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">Color-blind mode</p>
+              <p className="text-xs text-muted mt-0.5">Substitute accent hues with palette-safe alternates.</p>
+            </div>
+            <div role="radiogroup" aria-label="Color-blind mode" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md shrink-0">
+              {colorBlindModes.map(([v, label]) => {
+                const active = settings.colorBlindMode === v;
+                return (
+                  <button
+                    key={v}
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => updateSetting("colorBlindMode", v)}
+                    className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
 
