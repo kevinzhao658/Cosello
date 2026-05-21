@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 
 export interface Settings {
   fontSize: "default" | "large" | "extra-large";
@@ -53,19 +53,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     root.classList.toggle("compact-mode", settings.compactMode);
   }, [settings]);
 
-  const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
+  const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return next;
     });
-  };
+  }, []);
 
-  return (
-    <SettingsContext.Provider value={{ settings, updateSetting }}>
-      {children}
-    </SettingsContext.Provider>
+  const value = useMemo<SettingsContextValue>(
+    () => ({ settings, updateSetting }),
+    [settings, updateSetting],
   );
+
+  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
 
 export function useSettings() {

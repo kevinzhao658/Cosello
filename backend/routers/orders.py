@@ -2,6 +2,7 @@ import json
 import time
 import datetime
 import re
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -12,6 +13,12 @@ from models import User, PurchaseOrder, Notification, Review, Listing
 from auth import get_current_user
 
 LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+# Cosello is NYC-focused; pickup slot strings ("10 AM – 12 PM") are wall-clock
+# times in the buyer's NYC time zone. Anchor all slot/now comparisons to this
+# zone so the server's underlying clock (UTC on Vercel, local on dev Macs)
+# doesn't shift slot ends and cause premature expiration.
+PICKUP_TZ = ZoneInfo("America/New_York")
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -45,11 +52,17 @@ def _find_listing(listing_id: str, db: Session, check_expiry: bool = False):
 
 
 def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
-    """If all pickup slots have passed, set status='expired', notify both parties."""
+    """If all pickup slots have passed, set status='expired', notify both parties.
+
+    Slot end times are wall-clock NYC times. We compare against NYC `now` so the
+    behavior is identical whether the server runs in UTC (Vercel) or local
+    (dev Macs) — without this, Vercel marked every same-day order as expired
+    several hours early.
+    """
     if order.status != "pending" or not order.selected_pickup_slots:
         return False
     slots = json.loads(order.selected_pickup_slots)
-    now_dt = datetime.datetime.now()
+    now_dt = datetime.datetime.now(PICKUP_TZ)
     for slot in slots:
         end_hour = 18
         time_str = slot.get("time", "")
@@ -62,7 +75,9 @@ def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
             if ampm == "AM" and h == 12:
                 h = 0
             end_hour = h
-        slot_end = datetime.datetime.strptime(slot["date"], "%Y-%m-%d").replace(hour=end_hour)
+        slot_end = datetime.datetime.strptime(slot["date"], "%Y-%m-%d").replace(
+            hour=end_hour, tzinfo=PICKUP_TZ
+        )
         if now_dt <= slot_end:
             return False
     # All slots expired
@@ -673,13 +688,20 @@ async def get_orders(
         .all()
     )
 
-    # Collect buyer IDs for name lookup
+    # Collect buyer + seller IDs for name lookup
     buyer_ids = {o.buyer_id for o in orders}
+    seller_ids = {o.seller_id for o in orders}
     buyer_map: dict[int, dict] = {}
-    if buyer_ids:
-        buyers = db.query(User).filter(User.id.in_(buyer_ids)).all()
-        for b in buyers:
-            buyer_map[b.id] = {"name": b.display_name or "Someone", "picture": b.profile_picture}
+    seller_map: dict[int, dict] = {}
+    user_ids = buyer_ids | seller_ids
+    if user_ids:
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+        for u in users:
+            entry = {"name": u.display_name or "Someone", "picture": u.profile_picture}
+            if u.id in buyer_ids:
+                buyer_map[u.id] = entry
+            if u.id in seller_ids:
+                seller_map[u.id] = entry
 
     # Filter out orders whose listing no longer exists or has expired,
     # and clean up orphaned orders from the database.
@@ -718,6 +740,8 @@ async def get_orders(
             "buyer_name": buyer_map.get(o.buyer_id, {}).get("name", "Someone"),
             "buyer_picture": buyer_map.get(o.buyer_id, {}).get("picture"),
             "seller_id": o.seller_id,
+            "seller_name": seller_map.get(o.seller_id, {}).get("name", "Seller"),
+            "seller_picture": seller_map.get(o.seller_id, {}).get("picture"),
             "status": o.status,
             "selected_pickup_slots": json.loads(o.selected_pickup_slots) if o.selected_pickup_slots else [],
             "confirmed_time": o.confirmed_time,

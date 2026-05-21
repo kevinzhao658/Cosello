@@ -1,54 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
-
-const MANHATTAN_NEIGHBORHOODS = [
-  "Battery Park City",
-  "Carnegie Hill",
-  "Chelsea",
-  "Chinatown",
-  "Civic Center",
-  "Clinton (Hell's Kitchen)",
-  "East Harlem",
-  "East Village",
-  "Financial District",
-  "Flatiron District",
-  "Gramercy Park",
-  "Greenwich Village",
-  "Hamilton Heights",
-  "Harlem",
-  "Hudson Heights",
-  "Inwood",
-  "Kips Bay",
-  "Lenox Hill",
-  "Lincoln Square",
-  "Little Italy",
-  "Lower East Side",
-  "Marble Hill",
-  "Midtown East",
-  "Midtown West",
-  "Morningside Heights",
-  "Murray Hill",
-  "NoHo",
-  "NoMad",
-  "Nolita",
-  "Roosevelt Island",
-  "SoHo",
-  "Stuyvesant Town",
-  "Sutton Place",
-  "Theater District",
-  "Tribeca",
-  "Tudor City",
-  "Turtle Bay",
-  "Two Bridges",
-  "Upper East Side",
-  "Upper West Side",
-  "Washington Heights",
-  "West Village",
-  "Yorkville",
-];
+import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -79,17 +35,11 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
     : MANHATTAN_NEIGHBORHOODS;
 
   // Close suggestions on click outside
-  useEffect(() => {
-    if (!showSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (inputRef.current?.contains(target)) return;
-      if (suggestionsRef.current?.contains(target)) return;
-      setShowSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showSuggestions]);
+  useClickOutside(
+    [inputRef, suggestionsRef],
+    () => setShowSuggestions(false),
+    showSuggestions,
+  );
 
   const handleRegister = async () => {
     if (!firstName.trim() || !lastName.trim()) {

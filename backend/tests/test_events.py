@@ -23,15 +23,6 @@ from models import (
 )
 
 
-pytestmark = pytest.mark.skip(
-    reason=(
-        "Skipped pending test-infra fix: public.users.id FK to auth.users.id "
-        "prevents direct user seeding. Fix tracked in docs/COMMERCIAL_PR_CHECKLIST.md "
-        "(integration test infra item)."
-    )
-)
-
-
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
 # --------------------------------------------------------------------------- #

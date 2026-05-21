@@ -4,6 +4,7 @@ import { Input } from "../components/ui/input";
 import { Loader2, ArrowRight, Phone, ChevronDown, CheckCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 const COUNTRIES = [
   { flag: "🇺🇸", name: "United States", code: "+1", maxDigits: 10, format: [3, 3, 4] },
@@ -62,15 +63,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
   const isPhoneComplete = rawDigits.length === country.maxDigits;
 
   // Close dropdown on click outside
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current?.contains(e.target as Node)) return;
-      setDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [dropdownOpen]);
+  useClickOutside(dropdownRef, () => setDropdownOpen(false), dropdownOpen);
 
   // Check if phone number exists in DB once all digits are entered
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { PriceInput } from "../components/ui/price-input";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { ModalShell } from "../../components/ui/ModalShell";
 import {
   User,
   Globe,
@@ -32,20 +32,33 @@ import {
   RotateCcw,
   Star,
 } from "lucide-react";
-import { useAuth } from "../contexts/AuthContext";
-import { formatTitle } from "../lib/format";
-
-const MANHATTAN_NEIGHBORHOODS = [
-  "Battery Park City", "Carnegie Hill", "Chelsea", "Chinatown", "Civic Center",
-  "Clinton (Hell's Kitchen)", "East Harlem", "East Village", "Financial District",
-  "Flatiron District", "Gramercy Park", "Greenwich Village", "Hamilton Heights",
-  "Harlem", "Hudson Heights", "Inwood", "Kips Bay", "Lenox Hill", "Lincoln Square",
-  "Little Italy", "Lower East Side", "Marble Hill", "Midtown East", "Midtown West",
-  "Morningside Heights", "Murray Hill", "NoHo", "NoMad", "Nolita", "Roosevelt Island",
-  "SoHo", "Stuyvesant Town", "Sutton Place", "Theater District", "Tribeca",
-  "Tudor City", "Turtle Bay", "Two Bridges", "Upper East Side", "Upper West Side",
-  "Washington Heights", "West Village", "Yorkville",
-];
+import { useAuth } from "../../contexts/AuthContext";
+import { formatTitle } from "../../lib/format";
+import { supabase } from "../../lib/supabase";
+import { useClickOutside } from "../../hooks/useClickOutside";
+import { buildSlotTarget, formatCountdown, parseClockPeriod, parseSlotEndHour } from "../../lib/pickupTime";
+import { apiFetch } from "../../lib/api";
+import type { CategorySchema, Listing, ListingUpdatePatch, MyListing } from "../../lib/types";
+import { EditListingModal } from "../../components/EditListingModal";
+import { CommunityCardSkeleton } from "../../components/CommunityCardSkeleton";
+import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
+import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
+import {
+  BUYER_ORDER_BADGE,
+  BUYER_ORDER_CONTAINER_CLASS,
+  SELLER_LISTING_CTA_BADGE,
+  getBuyerOrderViewState,
+  getSellerListingCtaState,
+} from "../../lib/orderStatus";
+import { RatingModal } from "./modals/RatingModal";
+import { PickupAttestationModal } from "./modals/PickupAttestationModal";
+import { OrderConfirmSummaryModal } from "./modals/OrderConfirmSummaryModal";
+import { FriendsListModal } from "./modals/FriendsListModal";
+import { JoinCommunityModal } from "./modals/JoinCommunityModal";
+import { CreateCommunityModal } from "./modals/CreateCommunityModal";
+import { ShareCommunityModal } from "./modals/ShareCommunityModal";
+import { EditProfileModal } from "./modals/EditProfileModal";
+import { AddFriendsModal } from "./modals/AddFriendsModal";
 
 interface CommunityData {
   id: number;
@@ -87,28 +100,6 @@ interface ProfileStats {
   avg_buyer_rating: number;
 }
 
-interface MyListing {
-  id: string;
-  // Brand + name replace the old computed `title`. Display title is
-  // composed at render time via formatTitle. The legacy `title` column
-  // may still arrive from older API responses during the rollout — keep
-  // it optional for safety but never write it from the client.
-  brand: string;
-  name: string;
-  title?: string;
-  description: string;
-  price: string;
-  condition: string;
-  location: string;
-  tags: string[];
-  imageUrl: string;
-  imageUrls?: string[];
-  postedAt: number;
-  status?: string;
-  pendingOrderCount?: number;
-  latestOrderAt?: string | null;
-}
-
 interface OrderData {
   id: number;
   listing_id: string;
@@ -119,6 +110,8 @@ interface OrderData {
   buyer_name: string;
   buyer_picture?: string | null;
   seller_id: string;
+  seller_name: string;
+  seller_picture?: string | null;
   status: string;
   selected_pickup_slots: { date: string; time: string }[];
   confirmed_time?: string;
@@ -132,33 +125,21 @@ interface OrderData {
   pickup_notified: boolean;
 }
 
-interface WishlistListing {
-  id: string;
-  // Same brand/name unification as MyListing — a buyer-facing display
-  // title is computed via formatTitle on render.
-  brand: string;
-  name: string;
-  title?: string;
-  price: string;
-  imageUrl: string;
-  imageUrls?: string[];
-  status?: string;
-}
-
 interface MyAccountPageProps {
   onNavigate: (page: string) => void;
   onCommunitiesChanged?: () => void;
-  wishlistItems?: WishlistListing[];
+  wishlistItems?: Listing[];
   wishlist?: Set<string>;
   onToggleWishlist?: (listingId: string) => void;
   pendingListingId?: string | null;
   onClearPendingListing?: () => void;
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
-  openListingDetail?: (listing: any) => void;
+  openListingDetail?: (listing: Listing) => void;
   onViewUser?: (userId: string) => void;
+  categorySchemas?: Record<string, CategorySchema>;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser }: MyAccountPageProps) {
+export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], wishlist, onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas }: MyAccountPageProps) {
   const { user, token, updateUser } = useAuth();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -171,6 +152,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
+  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -280,63 +262,28 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   // Profile stats
   const [stats, setStats] = useState<ProfileStats>({ total_listings: 0, purchases: 0, friends_count: 0, avg_seller_rating: 5.0, avg_buyer_rating: 5.0 });
   const [myListings, setMyListings] = useState<MyListing[]>([]);
+  const [myListingsLoaded, setMyListingsLoaded] = useState(false);
   const [listingsTab, setListingsTab] = useState<"selling" | "buying">("selling");
 
-  // Edit listing modal state. Brand + name replace the old single Title input;
-  // the buyer-facing title is composed via formatTitle on render.
-  const [showEditListingModal, setShowEditListingModal] = useState(false);
+  // Edit listing modal — field state lives inside EditListingModal; this
+  // page only tracks which listing is being edited.
   const [editListing, setEditListing] = useState<MyListing | null>(null);
-  const [editBrand, setEditBrand] = useState("");
-  const [editName, setEditName] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editPrice, setEditPrice] = useState("");
-  const [editCondition, setEditCondition] = useState("");
-  const [editLocation, setEditLocation] = useState("");
-  const [editTags, setEditTags] = useState<string[]>([]);
-  const [editNewTag, setEditNewTag] = useState("");
-  const [isSavingListing, setIsSavingListing] = useState(false);
 
   const openEditListing = (listing: MyListing) => {
     setEditListing(listing);
-    setEditBrand(listing.brand || "");
-    setEditName(listing.name || "");
-    setEditDescription(listing.description || "");
-    setEditPrice(listing.price);
-    setEditCondition(listing.condition);
-    setEditLocation(user?.neighborhood || listing.location || "");
-    setEditTags(listing.tags || []);
-    setEditNewTag("");
-    setShowEditListingModal(true);
   };
 
-  const handleSaveListing = async () => {
+  const handleSaveListing = async (patch: ListingUpdatePatch) => {
     if (!token || !editListing) return;
-    setIsSavingListing(true);
-    try {
-      const formData = new FormData();
-      formData.append("data", JSON.stringify({
-        brand: editBrand,
-        name: editName,
-        description: editDescription,
-        price: editPrice,
-        condition: editCondition,
-        location: editLocation,
-        tags: editTags,
-      }));
-      const res = await fetch(`/api/listings/${editListing.id}`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      if (res.ok) {
-        setShowEditListingModal(false);
-        setEditListing(null);
-        fetchMyListings();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsSavingListing(false);
+    const formData = new FormData();
+    formData.append("data", JSON.stringify(patch));
+    const res = await apiFetch(`/api/listings/${editListing.id}`, {
+      method: "PUT",
+      body: formData,
+    });
+    if (res.ok) {
+      setEditListing(null);
+      fetchMyListings();
     }
   };
 
@@ -369,6 +316,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   // Purchases (buyer's orders) and seller orders
   const [myPurchases, setMyPurchases] = useState<OrderData[]>([]);
   const [mySellerOrders, setMySellerOrders] = useState<OrderData[]>([]);
+  // Becomes true after the first /api/orders fetch completes (success OR empty).
+  // The "open modal from notification" effect waits on this to avoid clearing
+  // pendingListingId before purchases have had a chance to load.
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
 
   // Countdown tick (forces re-render every 60s for live countdowns)
   const [countdownTick, setCountdownTick] = useState(0);
@@ -387,56 +338,29 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     let targetHour = 18;
     let targetMin = 0;
     if (order.confirmed_time) {
-      const ctMatch = order.confirmed_time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-      if (ctMatch) {
-        let h = parseInt(ctMatch[1], 10);
-        const m = parseInt(ctMatch[2], 10);
-        const ampm = ctMatch[3].toUpperCase();
-        if (ampm === "PM" && h !== 12) h += 12;
-        if (ampm === "AM" && h === 12) h = 0;
-        targetHour = h;
-        targetMin = m;
+      const clock = parseClockPeriod(order.confirmed_time);
+      if (clock) {
+        targetHour = clock.hour;
+        targetMin = clock.minute;
       }
     } else {
-      const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
-      if (dashMatch) {
-        let h = parseInt(dashMatch[1], 10);
-        const ampm = dashMatch[2].toUpperCase();
-        if (ampm === "PM" && h !== 12) h += 12;
-        if (ampm === "AM" && h === 12) h = 0;
-        targetHour = h;
-      }
+      const endHour = parseSlotEndHour(slot.time);
+      if (endHour !== null) targetHour = endHour;
       const legacyEnd: Record<string, number> = { morning: 12, afternoon: 17, evening: 21 };
       if (legacyEnd[slot.time]) targetHour = legacyEnd[slot.time];
     }
 
-    const target = new Date(slot.date + "T00:00:00");
-    target.setHours(targetHour, targetMin, 0, 0);
+    const target = buildSlotTarget(slot.date, targetHour, targetMin);
     const diff = target.getTime() - Date.now();
 
     if (diff <= 0) return { expired: true, label: "Ready", diff };
-    const days = Math.floor(diff / 86400000);
-    const hours = Math.floor((diff % 86400000) / 3600000);
-    const mins = Math.floor((diff % 3600000) / 60000);
-    if (days > 0) return { expired: false, label: `${days}d ${hours}h ${mins}m`, diff };
-    if (hours > 0) return { expired: false, label: `${hours}h ${mins}m`, diff };
-    return { expired: false, label: `${mins}m`, diff };
+    return { expired: false, label: formatCountdown(diff).label, diff };
   };
 
   const isSlotExpired = (slot: { date: string; time: string }): boolean => {
-    const now = new Date();
-    let endHour = 18;
-    const dashMatch = slot.time.match(/[–-]\s*(\d{1,2})\s*(AM|PM)/i);
-    if (dashMatch) {
-      let h = parseInt(dashMatch[1], 10);
-      const ampm = dashMatch[2].toUpperCase();
-      if (ampm === "PM" && h !== 12) h += 12;
-      if (ampm === "AM" && h === 12) h = 0;
-      endHour = h;
-    }
-    const slotEnd = new Date(slot.date + "T00:00:00");
-    slotEnd.setHours(endHour, 0, 0, 0);
-    return now > slotEnd;
+    const endHour = parseSlotEndHour(slot.time) ?? 18;
+    const slotEnd = buildSlotTarget(slot.date, endHour);
+    return new Date() > slotEnd;
   };
 
   // Auto-release address 1 hour before pickup for neighborhood orders
@@ -452,9 +376,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         const countdown = getPickupCountdown(order);
         // Trigger when 1 hour or less until pickup (diff <= 3600000ms)
         if (countdown.diff <= 3600000) {
-          fetch(`/api/orders/${order.id}/release-address`, {
+          apiFetch(`/api/orders/${order.id}/release-address`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
           }).then((res) => {
             if (res.ok) fetchAllOrders();
           }).catch(() => {});
@@ -471,9 +394,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (order.status === "pending" && order.selected_pickup_slots.length > 0) {
         const allExpired = order.selected_pickup_slots.every((slot) => isSlotExpired(slot));
         if (allExpired) {
-          fetch(`/api/orders/${order.id}/expire`, {
+          apiFetch(`/api/orders/${order.id}/expire`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
           }).then((res) => {
             if (res.ok) fetchAllOrders();
           }).catch(() => {});
@@ -502,9 +424,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token || !ratingOrder || ratingValue === 0) return;
     setIsSubmittingRating(true);
     try {
-      const res = await fetch(`/api/orders/${ratingOrder.id}/complete`, {
+      const res = await apiFetch(`/api/orders/${ratingOrder.id}/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating: ratingValue, comment: ratingComment }),
       });
       if (!res.ok) {
@@ -525,9 +447,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchAllOrders = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         setMyPurchases(allOrders.filter((o) => o.role === "buyer"));
@@ -535,6 +455,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       }
     } catch {
       // ignore
+    } finally {
+      setOrdersLoaded(true);
     }
   }, [token]);
 
@@ -543,9 +465,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowOrderModal(true);
     setIsLoadingOrders(true);
     try {
-      const res = await fetch("/api/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         setListingOrders(
@@ -562,9 +482,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const openConfirmedOrderSummary = async (listingId: string) => {
     if (!token) return;
     try {
-      const res = await fetch("/api/orders", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/orders");
       if (res.ok) {
         const allOrders: OrderData[] = await res.json();
         const order = allOrders.find((o) => o.listing_id === listingId && o.status === "confirmed");
@@ -602,9 +520,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setConfirmingOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/confirm`, {
+      const res = await apiFetch(`/api/orders/${orderId}/confirm`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmed_slot: slot, confirmed_time: confirmedTime }),
       });
       if (res.ok) {
@@ -644,9 +562,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setDecliningOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/decline`, {
+      const res = await apiFetch(`/api/orders/${orderId}/decline`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setListingOrders((prev) => prev.filter((o) => o.id !== orderId));
@@ -665,9 +582,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setWithdrawingOrderId(orderId);
     try {
-      const res = await fetch(`/api/orders/${orderId}/withdraw`, {
+      const res = await apiFetch(`/api/orders/${orderId}/withdraw`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setShowWithdrawConfirm(null);
@@ -683,9 +599,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchStats = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/friends/stats", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends/stats");
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -698,15 +612,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchMyListings = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/listings/mine", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/listings/mine");
       if (res.ok) {
         const data = await res.json();
         setMyListings(data);
       }
     } catch (err) {
       console.error("Failed to fetch my listings:", err);
+    } finally {
+      setMyListingsLoaded(true);
     }
   }, [token]);
 
@@ -730,9 +644,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRelistingId(listingId);
     try {
-      const res = await fetch(`/api/listings/${listingId}/relist`, {
+      const res = await apiFetch(`/api/listings/${listingId}/relist`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         fetchMyListings();
@@ -748,9 +661,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setIsLoadingRecommended(true);
     try {
-      const res = await fetch("/api/friends/recommended", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends/recommended");
       if (res.ok) {
         const data = await res.json();
         setRecommendedFriends(data);
@@ -766,9 +677,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setIsLoadingFriends(true);
     try {
-      const res = await fetch("/api/friends", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends");
       if (res.ok) {
         const data = await res.json();
         setFriendsList(data);
@@ -784,9 +693,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRemovingFriendId(friendId);
     try {
-      const res = await fetch(`/api/friends/${friendId}`, {
+      const res = await apiFetch(`/api/friends/${friendId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setFriendsList((prev) => prev.filter((f) => f.id !== friendId));
@@ -808,15 +716,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchCommunities = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/communities/mine", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/communities/mine");
       if (res.ok) {
         const data = await res.json();
         setCommunities(data);
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
+    } finally {
+      setCommunitiesLoaded(true);
     }
   }, [token]);
 
@@ -827,12 +735,42 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchAllOrders();
   }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel("purchase_orders_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "purchase_orders",
+        },
+        () => {
+          fetchAllOrders();
+          fetchMyListings();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, fetchAllOrders, fetchMyListings]);
+
   // Auto-open order modal when routed from notification
   useEffect(() => {
     if (!pendingListingId) return;
-    // Seller: open pending order modal
+    // Seller: open pending order modal. Check mySellerOrders directly rather
+    // than relying solely on the cached pendingOrderCount on the listing,
+    // since the count can lag behind the realtime order insert that triggered
+    // the notification the user just clicked.
     const listing = myListings.find((l) => l.id === pendingListingId);
-    if (listing && (listing.pendingOrderCount ?? 0) > 0) {
+    const hasPendingSellerOrder = mySellerOrders.some(
+      (o) => o.listing_id === pendingListingId && o.status === "pending",
+    );
+    if (listing && (hasPendingSellerOrder || (listing.pendingOrderCount ?? 0) > 0)) {
       openOrderModal(listing);
       onClearPendingListing?.();
       return;
@@ -854,18 +792,29 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           postedAt: 0,
           status: "sold",
         },
-        buyerName: purchase.buyer_name,
+        // For role=buyer, the "other party" label in the modal renders as
+        // "Seller", so we populate `buyerName` with the seller's name here.
+        // (The field name is a legacy artifact from when the modal was
+        // seller-only; renaming would touch every call site.)
+        buyerName: purchase.seller_name,
         slot: slot || { date: "", time: "" },
         role: "buyer",
+        confirmedTime: purchase.confirmed_time,
+        pickupAddress: purchase.address_released ? purchase.pickup_address : null,
+        order: purchase,
       });
       setShowConfirmSummary(true);
       onClearPendingListing?.();
       return;
     }
-    // Data not loaded yet — wait for next render
-    if (myListings.length === 0 && myPurchases.length === 0) return;
+    // Orders haven't been fetched yet — wait for the next render after the
+    // first /api/orders call resolves. Previously this only waited when both
+    // myListings + myPurchases were empty, which mis-cleared the pending
+    // state for users who had own listings AND a brand-new confirmed purchase
+    // (myListings populated, myPurchases still loading).
+    if (!ordersLoaded) return;
     onClearPendingListing?.();
-  }, [pendingListingId, myListings, myPurchases]);
+  }, [pendingListingId, myListings, myPurchases, mySellerOrders, ordersLoaded]);
 
   const handleProfilePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -876,9 +825,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const formData = new FormData();
       formData.append("image", file);
 
-      const res = await fetch("/api/auth/profile-picture", {
+      const res = await apiFetch("/api/auth/profile-picture", {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -899,11 +847,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setIsJoining(true);
     setJoinError("");
     try {
-      const res = await fetch("/api/communities/join", {
+      const res = await apiFetch("/api/communities/join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ invite_code: joinCode.trim() }),
       });
@@ -936,8 +883,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (!token) return;
       setIsSearchingCommunities(true);
       try {
-        const res = await fetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await apiFetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`, {
         });
         if (res.ok) {
           const data = await res.json();
@@ -955,11 +901,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setJoiningCommunityId(communityId);
     try {
-      const res = await fetch("/api/communities/join", {
+      const res = await apiFetch("/api/communities/join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ invite_code: inviteCode }),
       });
@@ -982,11 +927,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRequestingCommunityId(communityId);
     try {
-      const res = await fetch("/api/communities/request-join", {
+      const res = await apiFetch("/api/communities/request-join", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ community_id: communityId }),
       });
@@ -1006,11 +950,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRequestingCommunityId(communityId);
     try {
-      const res = await fetch("/api/communities/cancel-request", {
+      const res = await apiFetch("/api/communities/cancel-request", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ community_id: communityId }),
       });
@@ -1056,9 +999,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       formData.append("is_public", String(createIsPublic));
       if (createImage) formData.append("image", createImage);
 
-      const res = await fetch("/api/communities", {
+      const res = await apiFetch("/api/communities", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -1137,9 +1079,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setPendingRequests([]);
     setIsLoadingMembers(true);
     try {
-      const res = await fetch(`/api/communities/${community.id}/members`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/communities/${community.id}/members`);
       if (res.ok) {
         const data = await res.json();
         setCommunityMembers(data);
@@ -1153,9 +1093,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!community.is_public && community.created_by === user?.id) {
       setIsLoadingRequests(true);
       try {
-        const res = await fetch(`/api/communities/${community.id}/requests`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch(`/api/communities/${community.id}/requests`);
         if (res.ok) {
           setPendingRequests(await res.json());
         }
@@ -1171,16 +1109,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setAcceptingRequestId(requestId);
     try {
-      const res = await fetch(`/api/communities/${communityId}/requests/${requestId}/accept`, {
+      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/accept`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
         // Refresh members list
-        const membersRes = await fetch(`/api/communities/${communityId}/members`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const membersRes = await apiFetch(`/api/communities/${communityId}/members`);
         if (membersRes.ok) {
           setCommunityMembers(await membersRes.json());
         }
@@ -1198,9 +1133,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setRejectingRequestId(requestId);
     try {
-      const res = await fetch(`/api/communities/${communityId}/requests/${requestId}/reject`, {
+      const res = await apiFetch(`/api/communities/${communityId}/requests/${requestId}/reject`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
@@ -1216,9 +1150,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setKickingMemberId(memberId);
     try {
-      const res = await fetch(`/api/communities/${communityId}/members/${memberId}`, {
+      const res = await apiFetch(`/api/communities/${communityId}/members/${memberId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setCommunityMembers((prev) => prev.filter((m) => m.id !== memberId));
@@ -1254,11 +1187,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsSavingCommunity(true);
     try {
-      const res = await fetch(`/api/communities/${selectedCommunity.id}`, {
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: editCommunityName.trim(),
@@ -1287,9 +1219,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsDeletingCommunity(true);
     try {
-      const res = await fetch(`/api/communities/${selectedCommunity.id}`, {
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
@@ -1308,9 +1239,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!selectedCommunity || !token) return;
     setIsLeavingCommunity(true);
     try {
-      const res = await fetch(`/api/communities/${selectedCommunity.id}/leave`, {
+      const res = await apiFetch(`/api/communities/${selectedCommunity.id}/leave`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
@@ -1330,9 +1260,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const fetchFriendsForInvite = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch("/api/friends", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch("/api/friends");
       if (res.ok) {
         const data = await res.json();
         setAllFriends(data);
@@ -1372,11 +1300,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!createdCommunity || selectedFriends.length === 0 || !token) return;
     setIsInviting(true);
     try {
-      await fetch("/api/communities/invite", {
+      await apiFetch("/api/communities/invite", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           community_id: createdCommunity.id,
@@ -1426,8 +1353,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (!token) return;
       setIsAddFriendsSearching(true);
       try {
-        const res = await fetch(`/api/friends/search?q=${encodeURIComponent(query.trim())}`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await apiFetch(`/api/friends/search?q=${encodeURIComponent(query.trim())}`, {
         });
         if (res.ok) {
           const data = await res.json();
@@ -1445,11 +1371,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!token) return;
     setAddingFriendId(userId);
     try {
-      const res = await fetch("/api/friends/add", {
+      const res = await apiFetch("/api/friends/add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ user_id: userId }),
       });
@@ -1519,11 +1444,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setEditProfileError("");
 
     try {
-      const res = await fetch("/api/auth/profile", {
+      const res = await apiFetch("/api/auth/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           display_name: `${editFirstName.trim()} ${editLastName.trim()}`,
@@ -1541,51 +1465,33 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const updatedUser = await res.json();
       updateUser(updatedUser);
       setShowEditProfileModal(false);
-    } catch (err: any) {
-      setEditProfileError(err.message || "Update failed");
+    } catch (err) {
+      setEditProfileError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setIsUpdatingProfile(false);
     }
   };
 
   // Close create location suggestions on click outside
-  useEffect(() => {
-    if (!createShowLocationSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (createLocationRef.current?.contains(target)) return;
-      if (createLocationSuggestionsRef.current?.contains(target)) return;
-      setCreateShowLocationSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [createShowLocationSuggestions]);
+  useClickOutside(
+    [createLocationRef, createLocationSuggestionsRef],
+    () => setCreateShowLocationSuggestions(false),
+    createShowLocationSuggestions,
+  );
 
   // Close edit suggestions on click outside
-  useEffect(() => {
-    if (!editShowSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (editNeighborhoodRef.current?.contains(target)) return;
-      if (editSuggestionsRef.current?.contains(target)) return;
-      setEditShowSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [editShowSuggestions]);
+  useClickOutside(
+    [editNeighborhoodRef, editSuggestionsRef],
+    () => setEditShowSuggestions(false),
+    editShowSuggestions,
+  );
 
   // Close edit community neighborhood suggestions on click outside
-  useEffect(() => {
-    if (!editCommunityShowSuggestions) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (editCommunityNeighborhoodRef.current?.contains(target)) return;
-      if (editCommunitySuggestionsRef.current?.contains(target)) return;
-      setEditCommunityShowSuggestions(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [editCommunityShowSuggestions]);
+  useClickOutside(
+    [editCommunityNeighborhoodRef, editCommunitySuggestionsRef],
+    () => setEditCommunityShowSuggestions(false),
+    editCommunityShowSuggestions,
+  );
 
   return (
     <section className="py-10 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
@@ -1712,7 +1618,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
             )}
 
-            {/* Community Tiles */}
+            {/* Community Tiles (skeletons on initial cold load) */}
+            {!communitiesLoaded && communities.length === 0 &&
+              Array.from({ length: 6 }).map((_, i) => (
+                <CommunityCardSkeleton key={`community-skeleton-${i}`} />
+              ))}
             {communities.map((community) => (
               <div
                 key={community.id}
@@ -1806,7 +1716,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
             {listingsTab === "selling" ? (
               <>
-                {myListings.length === 0 ? (
+                {!myListingsLoaded && myListings.length === 0 ? (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <ListingCardSkeleton key={i} />
+                    ))}
+                  </div>
+                ) : myListings.length === 0 ? (
                   <div className="text-center py-6">
                     <Package className="size-8 text-white/15 mx-auto mb-2" />
                     <p className="text-xs text-white/30 mb-3">No listings yet</p>
@@ -1895,25 +1811,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
                             <span className="text-xs font-medium text-fuchsia-400">${listing.price}</span>
-                            {timeInfo.expired ? (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
-                                disabled={relistingId === listing.id}
-                                className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
-                              >
-                                {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
-                              </button>
-                            ) : isSellerWaitingForBuyer ? (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Buyer</span>
-                            ) : isSellerPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
-                            ) : sellerOrder && sellerOrder.status === "confirmed" ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
-                            ) : hasPendingOrders ? (
-                              <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-400/20">Review</span>
-                            ) : (
-                              <Pencil className="size-3 text-white/20" />
-                            )}
+                            {(() => {
+                              const cta = getSellerListingCtaState({
+                                timeExpired: timeInfo.expired,
+                                isSellerWaitingForBuyer,
+                                isSellerPickupReady,
+                                sellerOrderStatus: sellerOrder?.status ?? null,
+                                hasPendingOrders,
+                              });
+                              if (cta === "expired") return (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
+                                  disabled={relistingId === listing.id}
+                                  className="flex items-center gap-1 text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-full border border-cyan-400/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-40"
+                                >
+                                  {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-2.5" />Relist</>}
+                                </button>
+                              );
+                              if (cta === "default") return <Pencil className="size-3 text-white/20" />;
+                              const badge = SELLER_LISTING_CTA_BADGE[cta];
+                              return <span className={badge.className}>{badge.label}</span>;
+                            })()}
                           </div>
                         </div>
                       );
@@ -1950,35 +1868,21 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {myPurchases.map((order) => {
                       const countdown = getPickupCountdown(order);
-                      const hasReviewed = order.buyer_reviewed;
-                      const otherReviewed = order.seller_reviewed;
-                      const isPickupReady = order.status === "confirmed" && countdown.expired && !hasReviewed;
-                      const isWaitingForOther = order.status === "confirmed" && countdown.expired && hasReviewed && !otherReviewed;
-                      const isConfirmedCountdown = order.status === "confirmed" && !countdown.expired;
-                      const isCompleted = order.status === "completed";
-                      const isDeclined = order.status === "declined";
-                      const isWithdrawn = order.status === "withdrawn";
-                      const isExpired = order.status === "expired";
+                      const viewState = getBuyerOrderViewState({
+                        status: order.status,
+                        countdownExpired: countdown.expired,
+                        hasReviewed: order.buyer_reviewed,
+                        otherReviewed: order.seller_reviewed,
+                      });
+                      const badge = BUYER_ORDER_BADGE[viewState];
 
                       return (
                         <div key={order.id}>
                         <div
-                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${
-                            isDeclined
-                              ? "bg-red-500/[0.03] border-red-500/10 opacity-60"
-                              : isWithdrawn || isExpired
-                                ? "bg-white/[0.02] border-white/5 opacity-50"
-                                : isPickupReady
-                                  ? "bg-green-500/[0.05] border-green-400/30 hover:bg-green-500/[0.08] cursor-pointer"
-                                  : isWaitingForOther
-                                    ? "bg-amber-500/[0.05] border-amber-400/20"
-                                    : isConfirmedCountdown
-                                      ? "bg-green-500/[0.03] border-green-400/20 hover:bg-green-500/[0.06] cursor-pointer"
-                                      : "bg-white/[0.03] border-white/5"
-                          }`}
+                          className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${BUYER_ORDER_CONTAINER_CLASS[viewState]}`}
                           onClick={() => {
-                            if (isDeclined || isWithdrawn || isExpired || isWaitingForOther) return;
-                            if (isPickupReady) openRatingModal(order);
+                            if (viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "waitingForOther") return;
+                            if (viewState === "pickupReady") openRatingModal(order);
                             else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                           }}
                         >
@@ -1986,17 +1890,17 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           <div className="flex-1 min-w-0">
                             <p className="text-xs text-white/80 truncate">{order.listing_title}</p>
                             <div className="flex items-center gap-1.5">
-                              {isDeclined ? (
+                              {viewState === "declined" ? (
                                 <span className="text-[10px] text-red-400/70">Order was declined</span>
-                              ) : isWithdrawn ? (
+                              ) : viewState === "withdrawn" ? (
                                 <span className="text-[10px] text-white/40">Order withdrawn</span>
-                              ) : isExpired ? (
+                              ) : viewState === "expired" ? (
                                 <span className="text-[10px] text-white/40">Order expired</span>
-                              ) : isWaitingForOther ? (
+                              ) : viewState === "waitingForOther" ? (
                                 <span className="text-[10px] text-amber-400">Waiting for seller to confirm pickup</span>
-                              ) : isPickupReady ? (
+                              ) : viewState === "pickupReady" ? (
                                 <span className="text-[10px] text-green-400">Confirm Pickup</span>
-                              ) : isConfirmedCountdown ? (
+                              ) : viewState === "confirmedCountdown" ? (
                                 <span className="text-[10px] text-green-400">{countdown.label} till pickup{order.confirmed_time ? ` at ${order.confirmed_time}` : ""}</span>
                               ) : (
                                 <p className="text-[10px] text-white/30">
@@ -2012,23 +1916,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
                             <span className="text-xs font-medium text-fuchsia-400">${order.listing_price}</span>
-                            {isDeclined ? (
-                              <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-400/20">Declined</span>
-                            ) : isWithdrawn ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Withdrawn</span>
-                            ) : isExpired ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Expired</span>
-                            ) : isWaitingForOther ? (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Awaiting Seller</span>
-                            ) : isPickupReady ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirm Pickup</span>
-                            ) : isConfirmedCountdown ? (
-                              <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-400/20">Confirmed</span>
-                            ) : isCompleted ? (
-                              <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">Completed</span>
-                            ) : (
-                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-400/20">Pending</span>
-                            )}
+                            <span className={badge.className}>{badge.label}</span>
                             {order.status === "pending" && (
                               <button
                                 onClick={(e) => {
@@ -2182,925 +2070,119 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       </div>
 
       {/* Join Community Modal */}
-      {showJoinModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={closeJoinModal}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={closeJoinModal}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-cyan-500/15 rounded-full flex items-center justify-center">
-                <Globe className="size-5 text-cyan-400" />
-              </div>
-              <h3 className="text-lg font-medium">Join a Community</h3>
-            </div>
-
-            {/* Search Communities */}
-            <div className="mb-4">
-              <label className="text-xs text-white/40 mb-1.5 block">Search Communities</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-white/30" />
-                <Input
-                  type="text"
-                  placeholder="Search by name..."
-                  value={communitySearch}
-                  onChange={(e) => handleCommunitySearch(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30 pl-9"
-                />
-                {isSearchingCommunities && (
-                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-3.5 text-white/30 animate-spin" />
-                )}
-              </div>
-
-              {/* Search Results — stable container to prevent layout shift */}
-              {communitySearch.trim() && (
-                <div className="mt-2 min-h-[48px]">
-                  {isSearchingCommunities ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Loader2 className="size-4 text-white/30 animate-spin" />
-                    </div>
-                  ) : communitySearchResults.length > 0 ? (
-                    <div className="space-y-2 max-h-52 overflow-y-auto">
-                      {communitySearchResults.map((c) => (
-                        <div
-                          key={c.id}
-                          className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-colors"
-                        >
-                          <div className="size-10 rounded-lg bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 flex items-center justify-center overflow-hidden shrink-0">
-                            {c.image ? (
-                              <img src={c.image} alt={c.name} className="size-full object-cover rounded-lg" />
-                            ) : (
-                              <Globe className="size-5 text-cyan-400" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-sm text-white/80 truncate">{c.name}</p>
-                              {!c.is_public && (
-                                <Lock className="size-3 text-amber-400/60 shrink-0" />
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {c.neighborhood && (
-                                <p className="text-[10px] text-white/30 truncate flex items-center gap-0.5">
-                                  <MapPin className="size-2.5" />
-                                  {c.neighborhood}
-                                </p>
-                              )}
-                              <p className="text-[10px] text-white/20">
-                                {c.member_count} {c.member_count === 1 ? "member" : "members"}
-                              </p>
-                            </div>
-                          </div>
-                          {c.is_member ? (
-                            <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20 shrink-0">
-                              Joined
-                            </span>
-                          ) : !c.is_public && c.has_requested ? (
-                            <Button
-                              onClick={() => handleCancelRequest(c.id)}
-                              disabled={requestingCommunityId === c.id}
-                              size="sm"
-                              className="bg-amber-500/10 text-amber-400 hover:bg-red-500/15 hover:text-red-400 border border-amber-400/20 hover:border-red-400/20 text-xs px-3 h-7 shrink-0 transition-colors"
-                            >
-                              {requestingCommunityId === c.id ? (
-                                <Loader2 className="size-3 animate-spin" />
-                              ) : (
-                                <>Requested <X className="size-3 ml-1" /></>
-                              )}
-                            </Button>
-                          ) : !c.is_public ? (
-                            <Button
-                              onClick={() => handleRequestToJoin(c.id)}
-                              disabled={requestingCommunityId === c.id}
-                              size="sm"
-                              className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-400/20 text-xs px-3 h-7 shrink-0"
-                            >
-                              {requestingCommunityId === c.id ? (
-                                <Loader2 className="size-3 animate-spin" />
-                              ) : (
-                                "Request"
-                              )}
-                            </Button>
-                          ) : (
-                            <Button
-                              onClick={() => handleJoinBySearch(c.invite_code, c.id)}
-                              disabled={joiningCommunityId === c.id}
-                              size="sm"
-                              className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs px-3 h-7 shrink-0"
-                            >
-                              {joiningCommunityId === c.id ? (
-                                <Loader2 className="size-3 animate-spin" />
-                              ) : (
-                                "Join"
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-center text-xs text-white/30 py-4">No communities found</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={() => setShowInviteCode((prev) => !prev)}
-              className="text-xs text-cyan-400/70 hover:text-cyan-400 transition-colors mt-1"
-            >
-              Have an invite code?
-            </button>
-
-            {showInviteCode && (
-              <div className="space-y-3 mt-3">
-                <Input
-                  type="text"
-                  placeholder="Enter invite code..."
-                  value={joinCode}
-                  onChange={(e) => { setJoinCode(e.target.value); setJoinError(""); }}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-
-                {joinError && (
-                  <p className="text-xs text-red-400">{joinError}</p>
-                )}
-
-                <Button
-                  disabled={!joinCode.trim() || isJoining}
-                  onClick={handleJoinCommunity}
-                  className="w-full bg-cyan-500 hover:bg-cyan-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {isJoining ? <Loader2 className="size-4 animate-spin" /> : "Join"}
-                </Button>
-              </div>
-            )}
-
-            <div className="relative py-2 mt-2">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/10" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-2 text-white/30" style={{ backgroundColor: "#18181b" }}>or</span>
-              </div>
-            </div>
-
-            <Button
-              onClick={() => { closeJoinModal(); setShowCreateModal(true); }}
-              className="w-full bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 text-xs"
-            >
-              <Plus className="size-3.5" />
-              Create a Community
-            </Button>
-          </div>
-        </div>
-      )}
+      <JoinCommunityModal
+        open={showJoinModal}
+        communitySearch={communitySearch}
+        communitySearchResults={communitySearchResults}
+        isSearchingCommunities={isSearchingCommunities}
+        requestingCommunityId={requestingCommunityId}
+        joiningCommunityId={joiningCommunityId}
+        showInviteCode={showInviteCode}
+        joinCode={joinCode}
+        joinError={joinError}
+        isJoining={isJoining}
+        onClose={closeJoinModal}
+        onSearchChange={handleCommunitySearch}
+        onToggleInviteCode={() => setShowInviteCode((prev) => !prev)}
+        onJoinCodeChange={(s) => { setJoinCode(s); setJoinError(""); }}
+        onJoinByCode={handleJoinCommunity}
+        onJoinBySearch={handleJoinBySearch}
+        onRequestToJoin={handleRequestToJoin}
+        onCancelRequest={handleCancelRequest}
+        onCreateClick={() => { closeJoinModal(); setShowCreateModal(true); }}
+      />
 
       {/* Create Community Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                <Plus className="size-5 text-fuchsia-400" />
-              </div>
-              <h3 className="text-lg font-medium">Create a Community</h3>
-            </div>
-
-            <div className="space-y-4">
-              {/* Community Image */}
-              <div className="flex flex-col items-center">
-                <button
-                  onClick={() => createImageRef.current?.click()}
-                  className="size-20 rounded-full border-2 border-dashed border-white/20 bg-white/[0.03] hover:bg-white/5 hover:border-white/30 transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden"
-                >
-                  {createImagePreview ? (
-                    <img src={createImagePreview} alt="Preview" className="size-full object-cover" />
-                  ) : (
-                    <ImagePlus className="size-5 text-white/30" />
-                  )}
-                </button>
-                <span className="text-[11px] text-white/30 mt-1.5">Community Badge</span>
-                <input
-                  ref={createImageRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleCreateImageSelect}
-                />
-              </div>
-
-              {/* Community Name */}
-              <div>
-                <label className="text-xs text-white/50 mb-1.5 block">Community Name *</label>
-                <Input
-                  type="text"
-                  placeholder="e.g., Chelsea Book Club"
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="text-xs text-white/50 mb-1.5 block">Description *</label>
-                <textarea
-                  placeholder="What's this community about?"
-                  value={createDescription}
-                  onChange={(e) => setCreateDescription(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-md bg-white/5 border border-white/20 text-white placeholder:text-white/30 text-sm px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/50"
-                />
-              </div>
-
-              {/* Pickup Address */}
-              <div>
-                <label className="text-xs text-white/50 mb-1.5 block">Pickup Address</label>
-                <Input
-                  type="text"
-                  placeholder="Street address"
-                  value={createPickupAddress}
-                  onChange={(e) => setCreatePickupAddress(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-                <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
-                  Address is never shown publicly — used to group listings by local geography.
-                </p>
-              </div>
-
-              {/* Neighborhood (free-form, no strict-list validation) */}
-              <div>
-                <label className="text-xs text-white/50 mb-1.5 block">Neighborhood *</label>
-                <Input
-                  type="text"
-                  placeholder="e.g., Chelsea, the office, swimming pool..."
-                  value={createNeighborhood}
-                  onChange={(e) => setCreateNeighborhood(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-              </div>
-
-              {/* City + State (locked to NYC for now, mirrors SignUpPage) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-white/50 mb-1.5 block">City</label>
-                  <Input
-                    type="text"
-                    value="New York"
-                    disabled
-                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-white/50 mb-1.5 block">State</label>
-                  <Input
-                    type="text"
-                    value="NY"
-                    disabled
-                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
-                  />
-                </div>
-              </div>
-
-              {/* Zip Code */}
-              <div>
-                <label className="text-xs text-white/50 mb-1.5 block">Zip Code</label>
-                <Input
-                  type="text"
-                  placeholder="e.g., 10001"
-                  value={createZipCode}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
-                    setCreateZipCode(val);
-                  }}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-              </div>
-
-              {/* Public / Private Toggle */}
-              <div className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-2">
-                  {createIsPublic ? (
-                    <Unlock className="size-4 text-cyan-400" />
-                  ) : (
-                    <Lock className="size-4 text-fuchsia-400" />
-                  )}
-                  <span className="text-sm text-white/70">
-                    {createIsPublic ? "Public" : "Private"}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setCreateIsPublic(!createIsPublic)}
-                  className={`relative w-10 h-5 rounded-full transition-colors ${
-                    createIsPublic ? "bg-cyan-500" : "bg-white/20"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${
-                      createIsPublic ? "left-5.5" : "left-0.5"
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {createError && (
-                <p className="text-sm text-red-400">{createError}</p>
-              )}
-
-              {/* Create Button */}
-              <Button
-                disabled={!createName.trim() || !createDescription.trim() || !createNeighborhood.trim() || isCreating}
-                onClick={handleCreateCommunity}
-                className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {isCreating ? <Loader2 className="size-4 animate-spin" /> : "Create"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CreateCommunityModal
+        open={showCreateModal}
+        createName={createName}
+        createDescription={createDescription}
+        createPickupAddress={createPickupAddress}
+        createNeighborhood={createNeighborhood}
+        createZipCode={createZipCode}
+        createIsPublic={createIsPublic}
+        createImagePreview={createImagePreview}
+        createError={createError}
+        isCreating={isCreating}
+        createImageRef={createImageRef}
+        setCreateName={setCreateName}
+        setCreateDescription={setCreateDescription}
+        setCreatePickupAddress={setCreatePickupAddress}
+        setCreateNeighborhood={setCreateNeighborhood}
+        setCreateZipCode={setCreateZipCode}
+        setCreateIsPublic={setCreateIsPublic}
+        onImageSelect={handleCreateImageSelect}
+        onClose={() => { setShowCreateModal(false); resetCreateForm(); }}
+        onCreate={handleCreateCommunity}
+      />
 
       {/* Share Community Modal */}
-      {showConfirmModal && createdCommunity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={closeShareModal}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={closeShareModal}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            {/* Header */}
-            <div className="text-center mb-5">
-              <div className="size-14 bg-green-500/15 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Check className="size-7 text-green-400" />
-              </div>
-              <h3 className="text-lg font-medium mb-1">Community Created!</h3>
-              <p className="text-sm text-white/50">
-                Invite friends to <span className="text-white/80 font-medium">{createdCommunity.name}</span>
-              </p>
-            </div>
-
-            {/* Invite Code */}
-            <div className="mb-5">
-              <label className="text-xs text-white/40 mb-1.5 block">Invite Code</label>
-              <div className="flex items-center gap-2 bg-white/5 border border-white/15 rounded-lg p-2.5">
-                <code className="flex-1 text-center text-lg font-mono tracking-[0.3em] text-cyan-400">
-                  {createdCommunity.invite_code}
-                </code>
-                <button
-                  onClick={() => copyConfirmCode(createdCommunity.invite_code)}
-                  className="text-white/40 hover:text-white/70 transition-colors p-1"
-                >
-                  {copiedConfirm ? (
-                    <Check className="size-4 text-green-400" />
-                  ) : (
-                    <Copy className="size-4" />
-                  )}
-                </button>
-              </div>
-              {copiedConfirm && (
-                <p className="text-xs text-green-400 text-center mt-1">Copied to clipboard!</p>
-              )}
-            </div>
-
-            {/* Search Friends */}
-            <div className="mb-4">
-              <label className="text-xs text-white/40 mb-1.5 block">Invite Friends</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-white/30" />
-                <Input
-                  type="text"
-                  placeholder="Search by name..."
-                  value={friendSearch}
-                  onChange={(e) => handleFriendSearch(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30 pl-9"
-                />
-                {isSearching && (
-                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-3.5 text-white/30 animate-spin" />
-                )}
-              </div>
-
-              {/* Search Results Dropdown */}
-              {friendResults.length > 0 && (
-                <div className="mt-1 border border-white/10 rounded-lg overflow-hidden max-h-36 overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
-                  {friendResults.map((friend) => (
-                    <button
-                      key={friend.id}
-                      onClick={() => addFriend(friend)}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors text-left"
-                    >
-                      <div className="size-7 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                        {friend.profile_picture ? (
-                          <img src={friend.profile_picture} alt="" className="size-full object-cover" />
-                        ) : (
-                          <User className="size-3.5 text-white/50" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white/80 truncate">{friend.display_name}</p>
-                        {friend.neighborhood && (
-                          <p className="text-[10px] text-white/30 truncate">{friend.neighborhood}</p>
-                        )}
-                      </div>
-                      <Plus className="size-3.5 text-white/30 shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Selected Friends */}
-              {selectedFriends.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {selectedFriends.map((friend) => (
-                    <span
-                      key={friend.id}
-                      className="inline-flex items-center gap-1.5 bg-cyan-500/15 text-cyan-400 border border-cyan-400/20 rounded-full pl-2 pr-1 py-0.5 text-xs"
-                    >
-                      {friend.display_name}
-                      <button
-                        onClick={() => removeFriend(friend.id)}
-                        className="hover:text-white transition-colors"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Invite Button */}
-            {selectedFriends.length > 0 && (
-              <Button
-                onClick={handleInviteFriends}
-                disabled={isInviting}
-                className="w-full bg-cyan-500 hover:bg-cyan-600 text-white border-0 mb-3 disabled:opacity-40"
-              >
-                {isInviting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <>
-                    <Send className="size-3.5" />
-                    Invite {selectedFriends.length} {selectedFriends.length === 1 ? "Friend" : "Friends"}
-                  </>
-                )}
-              </Button>
-            )}
-
-            {/* Share via SMS / Instagram */}
-            <div className="mb-4">
-              <div className="relative py-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-white/10" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="px-2 text-white/30" style={{ backgroundColor: "#18181b" }}>or share via</span>
-                </div>
-              </div>
-              <div className="flex gap-3 mt-2">
-                <Button
-                  onClick={shareViaSMS}
-                  className="flex-1 bg-green-500/15 text-green-400 hover:bg-green-500/25 border border-green-400/20 text-xs"
-                >
-                  <MessageSquare className="size-3.5" />
-                  SMS
-                </Button>
-                <Button
-                  onClick={shareViaInstagram}
-                  className="flex-1 bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25 border border-fuchsia-400/20 text-xs"
-                >
-                  <Send className="size-3.5" />
-                  Instagram
-                </Button>
-              </div>
-            </div>
-
-            <Button
-              onClick={closeShareModal}
-              variant="ghost"
-              className="w-full text-xs text-white/40 hover:text-white/60"
-            >
-              Skip for now
-            </Button>
-          </div>
-        </div>
-      )}
+      <ShareCommunityModal
+        open={showConfirmModal}
+        createdCommunity={createdCommunity}
+        friendSearch={friendSearch}
+        friendResults={friendResults}
+        selectedFriends={selectedFriends}
+        isSearching={isSearching}
+        isInviting={isInviting}
+        copiedConfirm={copiedConfirm}
+        onClose={closeShareModal}
+        onCopyCode={copyConfirmCode}
+        onSearchChange={handleFriendSearch}
+        onAddFriend={addFriend}
+        onRemoveFriend={removeFriend}
+        onInvite={handleInviteFriends}
+        onShareSMS={shareViaSMS}
+        onShareInstagram={shareViaInstagram}
+      />
       {/* Edit Profile Modal */}
-      {showEditProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowEditProfileModal(false)}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => setShowEditProfileModal(false)}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                <User className="size-5 text-fuchsia-400" />
-              </div>
-              <h3 className="text-lg font-medium">Edit Profile</h3>
-            </div>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                    First Name
-                  </label>
-                  <Input
-                    type="text"
-                    placeholder="First"
-                    value={editFirstName}
-                    onChange={(e) => setEditFirstName(e.target.value)}
-                    className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                    Last Name
-                  </label>
-                  <Input
-                    type="text"
-                    placeholder="Last"
-                    value={editLastName}
-                    onChange={(e) => setEditLastName(e.target.value)}
-                    className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                  Default Pickup Address
-                </label>
-                <Input
-                  type="text"
-                  placeholder="Street address"
-                  value={editPickupAddress}
-                  onChange={(e) => setEditPickupAddress(e.target.value)}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-                <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
-                  Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
-                </p>
-              </div>
-
-              <div className="relative">
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                  Neighborhood
-                </label>
-                <Input
-                  ref={editNeighborhoodRef}
-                  type="text"
-                  placeholder="e.g., Chelsea"
-                  value={editNeighborhood}
-                  onChange={(e) => {
-                    setEditNeighborhood(e.target.value);
-                    setEditShowSuggestions(true);
-                  }}
-                  onFocus={() => setEditShowSuggestions(true)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && editIsValidNeighborhood) handleUpdateProfile();
-                  }}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-
-                {editShowSuggestions && editFilteredNeighborhoods.length > 0 && (
-                  <div
-                    ref={editSuggestionsRef}
-                    className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-white/20 shadow-lg"
-                    style={{ backgroundColor: "#18181b" }}
-                  >
-                    {editFilteredNeighborhoods.map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => {
-                          setEditNeighborhood(n);
-                          setEditShowSuggestions(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors ${
-                          n.toLowerCase() === editNeighborhood.trim().toLowerCase()
-                            ? "text-fuchsia-400"
-                            : "text-white"
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {editShowSuggestions && editFilteredNeighborhoods.length === 0 && editNeighborhood.trim() && (
-                  <div
-                    className="absolute z-50 mt-1 w-full rounded-md border border-white/20 shadow-lg px-3 py-2 text-sm text-white/40"
-                    style={{ backgroundColor: "#18181b" }}
-                  >
-                    No matching neighborhoods
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                    City
-                  </label>
-                  <Input
-                    type="text"
-                    value="New York"
-                    disabled
-                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                    State
-                  </label>
-                  <Input
-                    type="text"
-                    value="NY"
-                    disabled
-                    className="bg-white/5 border-white/20 text-white/50 cursor-not-allowed"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
-                  Zip Code
-                </label>
-                <Input
-                  type="text"
-                  placeholder="e.g., 10001"
-                  value={editZipCode}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
-                    setEditZipCode(val);
-                  }}
-                  className="bg-white/5 border-white/20 text-white placeholder:text-white/30"
-                />
-              </div>
-
-              {editProfileError && <p className="text-sm text-red-400">{editProfileError}</p>}
-
-              <Button
-                onClick={handleUpdateProfile}
-                disabled={isUpdatingProfile || !editIsValidNeighborhood || !editFirstName.trim() || !editLastName.trim()}
-                className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {isUpdatingProfile ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  "Save Changes"
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <EditProfileModal
+        open={showEditProfileModal}
+        editFirstName={editFirstName}
+        editLastName={editLastName}
+        editPickupAddress={editPickupAddress}
+        editNeighborhood={editNeighborhood}
+        editZipCode={editZipCode}
+        editShowSuggestions={editShowSuggestions}
+        editFilteredNeighborhoods={editFilteredNeighborhoods}
+        editIsValidNeighborhood={editIsValidNeighborhood}
+        editProfileError={editProfileError}
+        isUpdatingProfile={isUpdatingProfile}
+        editNeighborhoodRef={editNeighborhoodRef}
+        editSuggestionsRef={editSuggestionsRef}
+        setEditFirstName={setEditFirstName}
+        setEditLastName={setEditLastName}
+        setEditPickupAddress={setEditPickupAddress}
+        setEditNeighborhood={setEditNeighborhood}
+        setEditZipCode={setEditZipCode}
+        setEditShowSuggestions={setEditShowSuggestions}
+        onClose={() => setShowEditProfileModal(false)}
+        onSubmit={handleUpdateProfile}
+      />
 
       {/* Add Friends Modal */}
-      {showAddFriendsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={closeAddFriendsModal}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={closeAddFriendsModal}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-cyan-500/15 rounded-full flex items-center justify-center">
-                <UserPlus className="size-5 text-cyan-400" />
-              </div>
-              <h3 className="text-lg font-medium">Add Friends</h3>
-            </div>
-
-            {/* Search Bar */}
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-white/30" />
-              <Input
-                type="text"
-                placeholder="Search by name..."
-                value={addFriendsSearch}
-                onChange={(e) => handleAddFriendsSearch(e.target.value)}
-                className="bg-white/5 border-white/20 text-white placeholder:text-white/30 pl-9"
-              />
-              {isAddFriendsSearching && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-3.5 text-white/30 animate-spin" />
-              )}
-            </div>
-
-            {/* Search Results or Tabs */}
-            <div className="flex-1 overflow-y-auto min-h-0">
-              {addFriendsSearch.trim() ? (
-                /* Search Results */
-                <div className="space-y-1">
-                  {addFriendsResults.length === 0 && !isAddFriendsSearching && (
-                    <p className="text-center text-xs text-white/30 py-8">No users found</p>
-                  )}
-                  {addFriendsResults.map((person) => (
-                    <div
-                      key={person.id}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
-                    >
-                      <button onClick={() => onViewUser?.(person.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                        <div className="size-9 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                          {person.profile_picture ? (
-                            <img src={person.profile_picture} alt="" className="size-full object-cover" />
-                          ) : (
-                            <User className="size-4 text-white/50" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80 truncate">{person.display_name}</p>
-                          <div className="flex items-center gap-2">
-                            {person.neighborhood && (
-                              <p className="text-[10px] text-white/30 truncate">{person.neighborhood}</p>
-                            )}
-                            {person.mutual_friends_count > 0 && (
-                              <span className="text-[10px] text-cyan-400/70 bg-cyan-500/10 px-1.5 py-0.5 rounded-full">
-                                {person.mutual_friends_count} mutual
-                              </span>
-                            )}
-                            {person.shared_communities_count > 0 && (
-                              <span className="text-[10px] text-fuchsia-400/70 bg-fuchsia-500/10 px-1.5 py-0.5 rounded-full">
-                                {person.shared_communities_count} communities
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      {person.is_friend ? (
-                        <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-1 rounded-full border border-green-400/20">
-                          Added
-                        </span>
-                      ) : (
-                        <Button
-                          onClick={() => handleAddFriend(person.id)}
-                          disabled={addingFriendId === person.id}
-                          size="sm"
-                          className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs px-3 h-7"
-                        >
-                          {addingFriendId === person.id ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            "Add"
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                /* Tabs */
-                <>
-                  <div className="flex gap-1 mb-4 bg-white/5 rounded-lg p-1">
-                    {(["recommended", "contacts", "qr"] as const).map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setAddFriendsTab(tab)}
-                        className={`flex-1 text-xs py-1.5 rounded-md transition-colors capitalize ${
-                          addFriendsTab === tab
-                            ? "bg-white/10 text-white"
-                            : "text-white/40 hover:text-white/60"
-                        }`}
-                      >
-                        {tab === "qr" ? "QR" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-
-                  {addFriendsTab === "recommended" && (
-                    <div className="space-y-1">
-                      {isLoadingRecommended ? (
-                        <div className="flex justify-center py-8">
-                          <Loader2 className="size-5 text-white/30 animate-spin" />
-                        </div>
-                      ) : recommendedFriends.length === 0 ? (
-                        <div className="text-center py-8">
-                          <UserPlus className="size-8 text-white/15 mx-auto mb-2" />
-                          <p className="text-xs text-white/30">No recommendations yet</p>
-                          <p className="text-[10px] text-white/20 mt-1">Join communities to discover people</p>
-                        </div>
-                      ) : (
-                        recommendedFriends.map((person) => (
-                          <div
-                            key={person.id}
-                            className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
-                          >
-                            <button onClick={() => onViewUser?.(person.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                              <div className="size-9 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                                {person.profile_picture ? (
-                                  <img src={person.profile_picture} alt="" className="size-full object-cover" />
-                                ) : (
-                                  <User className="size-4 text-white/50" />
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white/80 truncate">{person.display_name}</p>
-                                <div className="flex items-center gap-2">
-                                  {person.mutual_friends_count > 0 && (
-                                    <span className="text-[10px] text-cyan-400/70 bg-cyan-500/10 px-1.5 py-0.5 rounded-full">
-                                      {person.mutual_friends_count} mutual
-                                    </span>
-                                  )}
-                                  {person.shared_communities_count > 0 && (
-                                    <span className="text-[10px] text-fuchsia-400/70 bg-fuchsia-500/10 px-1.5 py-0.5 rounded-full">
-                                      {person.shared_communities_count} communities
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
-                            <Button
-                              onClick={() => handleAddFriend(person.id)}
-                              disabled={addingFriendId === person.id}
-                              size="sm"
-                              className="bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-400/20 text-xs px-3 h-7"
-                            >
-                              {addingFriendId === person.id ? (
-                                <Loader2 className="size-3 animate-spin" />
-                              ) : (
-                                "Add"
-                              )}
-                            </Button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-
-                  {addFriendsTab === "contacts" && (
-                    <div className="text-center py-8">
-                      <MessageSquare className="size-8 text-white/15 mx-auto mb-2" />
-                      <p className="text-xs text-white/30">Connect your contacts to find friends</p>
-                      <p className="text-[10px] text-white/20 mt-1">Coming soon</p>
-                    </div>
-                  )}
-
-                  {addFriendsTab === "qr" && (
-                    <div className="text-center py-8">
-                      <div className="size-24 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center mx-auto mb-3">
-                        <Globe className="size-10 text-white/15" />
-                      </div>
-                      <p className="text-xs text-white/30">Share your QR code to add friends</p>
-                      <p className="text-[10px] text-white/20 mt-1">Coming soon</p>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AddFriendsModal
+        open={showAddFriendsModal}
+        addFriendsTab={addFriendsTab}
+        addFriendsSearch={addFriendsSearch}
+        addFriendsResults={addFriendsResults}
+        recommendedFriends={recommendedFriends}
+        isAddFriendsSearching={isAddFriendsSearching}
+        isLoadingRecommended={isLoadingRecommended}
+        addingFriendId={addingFriendId}
+        onClose={closeAddFriendsModal}
+        onSearchChange={handleAddFriendsSearch}
+        onTabChange={setAddFriendsTab}
+        onAddFriend={handleAddFriend}
+        onViewUser={onViewUser}
+      />
       {/* Listings Modal */}
       {showListingsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowListingsModal(false)}
-          />
+        <ModalShell
+          open
+          onClose={() => setShowListingsModal(false)}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => setShowListingsModal(false)}
@@ -3385,102 +2467,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               )}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Friends List Modal */}
-      {showFriendsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowFriendsModal(false)}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => setShowFriendsModal(false)}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-cyan-500/15 rounded-full flex items-center justify-center">
-                <UserPlus className="size-5 text-cyan-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium">Friends</h3>
-                <p className="text-xs text-white/40">{friendsList.length} friends</p>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto min-h-0">
-              {isLoadingFriends ? (
-                <div className="flex justify-center py-12">
-                  <Loader2 className="size-6 text-white/30 animate-spin" />
-                </div>
-              ) : friendsList.length === 0 ? (
-                <div className="text-center py-12">
-                  <User className="size-10 text-white/15 mx-auto mb-3" />
-                  <p className="text-sm text-white/30 mb-1">No friends yet</p>
-                  <p className="text-xs text-white/20">Add friends from your account page</p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {friendsList.map((friend) => (
-                    <div
-                      key={friend.id}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors"
-                    >
-                      <button onClick={() => onViewUser?.(friend.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                        <div className="size-9 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden shrink-0">
-                          {friend.profile_picture ? (
-                            <img src={friend.profile_picture} alt="" className="size-full object-cover" />
-                          ) : (
-                            <User className="size-4 text-white/50" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white/80 truncate">{friend.display_name}</p>
-                          <div className="flex items-center gap-2">
-                            {friend.neighborhood && (
-                              <p className="text-[10px] text-white/30 truncate">{friend.neighborhood}</p>
-                            )}
-                            {friend.mutual_friends_count > 0 && (
-                              <span className="text-[10px] text-cyan-400/70 bg-cyan-500/10 px-1.5 py-0.5 rounded-full">
-                                {friend.mutual_friends_count} mutual
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => handleRemoveFriend(friend.id)}
-                        disabled={removingFriendId === friend.id}
-                        className="p-1.5 text-white/20 hover:text-red-400 transition-colors disabled:opacity-30"
-                        title="Remove friend"
-                      >
-                        {removingFriendId === friend.id ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <FriendsListModal
+        open={showFriendsModal}
+        friendsList={friendsList}
+        isLoading={isLoadingFriends}
+        removingFriendId={removingFriendId}
+        onClose={() => setShowFriendsModal(false)}
+        onViewUser={onViewUser}
+        onRemoveFriend={handleRemoveFriend}
+      />
 
       {/* Community Detail Modal */}
       {showCommunityDetail && selectedCommunity && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] flex flex-col" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowCommunityDetail(false); setIsEditingCommunity(false); setShowDeleteConfirm(false); }}
@@ -3865,344 +2872,54 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </>
             )}
           </div>
-        </div>
+        </ModalShell>
       )}
       {/* User Profile Summary Modal */}
       {/* Edit Listing Modal */}
-      {showEditListingModal && editListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-                <Pencil className="size-5 text-fuchsia-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium">Edit Listing</h3>
-              </div>
-            </div>
-
-            {/* Image preview */}
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-              {(editListing.imageUrls || [editListing.imageUrl]).map((url, i) => (
-                <img key={i} src={url} alt="" className="size-16 rounded-lg object-cover border border-white/10 shrink-0" />
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              {/*
-                Brand + Name replace the old single Title input. The
-                buyer-facing title is computed via formatTitle on render.
-              */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Brand</label>
-                  <Input
-                    value={editBrand}
-                    onChange={(e) => setEditBrand(e.target.value)}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Name</label>
-                  <Input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Description</label>
-                <textarea
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-fuchsia-400/40"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Price</label>
-                  <PriceInput
-                    value={editPrice}
-                    onChange={setEditPrice}
-                    className="bg-white/5 border-white/10 text-white text-sm"
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-white/40 mb-1 block">Condition</label>
-                  <select
-                    value={editCondition}
-                    onChange={(e) => setEditCondition(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-fuchsia-400/40 appearance-none"
-                  >
-                    <option value="New">New</option>
-                    <option value="Like New">Like New</option>
-                    <option value="Good">Good</option>
-                    <option value="Fair">Fair</option>
-                    <option value="Poor">Poor</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Location</label>
-                <Input
-                  value={editLocation}
-                  readOnly
-                  disabled
-                  className="bg-white/5 border-white/10 text-white/50 text-sm cursor-not-allowed"
-                />
-                <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
-              </div>
-
-              <div>
-                <label className="text-xs text-white/40 mb-1 block">Tags</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {editTags.map((tag, i) => (
-                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300">
-                      {tag}
-                      <button onClick={() => setEditTags(editTags.filter((_, j) => j !== i))} className="hover:text-white">
-                        <X className="size-2.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={editNewTag}
-                    onChange={(e) => setEditNewTag(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && editNewTag.trim()) {
-                        e.preventDefault();
-                        setEditTags([...editTags, editNewTag.trim()]);
-                        setEditNewTag("");
-                      }
-                    }}
-                    placeholder="Add tag..."
-                    className="bg-white/5 border-white/10 text-white text-sm flex-1"
-                  />
-                  <Button
-                    onClick={() => {
-                      if (editNewTag.trim()) {
-                        setEditTags([...editTags, editNewTag.trim()]);
-                        setEditNewTag("");
-                      }
-                    }}
-                    size="sm"
-                    className="bg-white/10 hover:bg-white/15 text-white/60 border-0"
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <Button
-                  onClick={() => { setShowEditListingModal(false); setEditListing(null); }}
-                  className="flex-1 bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSaveListing}
-                  disabled={isSavingListing || (!editBrand.trim() && !editName.trim()) || !editPrice.trim()}
-                  className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
-                >
-                  {isSavingListing ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {editListing && (
+        <EditListingModal
+          open
+          onClose={() => setEditListing(null)}
+          listing={editListing}
+          location={user?.neighborhood || editListing.location || ""}
+          onSave={handleSaveListing}
+          categorySchemas={categorySchemas}
+        />
       )}
 
       {/* Order Management Modal */}
       {/* Order Confirmation Summary Modal */}
-      {showConfirmSummary && confirmSummaryData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <button
-              onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-              className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
+      <OrderConfirmSummaryModal
+        open={showConfirmSummary}
+        data={confirmSummaryData}
+        countdownExpired={confirmSummaryData ? getPickupCountdown(confirmSummaryData.order).expired : false}
+        onClose={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
+        onConfirmPickup={() => setShowPickupAttestation(true)}
+        onDone={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
+      />
 
-            <div className="text-center mb-5">
-              <div className="size-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
-                <Check className="size-6 text-green-400" />
-              </div>
-              <h3 className="text-sm font-medium">
-                {confirmSummaryData.role === "seller" ? "Pickup Confirmed!" : "Order Confirmed!"}
-              </h3>
-              <p className="text-[10px] text-white/40 mt-1">
-                {confirmSummaryData.role === "seller"
-                  ? "The buyer has been notified"
-                  : "Your pickup is scheduled"}
-              </p>
-            </div>
-
-            <div className="bg-white/[0.03] border border-white/10 rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-3">
-                <img
-                  src={confirmSummaryData.listing.imageUrl}
-                  alt={formatTitle(confirmSummaryData.listing.brand, confirmSummaryData.listing.name)}
-                  className="size-12 rounded-lg object-cover border border-white/10 shrink-0"
-                />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium truncate">{formatTitle(confirmSummaryData.listing.brand, confirmSummaryData.listing.name)}</p>
-                  <p className="text-sm text-fuchsia-400 font-medium">${confirmSummaryData.listing.price}</p>
-                </div>
-              </div>
-
-              <div className="border-t border-white/5 pt-3 space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/40">{confirmSummaryData.role === "seller" ? "Buyer" : "Seller"}</span>
-                  <span className="text-white/80">{confirmSummaryData.buyerName}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/40">Pickup Date</span>
-                  <span className="text-white/80">
-                    {confirmSummaryData.slot.date
-                      ? new Date(confirmSummaryData.slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-                      : "—"}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/40">Pickup Window</span>
-                  <span className="text-white/80">
-                    {({ morning: "8 AM – 12 PM", afternoon: "12 – 5 PM", evening: "5 – 9 PM" } as Record<string, string>)[confirmSummaryData.slot.time] || confirmSummaryData.slot.time || "—"}
-                  </span>
-                </div>
-                {confirmSummaryData.confirmedTime && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-white/40">Pickup Time</span>
-                    <span className="text-green-400 font-medium">{confirmSummaryData.confirmedTime}</span>
-                  </div>
-                )}
-                {confirmSummaryData.pickupAddress && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-white/40">Pickup Location</span>
-                    <a
-                      href={`https://maps.apple.com/?q=${encodeURIComponent(confirmSummaryData.pickupAddress)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors flex items-center gap-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <MapPin className="size-3" />
-                      {confirmSummaryData.pickupAddress}
-                    </a>
-                  </div>
-                )}
-                <div className="flex justify-between text-xs">
-                  <span className="text-white/40">Status</span>
-                  <span className="text-green-400 font-medium">Confirmed</span>
-                </div>
-              </div>
-            </div>
-
-            {(() => {
-              const countdown = getPickupCountdown(confirmSummaryData.order);
-              const hasReviewed = confirmSummaryData.role === "buyer"
-                ? confirmSummaryData.order.buyer_reviewed
-                : confirmSummaryData.order.seller_reviewed;
-              if (countdown.expired && !hasReviewed) {
-                return (
-                  <Button
-                    onClick={() => setShowPickupAttestation(true)}
-                    className="w-full mt-4 bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-400 text-xs"
-                    size="sm"
-                  >
-                    Confirm Pickup
-                  </Button>
-                );
-              }
-              return (
-                <Button
-                  onClick={() => { setShowConfirmSummary(false); setConfirmSummaryData(null); }}
-                  className="w-full mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 border-0 text-white text-xs"
-                  size="sm"
-                >
-                  Done
-                </Button>
-              );
-            })()}
-          </div>
-        </div>
-      )}
-
-      {showPickupAttestation && confirmSummaryData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowPickupAttestation(false)}
-          />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <div className="text-center mb-5">
-              <div className="size-12 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto mb-3">
-                <AlertTriangle className="size-6 text-amber-400" />
-              </div>
-              <h3 className="text-sm font-medium">Confirm Pickup & Payment</h3>
-              <p className="text-xs text-white/50 mt-2 leading-relaxed">
-                By selecting Confirm, I verify that the item has been picked up and payment has been exchanged.
-                Do not confirm until you have received your item and completed payment.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                onClick={() => {
-                  setShowPickupAttestation(false);
-                  setShowConfirmSummary(false);
-                  setConfirmSummaryData(null);
-                }}
-                variant="outline"
-                className="flex-1 border-white/20 text-white/60 hover:text-white hover:bg-white/5 text-xs"
-                size="sm"
-              >
-                Still Waiting
-              </Button>
-              <Button
-                onClick={() => {
-                  setShowPickupAttestation(false);
-                  setShowConfirmSummary(false);
-                  openRatingModal(confirmSummaryData.order);
-                }}
-                className="flex-1 bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-400 text-xs"
-                size="sm"
-              >
-                Confirm
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PickupAttestationModal
+        open={showPickupAttestation && !!confirmSummaryData}
+        onClose={() => setShowPickupAttestation(false)}
+        onStillWaiting={() => {
+          setShowPickupAttestation(false);
+          setShowConfirmSummary(false);
+          setConfirmSummaryData(null);
+        }}
+        onConfirm={() => {
+          if (!confirmSummaryData) return;
+          setShowPickupAttestation(false);
+          setShowConfirmSummary(false);
+          openRatingModal(confirmSummaryData.order);
+        }}
+      />
 
       {showOrderModal && orderModalListing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
-          />
+        <ModalShell
+          open
+          onClose={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
+          z={50}
+        >
           <div className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto" style={{ backgroundColor: "#18181b" }}>
             <button
               onClick={() => { setShowOrderModal(false); setOrderModalListing(null); setSelectedSlot(null); setConfirmTime(""); setShowDeclineConfirm(null); }}
@@ -4412,71 +3129,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </div>
             )}
           </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Rating / Confirm Pickup Modal */}
-      {showRatingModal && ratingOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setShowRatingModal(false); setRatingOrder(null); }} />
-          <div className="relative border border-white/15 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl" style={{ backgroundColor: "#18181b" }}>
-            <button onClick={() => { setShowRatingModal(false); setRatingOrder(null); }} className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors">
-              <X className="size-5" />
-            </button>
-
-            <div className="text-center mb-5">
-              <div className="size-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
-                <Check className="size-6 text-green-400" />
-              </div>
-              <h3 className="text-sm font-medium">Confirm Pickup</h3>
-              <p className="text-[10px] text-white/40 mt-1">
-                Rate your experience with {ratingOrder.role === "buyer" ? "the seller" : ratingOrder.buyer_name}.
-                Both parties must confirm for the transaction to complete.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 mb-5 bg-white/[0.03] border border-white/10 rounded-lg p-3">
-              <img src={ratingOrder.listing_image} alt={ratingOrder.listing_title} className="size-10 rounded-md object-cover border border-white/10 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-medium truncate">{ratingOrder.listing_title}</p>
-                <p className="text-sm text-fuchsia-400 font-medium">${ratingOrder.listing_price}</p>
-              </div>
-            </div>
-
-            <div className="flex justify-center gap-1 mb-4">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  onMouseEnter={() => setRatingHover(star)}
-                  onMouseLeave={() => setRatingHover(0)}
-                  onClick={() => setRatingValue(star)}
-                  className="p-0.5 transition-transform hover:scale-110"
-                >
-                  <svg className={`size-7 ${(ratingHover || ratingValue) >= star ? "text-yellow-400 fill-yellow-400" : "text-white/15"}`} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" fill="none">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                  </svg>
-                </button>
-              ))}
-            </div>
-
-            <textarea
-              value={ratingComment}
-              onChange={(e) => setRatingComment(e.target.value)}
-              placeholder="Leave a comment (optional)..."
-              className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/80 placeholder-white/25 resize-none h-20 mb-4 focus:outline-none focus:border-white/20"
-            />
-
-            <Button
-              onClick={handleSubmitRating}
-              disabled={ratingValue === 0 || isSubmittingRating}
-              className="w-full bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-400 text-xs disabled:opacity-40"
-              size="sm"
-            >
-              {isSubmittingRating ? <Loader2 className="size-3.5 animate-spin" /> : "Submit & Confirm Pickup"}
-            </Button>
-          </div>
-        </div>
-      )}
+      <RatingModal
+        open={showRatingModal}
+        order={ratingOrder}
+        ratingValue={ratingValue}
+        ratingHover={ratingHover}
+        ratingComment={ratingComment}
+        isSubmitting={isSubmittingRating}
+        onClose={() => { setShowRatingModal(false); setRatingOrder(null); }}
+        onHoverChange={setRatingHover}
+        onValueChange={setRatingValue}
+        onCommentChange={setRatingComment}
+        onSubmit={handleSubmitRating}
+      />
     </section>
   );
 }
