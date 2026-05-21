@@ -2254,12 +2254,10 @@ function OverviewCommunitiesRow({
       <div className="flex items-baseline justify-between gap-2 mb-3">
         <h2 className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">
           Communities
+          {!isEmpty && (
+            <span className="text-muted font-normal ml-1">({communities.length})</span>
+          )}
         </h2>
-        {!isEmpty && (
-          <span className="text-[11px] text-muted">
-            {communities.length} {communities.length === 1 ? "community" : "communities"}
-          </span>
-        )}
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -2342,7 +2340,12 @@ function OverviewCommunitiesRow({
             <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
               <Plus className="size-5" aria-hidden="true" />
             </span>
-            <span className={COMM_TILE_LABEL}>Join Community</span>
+            {/* Wrap onto two lines when the tile is narrow — single-line
+                "Join Community" was truncating with the COMM_TILE_LABEL
+                72px tile width. */}
+            <span className="text-[11px] leading-tight text-center whitespace-normal w-full text-ink">
+              Join Community
+            </span>
           </button>
         </Tooltip>
       </div>
@@ -2429,8 +2432,13 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            {/* Locked grid template: Item flexes (minmax 0,2fr), Community
+                takes a flexible 1fr cell so long names truncate cleanly,
+                Price + Status auto-size. Prevents vertical reflow when
+                listing or community names overflow. */}
+            <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
+              <span>Community</span>
               <span className="text-right">Price</span>
               <span className="text-right">Status</span>
             </div>
@@ -2480,7 +2488,7 @@ function OverviewListingsPanel({
                       else openEditListing(listing);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img src={listing.imageUrl} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
@@ -2489,6 +2497,15 @@ function OverviewListingsPanel({
                         <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
                       </div>
                     </div>
+                    {/* Community cell — MyListing payload omits
+                        allCommunities; falls back to PLACEHOLDER_COMMUNITY
+                        until the sell-flow community selector ships. */}
+                    <Tooltip content={PLACEHOLDER_COMMUNITY.name}>
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-xs text-body">
+                        <span className="size-2 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                        <span className="truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+                      </span>
+                    </Tooltip>
                     <span className="text-sm font-bold text-ink tabular-nums text-right">${listing.price}</span>
                     <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       cta === "expired" || isCompleted
@@ -2519,10 +2536,16 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            {/* Locked grid template: Item (2fr) and Community (1fr) get
+                truncate-able tracks; Price/Seller/Last Updated/Status
+                auto-size. Long titles never push other cells out of
+                alignment. */}
+            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
+              <span className="text-right">Price</span>
+              <span>Community</span>
               <span>Seller</span>
-              <span className="text-right">Listed</span>
+              <span className="text-right">Last updated</span>
               <span className="text-right">Status</span>
             </div>
             <div>
@@ -2553,15 +2576,32 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img src={order.listing_image} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
                     </div>
-                    <span className="text-xs text-muted truncate">{order.seller_name}</span>
+                    <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
+                    {/* Community cell — OrderData omits the listing's
+                        communities; falls back to PLACEHOLDER_COMMUNITY
+                        until the sell-flow community selector ships and
+                        the orders endpoint enriches with allCommunities. */}
+                    <Tooltip content={PLACEHOLDER_COMMUNITY.name}>
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-xs text-body">
+                        <span className="size-2 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                        <span className="truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+                      </span>
+                    </Tooltip>
+                    <span className="text-xs text-muted truncate">@{order.seller_name}</span>
+                    {/* Last updated — OrderData has no `updated_at`; fall
+                        back to confirmed_time when present, else
+                        created_at. Backend gap tracked in backlog.md. */}
                     <span className="text-xs text-muted whitespace-nowrap text-right">
-                      {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+                      {(() => {
+                        const ts = order.confirmed_time ?? order.created_at;
+                        return ts ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
+                      })()}
                     </span>
                     <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
@@ -2903,6 +2943,15 @@ function ListingsTabContent({
 
               return (
                 <article key={listing.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
+                  {/* Trust band — mirrors marketplace card.
+                      MyListing payload omits allCommunities; falls back to
+                      PLACEHOLDER_COMMUNITY until the sell-flow community
+                      selector ships. Replicated inline rather than
+                      extracted to a shared <ListingCard> per R-5.9 brief. */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                    <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+                  </div>
                   <div className="relative aspect-square bg-surface-soft">
                     <img src={listing.imageUrl} alt="" className="absolute inset-0 size-full object-cover" />
                     <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
@@ -3020,6 +3069,20 @@ function ListingsTabContent({
               const isPending = order.status === "pending" && !["declined", "withdrawn", "expired", "cancelledBySeller"].includes(viewState);
               return (
                 <article key={order.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
+                  {/* Trust band — mirrors marketplace card. OrderData
+                      doesn't enrich with allCommunities; falls back to
+                      PLACEHOLDER_COMMUNITY. Seller @handle stays in the
+                      band so the buyer can see who they bought from. */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                    <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+                    {order.seller_name && (
+                      <>
+                        <span className="text-muted">·</span>
+                        <span className="text-muted truncate">@{order.seller_name}</span>
+                      </>
+                    )}
+                  </div>
                   <div className="relative aspect-square bg-surface-soft">
                     <img src={order.listing_image} alt="" className="absolute inset-0 size-full object-cover" />
                     {isPending ? (
@@ -3035,7 +3098,6 @@ function ListingsTabContent({
                   </div>
                   <div className="p-3 flex-1 flex flex-col gap-1">
                     <p className="text-sm font-medium text-ink line-clamp-1">{order.listing_title}</p>
-                    <p className="text-xs text-muted line-clamp-1">@{order.seller_name}</p>
                     <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${order.listing_price}</p>
                     <div className="flex items-center gap-1.5 mt-2">
                       {viewState === "pickupReady" ? (
