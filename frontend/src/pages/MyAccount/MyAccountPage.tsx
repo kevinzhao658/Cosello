@@ -1459,57 +1459,69 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             <h1 className="text-2xl font-extrabold text-ink tracking-display leading-tight">
               {user?.display_name || "Your account"}
             </h1>
+            {/* Meta strip — verified badge and member-since are omitted until
+                AuthUser surfaces `is_verified` / `created_at` (backlog: Data gaps). */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted mt-2">
-              <span className="inline-flex items-center gap-1 text-primary font-semibold">
-                <Check className="size-4" aria-hidden="true" />
-                Verified
-              </span>
               {stats.total_listings > 0 && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 text-ink font-semibold">
-                      {avgRating}
-                      <Star className="size-3.5 fill-ink text-ink" aria-hidden="true" />
-                    </span>
-                    {sellingSoldCount > 0 && (
-                      <span>· {sellingSoldCount} {sellingSoldCount === 1 ? "sale" : "sales"}</span>
-                    )}
-                  </span>
-                </>
-              )}
-              {stats.friends_count > 0 && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <button
-                    type="button"
-                    onClick={openFriendsModal}
-                    className={`rounded-sm hover:text-ink motion-safe:transition-colors ${FOCUS_RING}`}
-                  >
-                    {stats.friends_count} {stats.friends_count === 1 ? "friend" : "friends"}
-                  </button>
-                </>
+                <span className="inline-flex items-center gap-1 text-ink font-semibold">
+                  {avgRating}
+                  <Star className="size-3.5 fill-ink text-ink" aria-hidden="true" />
+                </span>
               )}
               {user?.neighborhood && (
                 <>
-                  <span aria-hidden="true">·</span>
+                  {stats.total_listings > 0 && <span aria-hidden="true">·</span>}
                   <span>{user.neighborhood}, NY</span>
                 </>
               )}
+            </div>
+            {/* Counter row — embedded stats below the meta strip. Each stat
+                jumps to its surface so the row is actionable. */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm mt-3">
+              <button
+                type="button"
+                onClick={openFriendsModal}
+                className={`group rounded-sm motion-safe:transition-colors ${FOCUS_RING}`}
+              >
+                <span className="font-semibold text-ink">{stats.friends_count}</span>{" "}
+                <span className="text-muted group-hover:text-primary motion-safe:transition-colors">
+                  {stats.friends_count === 1 ? "Friend" : "Friends"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccountTab("overview")}
+                className={`group rounded-sm motion-safe:transition-colors ${FOCUS_RING}`}
+              >
+                <span className="font-semibold text-ink">{communities.length}</span>{" "}
+                <span className="text-muted group-hover:text-primary motion-safe:transition-colors">
+                  {communities.length === 1 ? "Community" : "Communities"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccountTab("listings")}
+                className={`group rounded-sm motion-safe:transition-colors ${FOCUS_RING}`}
+              >
+                <span className="font-semibold text-ink">{myListings.length}</span>{" "}
+                <span className="text-muted group-hover:text-primary motion-safe:transition-colors">
+                  {myListings.length === 1 ? "Listing" : "Listings"}
+                </span>
+              </button>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={openEditProfileModal}
-              className={`inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+              className={`inline-flex items-center justify-center h-9 px-4 rounded-md border border-primary/30 text-sm font-semibold text-primary bg-primary-soft hover:bg-primary-tint transition-colors ${FOCUS_RING}`}
             >
               Edit profile
             </button>
             <button
               type="button"
               onClick={openAddFriendsModal}
-              className={`inline-flex items-center gap-1.5 h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold transition-colors ${FOCUS_RING}`}
+              className={`inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
             >
               <UserPlus className="size-4" />
               Add Friends
