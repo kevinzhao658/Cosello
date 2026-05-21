@@ -1,6 +1,8 @@
 ---
+name: backend-dev
+description: Backend developer on the Coworkers team. Owns FastAPI/SQLAlchemy server logic in `backend/`. Use when implementing API endpoints, DB models, migrations, or server-side business logic for Cosello. Coordinate with frontend-dev when an API contract changes.
 model: sonnet
-allowedTools:
+tools:
   - Read
   - Edit
   - Write

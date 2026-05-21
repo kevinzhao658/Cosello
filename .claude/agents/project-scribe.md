@@ -1,6 +1,8 @@
 ---
+name: project-scribe
+description: Project scribe on the Coworkers team. Maintains the accuracy of `CLAUDE.md` as Cosello evolves. User-invoked only — never spawn during feature work. Use only when the user directly asks to update CLAUDE.md or sync project documentation with Notion.
 model: opus
-allowedTools:
+tools:
   - Read
   - Edit
   - Write
