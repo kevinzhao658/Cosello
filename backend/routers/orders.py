@@ -703,9 +703,13 @@ async def get_orders(
             if u.id in seller_ids:
                 seller_map[u.id] = entry
 
-    # Filter out orders whose listing no longer exists or has expired,
-    # and clean up orphaned orders from the database.
-    orphaned_ids = []
+    # Filter out orders whose listing no longer exists or has expired.
+    # We used to DELETE these inline, but that broke when reviews(.order_id)
+    # held FK references — and reads shouldn't mutate anyway. Orphans are
+    # inert: skipped in `results`, never delivered to clients. Hard cleanup
+    # belongs in a periodic background task or a cascade from listing delete
+    # (R-5.8's DELETE /api/listings already cascade-cancels pending orders,
+    # so new orphans won't accumulate from that path).
     results = []
     for o in orders:
         listing = _find_listing(o.listing_id, db, check_expiry=True)
@@ -721,7 +725,6 @@ async def get_orders(
                     message=f'The listing "{listing_title}" has expired. Your order has been cancelled.',
                     listing_id=o.listing_id,
                 ))
-            orphaned_ids.append(o.id)
             continue
 
         # Auto-expire pending orders whose pickup slots have all passed
@@ -755,9 +758,7 @@ async def get_orders(
             "pickup_notified": bool(o.pickup_notified),
         })
 
-    # Delete orphaned orders from the database
-    if orphaned_ids:
-        db.query(PurchaseOrder).filter(PurchaseOrder.id.in_(orphaned_ids)).delete(synchronize_session=False)
-        db.commit()
+    # If we wrote any expired-listing notifications above, commit them.
+    db.commit()
 
     return results
