@@ -35,7 +35,8 @@ export function thumbUrl(
   if (opts.w !== undefined) params.set("width", String(opts.w));
   if (opts.h !== undefined) params.set("height", String(opts.h));
   params.set("quality", String(opts.q ?? 75));
-  params.set("resize", opts.resize ?? "cover");
+  const hasBothDims = opts.w !== undefined && opts.h !== undefined;
+  params.set("resize", opts.resize ?? (hasBothDims ? "cover" : "contain"));
 
   return `${supabaseUrl}${RENDER_PATH}${rest}?${params.toString()}`;
 }
