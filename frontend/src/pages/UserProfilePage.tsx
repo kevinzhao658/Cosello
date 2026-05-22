@@ -208,7 +208,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                       }`}
                     >
                       {c.image ? (
-                        <img src={c.image} alt="" className="size-3.5 rounded-full object-cover" />
+                        <ListingImage src={c.image} alt="" size="small" className="size-3.5 rounded-full object-cover" />
                       ) : c.is_public !== false ? (
                         <Globe className="size-3" />
                       ) : (

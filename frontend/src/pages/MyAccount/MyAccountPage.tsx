@@ -1890,7 +1890,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                         {editCommunityImagePreview ? (
                           <img src={editCommunityImagePreview} alt="" className="size-full object-cover" />
                         ) : selectedCommunity.image ? (
-                          <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover" />
+                          <ListingImage src={selectedCommunity.image} alt={selectedCommunity.name} size="small" className="size-full object-cover" />
                         ) : (
                           <span className="text-base font-semibold text-muted">
                             {selectedCommunity.name.trim().charAt(0).toUpperCase() || "?"}
@@ -2014,7 +2014,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <div className="flex items-start gap-3 mb-5 pr-8">
                   <div className="size-12 rounded-md bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
                     {selectedCommunity.image ? (
-                      <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover rounded-md" />
+                      <ListingImage src={selectedCommunity.image} alt={selectedCommunity.name} size="small" className="size-full object-cover rounded-md" />
                     ) : (
                       <Globe className="size-6 text-muted" />
                     )}
@@ -2273,7 +2273,7 @@ function OverviewCommunitiesRow({
             >
               <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
                 {c.image ? (
-                  <img src={c.image} alt="" className="size-full object-cover" />
+                  <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
                 ) : (
                   communityInitials(c.name)
                 )}
@@ -2319,7 +2319,7 @@ function OverviewCommunitiesRow({
                   >
                     <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
                       {c.image ? (
-                        <img src={c.image} alt="" className="size-full object-cover" />
+                        <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
                       ) : (
                         communityInitials(c.name)
                       )}
@@ -3768,7 +3768,7 @@ function SettingsTabContent({
                       className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                     >
                       <div className="size-8 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-                        {c.image ? <img src={c.image} alt="" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
+                        {c.image ? <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-ink truncate">{c.name}</p>
