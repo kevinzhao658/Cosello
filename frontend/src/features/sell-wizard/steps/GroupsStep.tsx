@@ -28,7 +28,7 @@ export interface GroupsStepProps {
   dragImageState: DragState | null;
   dragOverGroup: number | null;
   dragOverGap: number | null;
-  wizardAnchorRef: React.RefObject<HTMLDivElement | null>;
+  wizardAnchorRef: React.RefObject<HTMLDivElement>;
   onBackArrow: () => void;
   onAdvanceToReason: () => void;
   onGenerate: () => void;
@@ -47,7 +47,7 @@ export interface GroupsStepProps {
   onBrandChange: (groupIdx: number, value: string) => void;
   onNameChange: (groupIdx: number, value: string) => void;
   onCardSelect: (groupIdx: number) => void;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  fileInputRef: React.RefObject<HTMLInputElement>;
   onClearAll: () => void;
 }
 

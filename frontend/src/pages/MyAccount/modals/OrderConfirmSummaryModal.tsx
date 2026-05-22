@@ -2,13 +2,8 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { X, Check, MapPin } from "lucide-react";
 import { formatTitle } from "../../../lib/format";
-import type { MyListing } from "../../../lib/types";
+import type { MyListing, OrderData } from "../../../lib/types";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
-
-export interface OrderConfirmSummaryOrder {
-  buyer_reviewed: boolean;
-  seller_reviewed: boolean;
-}
 
 export interface ConfirmSummaryData {
   listing: MyListing;
@@ -17,7 +12,7 @@ export interface ConfirmSummaryData {
   role: "seller" | "buyer";
   confirmedTime?: string;
   pickupAddress?: string | null;
-  order: OrderConfirmSummaryOrder;
+  order: OrderData;
 }
 
 export interface OrderConfirmSummaryModalProps {

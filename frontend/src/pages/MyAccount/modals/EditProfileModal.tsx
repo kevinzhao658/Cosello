@@ -20,8 +20,8 @@ export interface EditProfileModalProps {
   editIsValidNeighborhood: boolean;
   editProfileError: string;
   isUpdatingProfile: boolean;
-  editNeighborhoodRef: React.RefObject<HTMLInputElement | null>;
-  editSuggestionsRef: React.RefObject<HTMLDivElement | null>;
+  editNeighborhoodRef: React.RefObject<HTMLInputElement>;
+  editSuggestionsRef: React.RefObject<HTMLDivElement>;
   setEditFirstName: (s: string) => void;
   setEditLastName: (s: string) => void;
   setEditPickupAddress: (s: string) => void;

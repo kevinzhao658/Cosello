@@ -5,7 +5,7 @@ export interface UploadStepProps {
   uploadedImagesCount: number;
   isGenerating: boolean;
   collapsed: boolean;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  fileInputRef: React.RefObject<HTMLInputElement>;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
   onSwitchToBuy: () => void;
