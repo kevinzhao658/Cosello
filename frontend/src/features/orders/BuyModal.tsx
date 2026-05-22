@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Check, Plus, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
+import { ListingImage } from "../../components/ui/ListingImage";
 import { apiFetch } from "../../lib/api";
 import { formatTitle } from "../../lib/format";
 import { parseHourPeriod } from "../../lib/pickupTime";
@@ -180,9 +181,10 @@ export function BuyModal({
 
           {/* Listing Summary */}
           <div className="flex items-center gap-3 p-3 bg-surface-soft border border-hairline rounded-md mb-5">
-            <img
+            <ListingImage
               src={listing.imageUrl}
               alt={formatTitle(listing.brand, listing.name)}
+              size="modalPreview"
               className="size-20 max-w-md max-h-[50vh] rounded-md object-contain border border-hairline bg-canvas shrink-0"
             />
             <div className="flex-1 min-w-0">

@@ -40,6 +40,7 @@ import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData 
 import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
+import { ListingImage } from "../../components/ui/ListingImage";
 import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
 import {
   getBuyerOrderViewState,
@@ -1889,7 +1890,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                         {editCommunityImagePreview ? (
                           <img src={editCommunityImagePreview} alt="" className="size-full object-cover" />
                         ) : selectedCommunity.image ? (
-                          <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover" />
+                          <ListingImage src={selectedCommunity.image} alt={selectedCommunity.name} size="small" className="size-full object-cover" />
                         ) : (
                           <span className="text-base font-semibold text-muted">
                             {selectedCommunity.name.trim().charAt(0).toUpperCase() || "?"}
@@ -2013,7 +2014,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <div className="flex items-start gap-3 mb-5 pr-8">
                   <div className="size-12 rounded-md bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
                     {selectedCommunity.image ? (
-                      <img src={selectedCommunity.image} alt={selectedCommunity.name} className="size-full object-cover rounded-md" />
+                      <ListingImage src={selectedCommunity.image} alt={selectedCommunity.name} size="small" className="size-full object-cover rounded-md" />
                     ) : (
                       <Globe className="size-6 text-muted" />
                     )}
@@ -2272,7 +2273,7 @@ function OverviewCommunitiesRow({
             >
               <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
                 {c.image ? (
-                  <img src={c.image} alt="" className="size-full object-cover" />
+                  <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
                 ) : (
                   communityInitials(c.name)
                 )}
@@ -2318,7 +2319,7 @@ function OverviewCommunitiesRow({
                   >
                     <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
                       {c.image ? (
-                        <img src={c.image} alt="" className="size-full object-cover" />
+                        <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
                       ) : (
                         communityInitials(c.name)
                       )}
@@ -2492,7 +2493,7 @@ function OverviewListingsPanel({
                     className={`w-full grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <img src={listing.imageUrl} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+                      <ListingImage src={listing.imageUrl} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
                         <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
@@ -2580,7 +2581,7 @@ function OverviewListingsPanel({
                     className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <img src={order.listing_image} alt="" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+                      <ListingImage src={order.listing_image} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
                     </div>
                     <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
@@ -2725,7 +2726,7 @@ function PunchlistPanel({
                     return (
                       <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
                         {pickup?.listing_image && (
-                          <img src={pickup.listing_image} alt="" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
+                          <ListingImage src={pickup.listing_image} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-ink truncate">
@@ -2954,7 +2955,7 @@ function ListingsTabContent({
                     <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
                   </div>
                   <div className="relative aspect-square bg-surface-soft">
-                    <img src={listing.imageUrl} alt="" className="absolute inset-0 size-full object-cover" />
+                    <ListingImage src={listing.imageUrl} alt="" size="card" className="absolute inset-0 size-full object-cover" />
                     <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                       {statusLabel}
@@ -3085,7 +3086,7 @@ function ListingsTabContent({
                     )}
                   </div>
                   <div className="relative aspect-square bg-surface-soft">
-                    <img src={order.listing_image} alt="" className="absolute inset-0 size-full object-cover" />
+                    <ListingImage src={order.listing_image} alt="" size="card" className="absolute inset-0 size-full object-cover" />
                     {isPending ? (
                       <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-primary px-2 py-1 rounded-sm">
                         Pending
@@ -3767,7 +3768,7 @@ function SettingsTabContent({
                       className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                     >
                       <div className="size-8 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-                        {c.image ? <img src={c.image} alt="" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
+                        {c.image ? <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-ink truncate">{c.name}</p>

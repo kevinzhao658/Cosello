@@ -16,6 +16,7 @@ import { formatTitle } from "../lib/format";
 import { apiFetch } from "../lib/api";
 import { ModalShell } from "../components/ui/ModalShell";
 import { Button } from "../components/ui/button";
+import { ListingImage } from "../components/ui/ListingImage";
 import { FOCUS_RING, PANEL_TITLE } from "./MyAccount/constants";
 import type { Listing } from "../lib/types";
 
@@ -207,7 +208,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                       }`}
                     >
                       {c.image ? (
-                        <img src={c.image} alt="" className="size-3.5 rounded-full object-cover" />
+                        <ListingImage src={c.image} alt="" size="small" className="size-3.5 rounded-full object-cover" />
                       ) : c.is_public !== false ? (
                         <Globe className="size-3" />
                       ) : (
@@ -242,7 +243,7 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                     >
                       <div className="aspect-square bg-surface-soft">
                         {listing.imageUrl ? (
-                          <img src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} className="size-full object-cover" />
+                          <ListingImage src={listing.imageUrl} alt={formatTitle(listing.brand, listing.name)} size="card" className="size-full object-cover" />
                         ) : (
                           <div className="size-full flex items-center justify-center text-muted-soft">
                             <User className="size-8" />

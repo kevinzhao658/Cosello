@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Loader2, User, X } from "lucide-react";
 import { ModalShell } from "../../components/ui/ModalShell";
+import { ListingImage } from "../../components/ui/ListingImage";
 import { apiFetch } from "../../lib/api";
 import { formatTitle } from "../../lib/format";
 import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
@@ -188,9 +189,10 @@ export function OrderManagementModal({
         </button>
 
         <div className="flex items-center gap-3 mb-5">
-          <img
+          <ListingImage
             src={listing.imageUrl}
             alt={headerTitle}
+            size="modalPreview"
             className="size-12 rounded-md object-cover border border-hairline shrink-0"
           />
           <div className="min-w-0">
