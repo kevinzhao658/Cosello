@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Bell, X, Check, CheckCircle } from "lucide-react";
+import { Bell, X, Check, CheckCircle, CalendarCheck } from "lucide-react";
 import {
   getNotificationVisuals,
   isClickableNotification,
@@ -12,6 +12,7 @@ import {
   PIN_WINDOW_MS,
 } from "../../lib/pickupTime";
 import { NotificationItemSkeleton } from "../../components/NotificationItemSkeleton";
+import { ListingImage } from "../../components/ui/ListingImage";
 
 type NotificationsPanelProps = {
   open: boolean;
@@ -41,6 +42,46 @@ function formatRelativeTime(iso: string | null): string {
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day}d ago`;
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// Format pickup data for the notification row. Returns null if no data;
+// otherwise returns a dot-separated string of pickup windows. If
+// confirmed_time is set, that single time wins over the proposed slots.
+function formatPickupWindows(n: Notification): string | null {
+  if (n.confirmed_time) {
+    return n.confirmed_time;
+  }
+  if (n.selected_pickup_slots && n.selected_pickup_slots.length > 0) {
+    return n.selected_pickup_slots
+      .map((s) => `${s.date} ${s.time}`)
+      .join(" · ");
+  }
+  return null;
+}
+
+// Wrap "$XXX" matches in a jade-colored span so price tokens pop within
+// the title. Multiple matches all get wrapped. Returns React nodes — keep
+// non-match text as plain strings so font-bold inheritance works.
+// Note: if multiple $ amounts appear in a title, all matches wrap. Acceptable
+// for current copy but worth revisiting if copy becomes more complex.
+function renderTitleWithJadePrice(title: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const regex = /\$\d[\d,]*(?:\.\d{2})?/g;
+  let lastIndex = 0;
+  for (const match of title.matchAll(regex)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push(title.slice(lastIndex, index));
+    }
+    parts.push(
+      <span key={index} className="text-primary">{match[0]}</span>
+    );
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < title.length) {
+    parts.push(title.slice(lastIndex));
+  }
+  return parts;
 }
 
 // Memoized so unrelated state changes in App don't re-render the notification
@@ -93,7 +134,7 @@ const NotificationItem = memo(function NotificationItem({
   return (
     <div
       className={`relative flex gap-3 px-4 py-3 border-b border-hairline transition-colors ${
-        isUnread ? "bg-canvas" : "bg-surface-soft"
+        isUnread ? "bg-canvas" : "bg-surface-strong"
       } ${rowClickable ? "cursor-pointer hover:bg-surface-strong" : "hover:bg-surface-strong"}`}
       onClick={onClick}
     >
@@ -103,43 +144,66 @@ const NotificationItem = memo(function NotificationItem({
           className="absolute top-3 right-3 size-2 rounded-full bg-primary"
         />
       )}
-      {/* Icon tile or avatar */}
-      {isJoinRequest && n.related_user_picture ? (
+
+      {/* Icon slot: listing thumbnail (40x40) for listing-related notifications,
+          existing avatar/icon tile fallback for non-listing types. */}
+      {n.listing_image ? (
+        <ListingImage src={n.listing_image} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
+      ) : isJoinRequest && n.related_user_picture ? (
         <img
           src={n.related_user_picture}
           alt=""
-          className="size-9 rounded-md object-cover shrink-0"
+          className="size-10 rounded-md object-cover shrink-0"
         />
       ) : (
-        <div className={`size-9 rounded-md flex items-center justify-center shrink-0 ${visuals.bgClass}`}>
+        <div className={`size-10 rounded-md flex items-center justify-center shrink-0 ${visuals.bgClass}`}>
           <Icon className={visuals.iconClass} />
         </div>
       )}
-      <div className="flex-1 min-w-0 pr-4">
-        <p className={`text-sm font-semibold line-clamp-1 ${isUnread ? "text-ink" : "text-muted"}`}>{n.title}</p>
-        <p className={`text-sm line-clamp-2 mt-0.5 ${isUnread ? "text-body" : "text-muted"}`}>
-          {isJoinRequest && n.related_user_name ? (
-            <>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (n.related_user_id) onOpenUserDashboard(n.related_user_id);
-                }}
-                className="font-semibold text-ink hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
-              >
-                {n.related_user_name}
-              </button>
-              {" "}
-              {n.message.replace(n.related_user_name, "").trimStart()}
-            </>
-          ) : countdownContent ?? n.message}
+
+      {/* Body wrapper: read state gets opacity-[0.35]. */}
+      <div className={`flex-1 min-w-0 pr-4 ${isUnread ? "" : "opacity-[0.35]"}`}>
+        <p className="text-sm font-bold text-ink leading-snug">
+          {renderTitleWithJadePrice(n.title)}
         </p>
-        {n.created_at && (
-          <p className="text-xs text-muted mt-1">{formatRelativeTime(n.created_at)}</p>
+
+        {/* Pickup row — rendered only when notification carries pickup data. */}
+        {(() => {
+          const pickupLabel = formatPickupWindows(n);
+          if (!pickupLabel) return null;
+          return (
+            <div className="flex items-center gap-1.5 mt-2 text-xs font-medium text-ink leading-snug">
+              <CalendarCheck className="size-3 text-ink shrink-0" aria-hidden />
+              <span>{pickupLabel}</span>
+            </div>
+          );
+        })()}
+
+        {/* Existing message line — preserved when distinct from title. */}
+        {n.message && n.message !== n.title && (
+          <p className={`text-sm line-clamp-2 mt-0.5 text-ink`}>
+            {isJoinRequest && n.related_user_name ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (n.related_user_id) onOpenUserDashboard(n.related_user_id);
+                  }}
+                  className="font-semibold text-ink hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
+                >
+                  {n.related_user_name}
+                </button>
+                {" "}
+                {n.message.replace(n.related_user_name, "").trimStart()}
+              </>
+            ) : countdownContent ?? n.message}
+          </p>
         )}
 
-        {/* join_request inline actions */}
+        <div className="text-xs text-muted-soft mt-1">{formatRelativeTime(n.created_at)}</div>
+
+        {/* Join-request accept/reject buttons — preserved verbatim from prior implementation. */}
         {isJoinRequest && n.join_request_status === "pending" && (
           <div className="flex items-center gap-2 mt-2">
             <button
@@ -165,6 +229,7 @@ const NotificationItem = memo(function NotificationItem({
           <p className="text-xs text-error font-semibold mt-1">Rejected</p>
         )}
 
+        {/* Address-released countdown badge — preserved verbatim from prior implementation. */}
         {isPickupReady && (
           <button
             type="button"
