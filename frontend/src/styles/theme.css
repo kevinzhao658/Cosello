@@ -169,7 +169,7 @@
   /* Skeleton shimmer sweep — a pseudo-element `::before` translates across the
      parent. Gated behind `motion-safe:` at the call site so reduced-motion
      users see a static skeleton. GPU-only transform — zero paint cost. */
-  --animate-shimmer: shimmer 3s linear infinite;
+  --animate-shimmer: shimmer 1.5s linear infinite;
 
   /* ── Legacy shadcn aliases exposed to Tailwind ──────────────────────── */
   --color-background: var(--background);

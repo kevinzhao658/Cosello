@@ -360,6 +360,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [isLoadingMyListings, setIsLoadingMyListings] = useState(true);
   const [isLoadingMyOrders, setIsLoadingMyOrders] = useState(true);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(true);
 
   // Listings tab state (R-5.2)
   const [listingsFilter, setListingsFilter] = useState<string>("all");
@@ -627,6 +628,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const fetchWishlistWithFolders = useCallback(async () => {
     if (!token) return;
+    setIsLoadingSaved(true);
     try {
       const res = await apiFetch("/api/wishlist/listings");
       if (res.ok) {
@@ -635,6 +637,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       }
     } catch (err) {
       console.error("Failed to fetch wishlist listings with folders:", err);
+    } finally {
+      setIsLoadingSaved(false);
     }
   }, [token]);
 
@@ -1665,6 +1669,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               folders={wishlistFolders}
               foldersAvailable={wishlistFoldersAvailable}
               items={visibleSavedItems}
+              isLoadingSaved={isLoadingSaved}
               selectedFolderId={selectedFolderId}
               setSelectedFolderId={setSelectedFolderId}
               selectedIds={selectedSavedIds}
@@ -3235,6 +3240,7 @@ function SavedTabContent({
   folders,
   foldersAvailable,
   items,
+  isLoadingSaved,
   selectedFolderId,
   setSelectedFolderId,
   selectedIds,
@@ -3263,6 +3269,7 @@ function SavedTabContent({
   folders: WishlistFolder[];
   foldersAvailable: boolean;
   items: WishlistListingWithFolder[] | Listing[];
+  isLoadingSaved: boolean;
   selectedFolderId: number | "all";
   setSelectedFolderId: (id: number | "all") => void;
   selectedIds: Set<string>;
@@ -3495,7 +3502,15 @@ function SavedTabContent({
           )}
         </div>
 
-        {items.length === 0 ? (
+        {/* Skeleton fires while the folder-aware fetch is in flight, even
+            if the parent's `wishlistItems` prop has already populated the
+            `items` fallback. This way the user sees a clear loading affordance
+            every time they land on Saved, not just on first-ever empty load. */}
+        {isLoadingSaved && wishlistItemsWithFolder.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => <ListingCardSkeleton key={i} />)}
+          </div>
+        ) : items.length === 0 ? (
           <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
             <p className="text-sm text-muted mb-4">Nothing saved here yet.</p>
             <button
