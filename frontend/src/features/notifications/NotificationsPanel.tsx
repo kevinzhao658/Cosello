@@ -116,8 +116,8 @@ const NotificationItem = memo(function NotificationItem({
         </div>
       )}
       <div className="flex-1 min-w-0 pr-4">
-        <p className="text-sm font-semibold text-ink line-clamp-1">{n.title}</p>
-        <p className="text-sm text-body line-clamp-2 mt-0.5">
+        <p className={`text-sm font-semibold line-clamp-1 ${isUnread ? "text-ink" : "text-muted"}`}>{n.title}</p>
+        <p className={`text-sm line-clamp-2 mt-0.5 ${isUnread ? "text-body" : "text-muted"}`}>
           {isJoinRequest && n.related_user_name ? (
             <>
               <button
