@@ -2305,12 +2305,12 @@ function OverviewCommunitiesRow({
       className="bg-canvas border border-hairline rounded-md p-4"
     >
       <div className="flex items-baseline justify-between gap-2 mb-3">
-        <h2 className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">
+        <h3 className={`text-base ${PANEL_TITLE}`}>
           Communities
           {!isEmpty && communitiesLoaded && (
-            <span className="text-muted font-normal ml-1">({communities.length})</span>
+            <span className="text-muted font-normal text-sm ml-1.5">({communities.length})</span>
           )}
-        </h2>
+        </h3>
       </div>
 
       {!communitiesLoaded ? (
@@ -2512,7 +2512,7 @@ function OverviewListingsPanel({
       {listingsTab === "selling" ? (
         isLoadingMyListings && myListings.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2537,7 +2537,7 @@ function OverviewListingsPanel({
                 x-position across all rows regardless of pill content length.
                 Identical to the Buying table below so the two read as one
                 visual system. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2595,7 +2595,7 @@ function OverviewListingsPanel({
                       else openEditListing(listing);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
@@ -2625,7 +2625,7 @@ function OverviewListingsPanel({
       ) : (
         isLoadingMyOrders && myPurchases.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2646,7 +2646,7 @@ function OverviewListingsPanel({
           <div className="flex-1 overflow-y-auto">
             {/* 3-col grid: Item (with community subtitle) / Price / Status —
                 identical template to the Selling table above. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2680,7 +2680,7 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle above title.
                         Seller @handle no longer rendered in the table; still
