@@ -2474,10 +2474,13 @@ function OverviewListingsPanel({
       {listingsTab === "selling" ? (
         isLoadingMyListings && myListings.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <div className="flex items-center gap-2">
+                <span>Price</span>
+                <span>Status</span>
+              </div>
+              <div aria-hidden="true" />
             </div>
             {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
           </div>
@@ -2493,13 +2496,16 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* 3-col grid: Item (with community subtitle) / Price / Status.
+            {/* 3-col grid: Item (with community subtitle) / Price+Status pair / trailing spacer.
                 Identical to the Buying table below so the two read as one
                 visual system. */}
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <div className="flex items-center gap-2">
+                <span>Price</span>
+                <span>Status</span>
+              </div>
+              <div aria-hidden="true" />
             </div>
             <div>
               {sellingRows.map((listing) => {
@@ -2554,7 +2560,7 @@ function OverviewListingsPanel({
                       else openEditListing(listing);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
@@ -2564,21 +2570,24 @@ function OverviewListingsPanel({
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-ink tabular-nums text-right">${listing.price}</span>
-                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      cta === "expired" || isCompleted
-                        ? "bg-surface-strong text-muted"
-                        : cta === "default"
-                          ? "bg-primary-soft text-primary"
-                          : "bg-primary text-on-primary"
-                    }`}>
-                      {isConfirmedTicking ? (
-                        <Package className="size-3" aria-hidden />
-                      ) : (
-                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      )}
-                      {statusLabel}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-ink tabular-nums">${listing.price}</span>
+                      <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                        cta === "expired" || isCompleted
+                          ? "bg-surface-strong text-muted"
+                          : cta === "default"
+                            ? "bg-primary-soft text-primary"
+                            : "bg-primary text-on-primary"
+                      }`}>
+                        {isConfirmedTicking ? (
+                          <Package className="size-3" aria-hidden />
+                        ) : (
+                          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                        )}
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <div aria-hidden="true" />
                   </button>
                 );
               })}
@@ -2588,10 +2597,13 @@ function OverviewListingsPanel({
       ) : (
         isLoadingMyOrders && myPurchases.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <div className="flex items-center gap-2">
+                <span>Price</span>
+                <span>Status</span>
+              </div>
+              <div aria-hidden="true" />
             </div>
             {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
           </div>
@@ -2607,12 +2619,15 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* 3-col grid: Item (with community subtitle) / Price / Status —
+            {/* 3-col grid: Item (with community subtitle) / Price+Status pair / trailing spacer —
                 identical template to the Selling table above. */}
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <div className="flex items-center gap-2">
+                <span>Price</span>
+                <span>Status</span>
+              </div>
+              <div aria-hidden="true" />
             </div>
             <div>
               {myPurchases.map((order) => {
@@ -2643,7 +2658,7 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle above title.
                         Seller @handle no longer rendered in the table; still
@@ -2655,21 +2670,24 @@ function OverviewListingsPanel({
                         <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
-                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
-                        ? "bg-surface-strong text-muted"
-                        : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                          ? "bg-warning/10 text-warning"
-                          : "bg-primary text-on-primary"
-                    }`}>
-                      {isConfirmedTicking ? (
-                        <Package className="size-3" aria-hidden />
-                      ) : (
-                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      )}
-                      {statusLabel}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-primary tabular-nums">${order.listing_price}</span>
+                      <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                        viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
+                          ? "bg-surface-strong text-muted"
+                          : viewState === "cancelledBySeller" || viewState === "waitingForOther"
+                            ? "bg-warning/10 text-warning"
+                            : "bg-primary text-on-primary"
+                      }`}>
+                        {isConfirmedTicking ? (
+                          <Package className="size-3" aria-hidden />
+                        ) : (
+                          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                        )}
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <div aria-hidden="true" />
                   </button>
                 );
               })}
