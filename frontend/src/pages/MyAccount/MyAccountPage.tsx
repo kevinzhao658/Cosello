@@ -802,7 +802,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     const mapOrderToPickup = (o: OrderData, role: "seller" | "buyer"): PunchlistPickup => {
       const countdown = getPickupCountdown(o);
       return {
-        order_id: o.id ? Number(o.id) : 0,
+        order_id: o.id,
         listing_id: o.listing_id,
         listing_title: o.listing_title,
         listing_image: o.listing_image ?? null,
@@ -813,11 +813,13 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       };
     };
 
+    // Seller and buyer both surface within 1 hour of pickup OR already expired.
+    // CTA stays muted ("Pickup in {label}") until expired; activates to
+    // "Confirm pickup" → openRatingModal post-expiry.
     const sellerPickups = mySellerOrders
-      .filter((o) => o.status === "confirmed" && !o.seller_reviewed && getPickupCountdown(o).expired)
+      .filter((o) => o.status === "confirmed" && !o.seller_reviewed && getPickupCountdown(o).diff <= 3600000)
       .map((o) => mapOrderToPickup(o, "seller"));
 
-    // Buyer surfaces 1h ahead of pickup; CTA stays muted until expired.
     const buyerPickups = myPurchases
       .filter((o) => o.status === "confirmed" && !o.buyer_reviewed && getPickupCountdown(o).diff <= 3600000)
       .map((o) => mapOrderToPickup(o, "buyer"));
@@ -826,9 +828,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       pickups_to_confirm: [...sellerPickups, ...buyerPickups],
       offers_to_review: myListings.filter((l) => (l.pendingOrderCount ?? 0) > 0),
       draft_listings: myListings.filter((l) => l.status === "draft"),
-      unread_messages: [], // No client-side data source — renders "All clear" until a messages endpoint exists.
+      unread_messages: [],
     };
-  }, [mySellerOrders, myPurchases, myListings, getPickupCountdown]);
+  }, [mySellerOrders, myPurchases, myListings, getPickupCountdown, countdownTick]);
 
   const punchlistLoaded = !isLoadingMyOrders && !isLoadingMyListings;
 
@@ -1628,13 +1630,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <PunchlistPanel
                 punchlist={punchlist}
                 punchlistLoaded={punchlistLoaded}
-                onConfirmPickup={(p) => {
-                  const listing = myListings.find((l) => l.id === p.listing_id);
-                  if (listing) openOrderManagement(listing);
-                }}
                 openOrderModal={openOrderManagement}
                 openEditListing={openEditListing}
                 openRatingModal={openRatingModal}
+                openConfirmedOrderSummary={openConfirmedOrderSummary}
+                mySellerOrders={mySellerOrders}
                 myPurchases={myPurchases}
               />
             </div>
@@ -2718,18 +2718,20 @@ function OverviewListingsPanel({
 function PunchlistPanel({
   punchlist,
   punchlistLoaded,
-  onConfirmPickup,
   openOrderModal,
   openEditListing,
   openRatingModal,
+  openConfirmedOrderSummary,
+  mySellerOrders,
   myPurchases,
 }: {
   punchlist: PunchlistResponse | null;
   punchlistLoaded: boolean;
-  onConfirmPickup: (p: PunchlistPickup) => void;
   openOrderModal: (l: MyListing) => void;
   openEditListing: (l: MyListing) => void;
   openRatingModal: (o: OrderData) => void;
+  openConfirmedOrderSummary: (listingId: string) => void;
+  mySellerOrders: OrderData[];
   myPurchases: OrderData[];
 }) {
   // Each cat entry uses a typed discriminated union so the render loop can
@@ -2769,12 +2771,15 @@ function PunchlistPanel({
       items: punchlist?.pickups_to_confirm ?? [],
       cta: "Confirm slot",
       onAction: (item: PunchlistPickup) => {
+        // Disabled until slot passes — both roles.
+        if (!item.pickup_expired) return;
+
         if (item.role === "seller") {
-          onConfirmPickup(item);
+          const order = mySellerOrders.find((o) => o.id === item.order_id);
+          if (order) openRatingModal(order);
           return;
         }
-        // Buyer side — disabled until slot passes
-        if (!item.pickup_expired) return;
+        // Buyer side
         const order = myPurchases.find((o) => o.id === item.order_id);
         if (order) openRatingModal(order);
       },
@@ -2818,6 +2823,23 @@ function PunchlistPanel({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [punchlist]);
+
+  const handleRowClick = (cat: { id: string }, item: unknown) => {
+    if (cat.id === "pickups") {
+      const pickup = item as PunchlistPickup;
+      openConfirmedOrderSummary(pickup.listing_id);
+      return;
+    }
+    if (cat.id === "offers") {
+      openOrderModal(item as MyListing);
+      return;
+    }
+    if (cat.id === "drafts") {
+      openEditListing(item as MyListing);
+      return;
+    }
+    // messages — no-op
+  };
 
   return (
     <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
@@ -2867,17 +2889,23 @@ function PunchlistPanel({
                     const itemImage = pickup?.listing_image ?? listing?.imageUrl ?? null;
                     return (
                       <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
-                        {itemImage && (
-                          <ListingImage src={itemImage} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-ink truncate">
-                            {itemTitle}
-                          </p>
-                          {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRowClick(cat, it)}
+                          className="flex-1 flex items-center gap-3 text-left cursor-pointer hover:bg-surface-soft transition-colors rounded-md px-2 -mx-2 py-1 -my-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          {itemImage && (
+                            <ListingImage src={itemImage} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-ink truncate">
+                              {itemTitle}
+                            </p>
+                            {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
+                          </div>
+                        </button>
                         {cat.id === "pickups" && pickup ? (
-                          pickup.role === "buyer" && !pickup.pickup_expired ? (
+                          !pickup.pickup_expired ? (
                             <button
                               type="button"
                               disabled
@@ -2896,7 +2924,9 @@ function PunchlistPanel({
                           )
                         ) : (
                           <button
-                            onClick={() => {
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               if (cat.id === "offers" && listing) cat.onAction(listing);
                               else if (cat.id === "drafts" && listing) cat.onAction(listing);
                             }}
