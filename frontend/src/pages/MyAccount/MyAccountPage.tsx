@@ -28,7 +28,6 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
-  Package,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
@@ -2491,13 +2490,10 @@ function OverviewListingsPanel({
       {listingsTab === "selling" ? (
         isLoadingMyListings && myListings.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <div className="flex items-center gap-2">
-                <span>Price</span>
-                <span>Status</span>
-              </div>
-              <div aria-hidden="true" />
+              <span>Price</span>
+              <span>Status</span>
             </div>
             {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
           </div>
@@ -2513,16 +2509,16 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* 3-col grid: Item (with community subtitle) / Price+Status pair / trailing spacer.
+            {/* 3-col grid: Item (with community subtitle) / Price / Status.
+                Each value gets its own cell — no flex wrapper. Min-widths on
+                Price and Status lock the Status column's left edge at the same
+                x-position across all rows regardless of pill content length.
                 Identical to the Buying table below so the two read as one
                 visual system. */}
-            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <div className="flex items-center gap-2">
-                <span>Price</span>
-                <span>Status</span>
-              </div>
-              <div aria-hidden="true" />
+              <span>Price</span>
+              <span>Status</span>
             </div>
             <div>
               {sellingRows.map((listing) => {
@@ -2544,7 +2540,7 @@ function OverviewListingsPanel({
                 });
 
                 // Confirmed-and-still-ticking state renders the countdown label
-                // with a Package icon. Other states keep their existing labels.
+                // as text ("Pickup in Xh Ym"). Other states keep their existing labels.
                 const isConfirmedTicking = sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired;
 
                 const statusLabel = isCompleted
@@ -2577,7 +2573,7 @@ function OverviewListingsPanel({
                       else openEditListing(listing);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
@@ -2587,24 +2583,17 @@ function OverviewListingsPanel({
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-ink tabular-nums">${listing.price}</span>
-                      <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                        cta === "expired" || isCompleted
-                          ? "bg-surface-strong text-muted"
-                          : cta === "default"
-                            ? "bg-primary-soft text-primary"
-                            : "bg-primary text-on-primary"
-                      }`}>
-                        {isConfirmedTicking ? (
-                          <Package className="size-3" aria-hidden />
-                        ) : (
-                          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                        )}
-                        {statusLabel}
-                      </span>
-                    </div>
-                    <div aria-hidden="true" />
+                    <span className="text-sm font-bold text-ink tabular-nums">${listing.price}</span>
+                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                      cta === "expired" || isCompleted
+                        ? "bg-surface-strong text-muted"
+                        : cta === "default"
+                          ? "bg-primary-soft text-primary"
+                          : "bg-primary text-on-primary"
+                    }`}>
+                      {isConfirmedTicking ? null : <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />}
+                      {isConfirmedTicking ? `Pickup in ${sellerCountdown.label}` : statusLabel}
+                    </span>
                   </button>
                 );
               })}
@@ -2614,13 +2603,10 @@ function OverviewListingsPanel({
       ) : (
         isLoadingMyOrders && myPurchases.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <div className="flex items-center gap-2">
-                <span>Price</span>
-                <span>Status</span>
-              </div>
-              <div aria-hidden="true" />
+              <span>Price</span>
+              <span>Status</span>
             </div>
             {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
           </div>
@@ -2636,15 +2622,12 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* 3-col grid: Item (with community subtitle) / Price+Status pair / trailing spacer —
+            {/* 3-col grid: Item (with community subtitle) / Price / Status —
                 identical template to the Selling table above. */}
-            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <div className="flex items-center gap-2">
-                <span>Price</span>
-                <span>Status</span>
-              </div>
-              <div aria-hidden="true" />
+              <span>Price</span>
+              <span>Status</span>
             </div>
             <div>
               {myPurchases.map((order) => {
@@ -2675,7 +2658,7 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_minmax(56px,max-content)_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle above title.
                         Seller @handle no longer rendered in the table; still
@@ -2687,24 +2670,17 @@ function OverviewListingsPanel({
                         <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-primary tabular-nums">${order.listing_price}</span>
-                      <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                        viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
-                          ? "bg-surface-strong text-muted"
-                          : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                            ? "bg-warning/10 text-warning"
-                            : "bg-primary text-on-primary"
-                      }`}>
-                        {isConfirmedTicking ? (
-                          <Package className="size-3" aria-hidden />
-                        ) : (
-                          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                        )}
-                        {statusLabel}
-                      </span>
-                    </div>
-                    <div aria-hidden="true" />
+                    <span className="text-sm font-bold text-primary tabular-nums">${order.listing_price}</span>
+                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
+                        ? "bg-surface-strong text-muted"
+                        : viewState === "cancelledBySeller" || viewState === "waitingForOther"
+                          ? "bg-warning/10 text-warning"
+                          : "bg-primary text-on-primary"
+                    }`}>
+                      {isConfirmedTicking ? null : <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />}
+                      {isConfirmedTicking ? `Pickup in ${countdown.label}` : statusLabel}
+                    </span>
                   </button>
                 );
               })}
