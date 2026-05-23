@@ -1623,6 +1623,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 openOrderModal={openOrderManagement}
                 openConfirmedOrderSummary={openConfirmedOrderSummary}
                 openRatingModal={openRatingModal}
+                openListingDetail={openListingDetail}
                 getListingTimeInfo={getListingTimeInfo}
                 getPickupCountdown={getPickupCountdown}
                 onNavigate={onNavigate}
@@ -2458,6 +2459,7 @@ function OverviewListingsPanel({
   openOrderModal,
   openConfirmedOrderSummary,
   openRatingModal,
+  openListingDetail,
   getListingTimeInfo,
   getPickupCountdown,
   onNavigate,
@@ -2473,6 +2475,7 @@ function OverviewListingsPanel({
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
   openRatingModal: (o: OrderData) => void;
+  openListingDetail?: (l: Listing) => void;
   getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
   getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
   onNavigate: (page: string) => void;
@@ -2581,15 +2584,22 @@ function OverviewListingsPanel({
                               ? "Expired"
                               : "Live";
 
-                const isClickable = !timeInfo.expired && !isSellerWaitingForBuyer;
+                // Terminal states (expired / completed / sold) are now clickable
+                // and route to the product details modal. Only the
+                // awaiting-buyer transient state remains non-clickable.
+                const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
+                const isClickable = !isSellerWaitingForBuyer;
 
                 return (
                   <button
                     key={listing.id}
                     onClick={() => {
-                      if (timeInfo.expired) return;
+                      if (isSellerWaitingForBuyer) return;
+                      if (isTerminal) {
+                        openListingDetail?.(listing as Listing);
+                        return;
+                      }
                       if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
-                      else if (isSellerWaitingForBuyer) return;
                       else if (hasPendingOrders) openOrderModal(listing);
                       else if (sellerOrder) openConfirmedOrderSummary(listing.id);
                       else openEditListing(listing);
