@@ -3557,11 +3557,11 @@ function SavedTabContent({
 
                   {/* Photo */}
                   <div className="relative aspect-square bg-surface-soft">
-                    <img
+                    <ListingImage
                       src={images[0]}
-                      alt={formatTitle(listing.brand ?? "", listing.name ?? "")}
+                      alt=""
+                      size="card"
                       className="absolute inset-0 size-full object-cover"
-                      loading="lazy"
                     />
                     <button
                       type="button"
