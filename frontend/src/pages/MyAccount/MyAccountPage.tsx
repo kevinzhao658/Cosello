@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../../components/ui/input";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { Tooltip } from "../../components/ui/tooltip";
@@ -2407,6 +2407,29 @@ function OverviewCommunitiesRow({
   );
 }
 
+// ── Selling row priority (for action-urgency sort) ──────────
+function getSellingRowPriority(
+  listing: MyListing,
+  mySellerOrders: OrderData[],
+  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string },
+  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number },
+): number {
+  const timeInfo = getListingTimeInfo(listing.postedAt);
+  const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
+  const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
+  const sellerReviewed = sellerOrder?.seller_reviewed ?? false;
+  const buyerReviewed = sellerOrder?.buyer_reviewed ?? false;
+  const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
+
+  if (sellerOrder?.status === "completed") return 5;
+  if (timeInfo.expired) return 5;
+  if (sellerOrder?.status === "confirmed" && sellerCountdown?.expired && !sellerReviewed) return 0; // pickup ready
+  if (sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired) return 1; // countdown
+  if (hasPendingOrders) return 2; // pending offers
+  if (sellerOrder?.status === "confirmed" && sellerCountdown?.expired && sellerReviewed && !buyerReviewed) return 3; // awaiting buyer
+  return 4; // live
+}
+
 // ── Overview: Your Listings Panel ───────────────────────────
 function OverviewListingsPanel({
   listingsTab,
@@ -2440,9 +2463,9 @@ function OverviewListingsPanel({
   onNavigate: (page: string) => void;
 }) {
   const sellingRows = [...myListings].sort((a, b) => {
-    const aOrders = a.pendingOrderCount ?? 0;
-    const bOrders = b.pendingOrderCount ?? 0;
-    if (aOrders !== bOrders) return bOrders - aOrders;
+    const pa = getSellingRowPriority(a, mySellerOrders, getListingTimeInfo, getPickupCountdown);
+    const pb = getSellingRowPriority(b, mySellerOrders, getListingTimeInfo, getPickupCountdown);
+    if (pa !== pb) return pa - pb; // lower priority number = higher in list
     const aTime = a.latestOrderAt || "";
     const bTime = b.latestOrderAt || "";
     if (aTime !== bTime) return bTime > aTime ? 1 : -1;
