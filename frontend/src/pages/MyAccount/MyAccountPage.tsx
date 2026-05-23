@@ -1666,6 +1666,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               openOrderModal={openOrderManagement}
               openConfirmedOrderSummary={openConfirmedOrderSummary}
               openRatingModal={openRatingModal}
+              openListingDetail={openListingDetail}
               handleRelist={handleRelist}
               relistingId={relistingId}
               getListingTimeInfo={getListingTimeInfo}
@@ -2584,17 +2585,16 @@ function OverviewListingsPanel({
                               ? "Expired"
                               : "Live";
 
-                // Terminal states (expired / completed / sold) are now clickable
-                // and route to the product details modal. Only the
-                // awaiting-buyer transient state remains non-clickable.
+                // Terminal states (expired / completed / sold) open the
+                // product details modal. Awaiting-buyer falls through to the
+                // confirmed-order summary via the existing `sellerOrder`
+                // branch. Every row is clickable now.
                 const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
-                const isClickable = !isSellerWaitingForBuyer;
 
                 return (
                   <button
                     key={listing.id}
                     onClick={() => {
-                      if (isSellerWaitingForBuyer) return;
                       if (isTerminal) {
                         openListingDetail?.(listing as Listing);
                         return;
@@ -2604,8 +2604,7 @@ function OverviewListingsPanel({
                       else if (sellerOrder) openConfirmedOrderSummary(listing.id);
                       else openEditListing(listing);
                     }}
-                    disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors cursor-pointer hover:bg-surface-soft ${FOCUS_RING}`}
                   >
                     {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
@@ -2981,6 +2980,7 @@ function ListingsTabContent({
   openOrderModal,
   openConfirmedOrderSummary,
   openRatingModal,
+  openListingDetail,
   handleRelist,
   relistingId,
   getListingTimeInfo,
@@ -3012,6 +3012,7 @@ function ListingsTabContent({
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
   openRatingModal: (o: OrderData) => void;
+  openListingDetail?: (l: Listing) => void;
   handleRelist: (id: string) => void;
   relistingId: string | null;
   getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
@@ -3160,8 +3161,28 @@ function ListingsTabContent({
                   ? "bg-warning/10 text-warning"
                   : "bg-primary text-on-primary";
 
+              // Cards in terminal states (expired / completed / sold) and the
+              // awaiting-buyer transient state get a card-level click handler
+              // routed to detail / order summary. Active states leave the
+              // article without onClick — inner buttons drive the interactions.
+              const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
+              const isCardClickable = isTerminal || isSellerWaitingForBuyer;
+              const onCardClick = isCardClickable
+                ? () => {
+                    if (isSellerWaitingForBuyer && sellerOrder) {
+                      openConfirmedOrderSummary(listing.id);
+                      return;
+                    }
+                    openListingDetail?.(listing as Listing);
+                  }
+                : undefined;
+
               return (
-                <article key={listing.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
+                <article
+                  key={listing.id}
+                  onClick={onCardClick}
+                  className={`bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col ${isCardClickable ? "cursor-pointer" : ""}`}
+                >
                   {/* Trust band — mirrors marketplace card.
                       MyListing payload omits allCommunities; falls back to
                       PLACEHOLDER_COMMUNITY until the sell-flow community
@@ -3185,7 +3206,7 @@ function ListingsTabContent({
                     <div className="flex items-center gap-1.5 mt-2">
                       {timeInfo.expired ? (
                         <button
-                          onClick={() => handleRelist(listing.id)}
+                          onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
                           disabled={relistingId === listing.id}
                           className={`flex-1 inline-flex items-center justify-center gap-1 h-8 px-3 rounded-md bg-primary-soft text-primary text-xs font-semibold hover:bg-primary-tint transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                         >
@@ -3195,7 +3216,7 @@ function ListingsTabContent({
                         <>
                           <Tooltip content="Edit listing">
                             <button
-                              onClick={() => openEditListing(listing)}
+                              onClick={(e) => { e.stopPropagation(); openEditListing(listing); }}
                               className={`inline-flex items-center justify-center size-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                               aria-label="Edit listing"
                             >
@@ -3204,14 +3225,14 @@ function ListingsTabContent({
                           </Tooltip>
                           {hasPendingOrders ? (
                             <button
-                              onClick={() => openOrderModal(listing)}
+                              onClick={(e) => { e.stopPropagation(); openOrderModal(listing); }}
                               className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
                             >
                               Review {listing.pendingOrderCount} {listing.pendingOrderCount === 1 ? "offer" : "offers"}
                             </button>
                           ) : isSellerPickupReady && sellerOrder ? (
                             <button
-                              onClick={() => openRatingModal(sellerOrder)}
+                              onClick={(e) => { e.stopPropagation(); openRatingModal(sellerOrder); }}
                               className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
                             >
                               Confirm pickup
@@ -3222,7 +3243,7 @@ function ListingsTabContent({
                             </span>
                           ) : sellerOrder?.status === "confirmed" && sellerCountdown ? (
                             <button
-                              onClick={() => openConfirmedOrderSummary(listing.id)}
+                              onClick={(e) => { e.stopPropagation(); openConfirmedOrderSummary(listing.id); }}
                               className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
                             >
                               {sellerCountdown.label} to pickup
@@ -3233,7 +3254,7 @@ function ListingsTabContent({
                           {listing.status !== "sold" && (
                             <Tooltip content="Remove listing">
                               <button
-                                onClick={() => openRemoveListing(listing)}
+                                onClick={(e) => { e.stopPropagation(); openRemoveListing(listing); }}
                                 className={`inline-flex items-center justify-center size-8 rounded-md border border-error/30 text-error bg-canvas hover:bg-error/5 hover:text-error transition-colors ${FOCUS_RING}`}
                                 aria-label="Remove listing"
                               >
