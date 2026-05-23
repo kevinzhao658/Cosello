@@ -3,7 +3,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
-import { Loader2, X, Plus, AlertTriangle, MapPin } from "lucide-react";
+import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
@@ -22,18 +22,35 @@ import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 
 export interface SellWizardHandle {
-  postSingleListing: () => Promise<void>;
+  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
   resetForLogout: () => void;
+  addImages: (files: FileList | File[]) => void;
+  getImageCount: () => number;
+  getProductDetails: () => ProductDetails | null;
+  getCoverImageUrl: () => string | null;
+  setProductDetails: (details: ProductDetails) => void;
+  setPostPickupLocation: (value: string) => void;
 }
 
 export interface SellWizardProps {
   categorySchemas: Record<string, CategorySchema>;
   isActive: boolean;
+  // Wizard mode. `"ai"` runs the existing segmentation → cards → pickup flow.
+  // `"manual"` keeps the photo composer mounted but skips segmentation entirely;
+  // the page-level form supplies productDetails via the imperative handle.
+  mode?: "ai" | "manual";
+  // When true the wizard renders only the photo composer (no upload affordance,
+  // no submit arrow, no downstream phases). Used by the #newlisting page where
+  // the page owns the publish button.
+  photosOnly?: boolean;
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
   onSwitchToBuy: () => void;
   onPhaseChange?: (phase: "review" | "reason" | "cards" | "pickup" | null) => void;
+  onImagesChange?: (count: number) => void;
+  onProductDetailsChange?: (details: ProductDetails | null) => void;
+  onCoverImageChange?: (url: string | null) => void;
 }
 
 const priceStringToCents = (raw: string): number | null => {
@@ -47,11 +64,16 @@ const priceStringToCents = (raw: string): number | null => {
 export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function SellWizard({
   categorySchemas,
   isActive,
+  mode = "ai",
+  photosOnly = false,
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
   onSwitchToBuy,
   onPhaseChange,
+  onImagesChange,
+  onProductDetailsChange,
+  onCoverImageChange,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
   const [state, actions] = useSellWizard();
@@ -70,9 +92,28 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // any leftover URLs are released even if the wizard is torn down without
   // hitting CLEAR/DELETE paths.
   const uploadedImagesRef = useRef(uploadedImages);
+  const productDetailsRef = useRef(productDetails);
+  const segmentationRef = useRef(segmentation);
+  const computeCoverImageUrl = useCallback((): string | null => {
+    const images = uploadedImagesRef.current;
+    if (images.length > 0) return images[0].preview;
+    const seg = segmentationRef.current;
+    if (seg && seg.image_urls.length > 0) return seg.image_urls[0];
+    return null;
+  }, []);
   useEffect(() => {
     uploadedImagesRef.current = uploadedImages;
-  }, [uploadedImages]);
+    onImagesChange?.(uploadedImages.length);
+    onCoverImageChange?.(computeCoverImageUrl());
+  }, [uploadedImages, onImagesChange, onCoverImageChange, computeCoverImageUrl]);
+  useEffect(() => {
+    productDetailsRef.current = productDetails;
+    onProductDetailsChange?.(productDetails);
+  }, [productDetails, onProductDetailsChange]);
+  useEffect(() => {
+    segmentationRef.current = segmentation;
+    onCoverImageChange?.(computeCoverImageUrl());
+  }, [segmentation, onCoverImageChange, computeCoverImageUrl]);
   useEffect(() => {
     return () => {
       for (const img of uploadedImagesRef.current) {
@@ -191,7 +232,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     }));
 
     // Step 2 (review): re-run segmentation in place with the combined photo set.
-    if (bulkReviewPhase === "review") {
+    // In manual mode we skip segmentation entirely — just append.
+    if (mode !== "manual" && bulkReviewPhase === "review") {
       const updatedImages = [...uploadedImages, ...newImages];
       actions.setImages(updatedImages);
       actions.setSegmentationError(null);
@@ -270,6 +312,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   }, [uploadedImages, actions]);
 
   const handleSellSubmit = async () => {
+    if (mode === "manual") return;
     if (uploadedImages.length === 0) return;
     if (uploadedImages.length > 20) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
@@ -441,11 +484,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     actions.updateBulkItemField(index, field, value);
   }, [actions]);
 
-  const handlePostListing = useCallback(async () => {
-    if (!productDetails || uploadedImages.length === 0) return;
+  const handlePostListing = useCallback(async (override?: { details: ProductDetails; pickupLocation: string }) => {
+    // Override path lets the New Listing page publish in Manual mode without
+    // waiting for setProductDetails to flush through React state.
+    const details = override?.details ?? productDetails;
+    const pickup = override?.pickupLocation ?? postPickupLocation;
+    if (!details || uploadedImages.length === 0) return;
     if (!isAuthenticated) { onRequestSignIn(); return; }
 
-    const priceCents = priceStringToCents(productDetails.price);
+    const priceCents = priceStringToCents(details.price);
     if (priceCents === null) { alert("Enter a valid price before posting."); return; }
 
     try {
@@ -460,13 +507,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       } else {
         uploadedImages.forEach((img) => formData.append("images", img.file));
       }
-      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = productDetails;
+      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = details;
       void _; void _rf;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
       formData.append("communities", "");
       formData.append("visibility", "public");
-      formData.append("pickup_location", postPickupLocation);
+      formData.append("pickup_location", pickup);
 
       const res = await apiFetch("/api/listings", { method: "POST", body: formData });
       if (!res.ok) throw new Error("Failed to post listing");
@@ -489,10 +536,34 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     actions.resetToUpload();
   }, [uploadedImages, actions]);
 
+  const addImagesFromFiles = useCallback((files: FileList | File[]) => {
+    const incoming = Array.from(files);
+    const remaining = 20 - uploadedImages.length;
+    if (remaining <= 0) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+      return;
+    }
+    const trimmed = incoming.slice(0, remaining);
+    if (incoming.length > remaining) {
+      actions.setSegmentationError("Maximum 20 photos per listing batch");
+    }
+    const newImages = trimmed.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    actions.appendImages(newImages);
+  }, [uploadedImages.length, actions]);
+
   useImperativeHandle(ref, () => ({
     postSingleListing: handlePostListing,
     resetForLogout,
-  }), [handlePostListing, resetForLogout]);
+    addImages: addImagesFromFiles,
+    getImageCount: () => uploadedImagesRef.current.length,
+    getProductDetails: () => productDetailsRef.current,
+    getCoverImageUrl: computeCoverImageUrl,
+    setProductDetails: (details) => actions.setProductDetails(details),
+    setPostPickupLocation: (value) => actions.setPostPickupLocation(value),
+  }), [handlePostListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
 
   const handleBulkPostListing = async () => {
     if (bulkItems.length === 0 || uploadedImages.length === 0) return;
@@ -683,15 +754,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                     >
                       {dragImageState && (
                         <div className={`w-0.5 h-full mx-auto rounded-full transition-all ${
-                          dragOverGap === groupIdx ? "bg-fuchsia-400 w-1" : "bg-white/15"
+                          dragOverGap === groupIdx ? "bg-primary w-1" : "bg-hairline"
                         }`} />
                       )}
                     </div>
                     <div
-                      className={`relative flex items-center gap-1.5 rounded-lg px-1.5 py-1 border shrink-0 transition-all cursor-pointer ${
-                        isDropTarget ? "bg-white/10 ring-1 ring-white/40 border-white/30" :
-                        isActive ? "border-fuchsia-400/60 bg-fuchsia-500/5" : "border-white/30"
-                      }`}
+                      className={`relative flex items-center gap-1.5 rounded-md px-1.5 py-1 border shrink-0 transition-colors cursor-pointer ${
+                        isDropTarget ? "bg-primary-soft ring-1 ring-primary border-primary" :
+                        isActive ? "border-primary bg-primary-soft" : "border-hairline"
+                      } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas`}
                       onDragOver={(e) => handleGroupDragOver(e, groupIdx)}
                       onDragLeave={() => actions.dragOverGroup(null)}
                       onDrop={() => handleDrop(groupIdx)}
@@ -700,7 +771,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                         actions.setPhase("cards");
                       }}
                     >
-                      <span className="absolute -top-1.5 -left-1.5 size-4 rounded-full bg-white/90 flex items-center justify-center text-[8px] font-bold text-black z-10">
+                      <span className="absolute -top-1.5 -left-1.5 size-4 rounded-full bg-ink flex items-center justify-center text-[8px] font-bold text-on-dark z-10">
                         {groupIdx + 1}
                       </span>
                       {item.imageIndices.map((imgIdx) => {
@@ -713,14 +784,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                             draggable
                             onDragStart={() => handleDragStart(imgIdx, groupIdx)}
                             onDragEnd={handleDragEnd}
-                            className={`relative size-16 rounded-lg border border-white/20 cursor-grab active:cursor-grabbing transition-opacity ${
+                            className={`relative size-16 rounded-md border border-hairline cursor-grab active:cursor-grabbing transition-opacity ${
                               isDragging ? "opacity-40" : "opacity-100"
                             }`}
                           >
                             <img
                               src={img.preview}
                               alt={`Upload ${imgIdx + 1}`}
-                              className="size-full object-cover rounded-lg"
+                              className="size-full object-cover rounded-md"
                               draggable={false}
                             />
                             <button
@@ -728,7 +799,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
+                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
@@ -749,68 +820,104 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               >
                 {dragImageState && (
                   <div className={`w-0.5 h-full mx-auto rounded-full transition-all ${
-                    dragOverGap === bulkItems.length ? "bg-fuchsia-400 w-1" : "bg-white/15"
+                    dragOverGap === bulkItems.length ? "bg-primary w-1" : "bg-hairline"
                   }`} />
                 )}
               </div>
               <div className="shrink-0 ml-auto flex flex-col gap-1">
                 <button
+                  type="button"
                   onClick={clearAllUploads}
-                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                  className="text-[10px] text-muted hover:text-error transition-colors px-2 py-1 rounded-md border border-transparent hover:border-error/30 hover:bg-error/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
                   Clear all
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 mt-3 mb-2">
-              {uploadedImages.map((img, index) => (
-                <div key={index} className="relative">
-                  <img
-                    src={img.preview}
-                    alt={`Upload ${index + 1}`}
-                    className="size-16 object-cover rounded-lg border border-white/20"
-                  />
-                  <button
-                    type="button"
-                    aria-label={`Delete photo ${index + 1}`}
-                    onMouseDown={handleDeletePhotoMouseDown}
-                    onClick={handleDeletePhotoClick(index)}
-                    className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:bg-black/70 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/60 transition-colors"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="size-16 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
-              >
-                <Plus className="size-5" />
-              </button>
-              <div className="ml-auto shrink-0 flex flex-col gap-1">
+            <div
+              className="relative w-full bg-surface-card border border-hairline rounded-lg p-4 pb-14 mt-2 mb-2"
+              onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("ring-2","ring-primary","bg-primary-tint"); }}
+              onDragLeave={(e) => { e.currentTarget.classList.remove("ring-2","ring-primary","bg-primary-tint"); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove("ring-2","ring-primary","bg-primary-tint");
+                if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+                const synthetic = { target: { files: e.dataTransfer.files, value: "" } } as unknown as React.ChangeEvent<HTMLInputElement>;
+                handleImageUpload(synthetic);
+              }}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {uploadedImages.map((img, index) => (
+                  <div key={index} className="relative size-[72px] rounded-md overflow-hidden border border-hairline bg-surface-soft">
+                    <img
+                      src={img.preview}
+                      alt={`Upload ${index + 1}`}
+                      className="size-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Delete photo ${index + 1}`}
+                      onMouseDown={handleDeletePhotoMouseDown}
+                      onClick={handleDeletePhotoClick(index)}
+                      className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-full bg-ink/70 text-on-dark text-xs hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
                 <button
+                  type="button"
+                  aria-label="Add more photos"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="size-[72px] rounded-md border border-dashed border-border-strong inline-flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors"
+                >
+                  <Plus className="size-5" />
+                </button>
+                <button
+                  type="button"
                   onClick={clearAllUploads}
-                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+                  className="ml-auto shrink-0 text-[11px] text-muted hover:text-error transition-colors px-2 py-1 rounded"
                 >
                   Clear all
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 pt-2 w-full flex items-center gap-3 border-t border-hairline-soft text-sm text-muted hover:text-ink transition-colors"
+              >
+                <ImagePlus className="size-[18px] text-primary shrink-0" />
+                <span>Or drop more photos here</span>
+              </button>
+
+              {mode !== "manual" && (
+                <button
+                  type="button"
+                  aria-label="Continue"
+                  disabled={isGenerating}
+                  onClick={handleSellSubmit}
+                  className="absolute right-3 bottom-3 inline-flex items-center justify-center size-10 rounded-full bg-primary text-on-primary hover:bg-primary-hover transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  {isGenerating ? <Loader2 className="size-[18px] animate-spin" /> : <ArrowRight className="size-[18px]" />}
+                </button>
+              )}
             </div>
           )}
         </>
       )}
 
       {segmentationError && !isGenerating && (
-        <div className="mt-3 flex items-start gap-3 p-3 rounded-lg border border-red-400/40 bg-red-500/10 text-red-200">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-red-300" />
+        <div className="mt-3 flex items-start gap-3 p-3 rounded-md border border-error/30 bg-error/5 text-body">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-error" />
           <div className="flex-1 text-xs">
-            <div className="font-medium text-red-100">Couldn't analyze your photos</div>
-            <div className="mt-1 text-red-200/90">{segmentationError}</div>
+            <div className="font-semibold text-error">Couldn't analyze your photos</div>
+            <div className="mt-1 text-muted">{segmentationError}</div>
           </div>
           <button
             onClick={() => { actions.setSegmentationError(null); handleSellSubmit(); }}
-            className="shrink-0 text-[11px] text-red-100 hover:text-white px-2 py-1 rounded border border-red-300/30 hover:bg-red-500/20"
+            className="shrink-0 text-[11px] text-error hover:text-on-primary hover:bg-error px-2 py-1 rounded border border-error/40 transition-colors"
           >
             Retry
           </button>
@@ -818,9 +925,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       )}
 
       {isGenerating && (
-        <div className="mt-6 p-6 bg-white/5 rounded-lg border border-white/10 text-center">
-          <Loader2 className="size-6 text-fuchsia-400 animate-spin mx-auto mb-3" />
-          <p className="text-white/60 text-sm">Analyzing your images...</p>
+        <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline text-center">
+          <Loader2 className="size-6 text-primary animate-spin mx-auto mb-3" />
+          <p className="text-muted text-sm">Analyzing your images...</p>
         </div>
       )}
 
@@ -844,7 +951,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         </div>
       )}
 
-      {productDetails && !isGenerating && (
+      {productDetails && !isGenerating && !photosOnly && (
         <SingleListingForm
           productDetails={productDetails}
           setProductDetails={actions.setProductDetails}
@@ -883,8 +990,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         />
       )}
 
-      {!productDetails && !isGenerating && !bulkReviewPhase && (
-        <p className="text-sm text-white/60 text-center mt-2">
+      {!productDetails && !isGenerating && !bulkReviewPhase && !photosOnly && mode !== "manual" && (
+        <p className="text-sm text-muted text-center mt-2">
           {uploadedImages.length > 0
             ? `${uploadedImages.length} photo${uploadedImages.length > 1 ? 's' : ''} ready • Hit submit to generate listing`
             : "Selling • Click above to upload photos"}
@@ -913,58 +1020,58 @@ function SingleListingForm({
   postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
 }: SingleListingFormProps) {
   return (
-    <div className="mt-6 p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
+    <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
       {productDetails.retrieval_fallback === true && (
-        <div className="flex gap-3 p-3 rounded-lg border border-yellow-400/40 bg-yellow-500/10 text-yellow-200">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-yellow-300" />
+        <div className="flex gap-3 p-3 rounded-md border border-warning/40 bg-warning/5 text-body">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-warning" />
           <div className="text-xs">
-            <div className="font-medium text-yellow-100">Listing created with limited enrichment</div>
-            <div className="mt-1 text-yellow-200/90">We couldn't reach our product lookup service, so this listing was generated from the photo alone. Double-check the brand, model, and price before posting.</div>
+            <div className="font-semibold text-ink">Listing created with limited enrichment</div>
+            <div className="mt-1 text-muted">We couldn't reach our product lookup service, so this listing was generated from the photo alone. Double-check the brand, model, and price before posting.</div>
           </div>
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-white/40 uppercase tracking-wider">Brand</label>
+          <label className="text-xs text-muted uppercase tracking-wider">Brand</label>
           <Input
             value={productDetails.brand}
             onChange={(e) => setProductDetails({ ...productDetails, brand: e.target.value })}
-            className="mt-1 bg-white/5 border-white/20 text-white"
+            className="mt-1"
           />
         </div>
         <div>
-          <label className="text-xs text-white/40 uppercase tracking-wider">Name</label>
+          <label className="text-xs text-muted uppercase tracking-wider">Name</label>
           <Input
             value={productDetails.name}
             onChange={(e) => setProductDetails({ ...productDetails, name: e.target.value })}
-            className="mt-1 bg-white/5 border-white/20 text-white"
+            className="mt-1"
           />
         </div>
       </div>
       <div>
-        <label className="text-xs text-white/40 uppercase tracking-wider">Description</label>
+        <label className="text-xs text-muted uppercase tracking-wider">Description</label>
         <textarea
           value={productDetails.description}
           onChange={(e) => setProductDetails({ ...productDetails, description: e.target.value })}
           rows={3}
-          className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 resize-none"
+          className="mt-1 w-full bg-canvas border border-border-strong text-ink rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 resize-none"
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-xs text-white/40 uppercase tracking-wider">Price ($)</label>
+          <label className="text-xs text-muted uppercase tracking-wider">Price ($)</label>
           <PriceInput
             value={productDetails.price}
             onChange={(next) => setProductDetails({ ...productDetails, price: next })}
-            className="mt-1 bg-white/5 border-white/20 text-white"
+            className="mt-1"
           />
         </div>
         <div>
-          <label className="text-xs text-white/40 uppercase tracking-wider">Condition</label>
+          <label className="text-xs text-muted uppercase tracking-wider">Condition</label>
           <select
             value={productDetails.condition}
             onChange={(e) => setProductDetails({ ...productDetails, condition: e.target.value })}
-            className="mt-1 w-full bg-white/5 border border-white/20 text-white rounded-md px-3 py-2 text-sm focus:outline-none focus:border-fuchsia-400 h-9"
+            className="mt-1 w-full bg-canvas border border-border-strong text-ink rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 h-9"
           >
             {CONDITIONS.map((c) => (
               <option key={c} value={c}>{c}</option>
@@ -992,12 +1099,12 @@ function SingleListingForm({
         </>
       )}
       <div>
-        <label className="text-xs text-white/40 uppercase tracking-wider">Tags</label>
+        <label className="text-xs text-muted uppercase tracking-wider">Tags</label>
         <div className="flex flex-wrap gap-2 mt-1">
           {productDetails.tags.map((tag, index) => (
             <span
               key={index}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-fuchsia-500/15 border border-fuchsia-400/30 text-fuchsia-300"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-primary-soft border border-primary/20 text-primary-active"
             >
               {tag}
               <button
@@ -1007,7 +1114,7 @@ function SingleListingForm({
                     tags: productDetails.tags.filter((_, i) => i !== index),
                   })
                 }
-                className="hover:text-white transition-colors"
+                className="hover:text-ink transition-colors"
               >
                 <X className="size-3" />
               </button>
@@ -1031,31 +1138,31 @@ function SingleListingForm({
               value={newTag}
               onChange={(e) => setNewTag(e.target.value)}
               placeholder="Add tag..."
-              className="w-20 px-2 py-1 rounded-full text-xs bg-white/5 border border-white/20 text-white placeholder:text-white/30 focus:outline-none focus:border-fuchsia-400 transition-colors"
+              className="w-24 px-2 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
             />
           </form>
         </div>
       </div>
       <div className="mt-3">
-        <label className="text-xs text-white/40 uppercase tracking-wider">Pickup Location</label>
+        <label className="text-xs text-muted uppercase tracking-wider">Pickup Location</label>
         <div className="mt-1.5 flex items-center gap-2">
-          <MapPin className="size-3.5 text-fuchsia-400 shrink-0" />
+          <MapPin className="size-3.5 text-primary shrink-0" />
           <input
             type="text"
             value={postPickupLocation}
             onChange={(e) => setPostPickupLocation(e.target.value)}
             placeholder="Enter pickup location"
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/20 focus:outline-none focus:border-white/20"
+            className="flex-1 bg-canvas border border-border-strong rounded-md px-3 py-2 text-sm text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary"
           />
         </div>
-        <p className="text-[10px] text-white/30 mt-1.5 leading-relaxed">
+        <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
           Your address will not be shared until pickup is confirmed.
         </p>
       </div>
 
       <Button
         onClick={onPost}
-        className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 mt-2"
+        className="w-full mt-2"
       >
         {isAuthenticated ? "Post Listing" : "Sign in to Post"}
       </Button>

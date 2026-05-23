@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { PriceInput } from "./ui/price-input";
 import { ModalShell } from "./ui/ModalShell";
+import { ListingImage } from "./ui/ListingImage";
 import { CategorySelector, CategoryAttributeFields } from "./CategoryFields";
 import { CONDITIONS } from "../lib/listings";
 import type {
@@ -104,39 +105,39 @@ export function EditListingModal({
 
   return (
     <ModalShell open={open} onClose={onClose} z={z}>
-      <div
-        className="relative border border-white/15 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl max-h-[85vh] overflow-y-auto"
-        style={{ backgroundColor: "#18181b" }}
-      >
+      <div className="relative bg-canvas border border-hairline rounded-xl p-6 max-w-md w-full mx-4 shadow-overlay max-h-[85vh] overflow-y-auto">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-white/40 hover:text-white/70 transition-colors"
+          aria-label="Close"
+          className="absolute top-3 right-3 size-8 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
         >
-          <X className="size-5" />
+          <X className="size-4" />
         </button>
 
         <div className="flex items-center gap-3 mb-5">
-          <div className="size-10 bg-fuchsia-500/15 rounded-full flex items-center justify-center">
-            <Pencil className="size-5 text-fuchsia-400" />
+          <div className="size-10 rounded-full bg-primary-soft inline-flex items-center justify-center">
+            <Pencil className="size-5 text-primary" />
           </div>
-          <h3 className="text-lg font-medium">Edit Listing</h3>
+          <h3 className="text-lg font-semibold text-ink">Edit listing</h3>
         </div>
 
         {previewUrls.length > 0 && (
           <div className="mb-4">
-            <img
+            <ListingImage
               src={previewUrls[0]}
               alt=""
-              className="block mx-auto w-full max-w-[400px] max-h-[40vh] object-contain rounded-lg border border-white/10"
+              size="modalPreview"
+              className="block mx-auto w-full max-w-md max-h-[50vh] object-contain rounded-md border border-hairline bg-surface-soft"
             />
             {previewUrls.length > 1 && (
               <div className="flex gap-2 mt-2 overflow-x-auto pb-1 justify-center">
                 {previewUrls.slice(1).map((url, i) => (
-                  <img
+                  <ListingImage
                     key={i}
                     src={url}
                     alt=""
-                    className="size-14 rounded-lg object-cover border border-white/10 shrink-0"
+                    size="small"
+                    className="size-14 rounded-md object-cover border border-hairline shrink-0"
                   />
                 ))}
               </div>
@@ -151,49 +152,36 @@ export function EditListingModal({
           */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-white/40 mb-1 block">Brand</label>
-              <Input
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                className="bg-white/5 border-white/10 text-white text-sm"
-              />
+              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Brand</label>
+              <Input value={brand} onChange={(e) => setBrand(e.target.value)} className="text-sm" />
             </div>
             <div>
-              <label className="text-xs text-white/40 mb-1 block">Name</label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="bg-white/5 border-white/10 text-white text-sm"
-              />
+              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Name</label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" />
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-white/40 mb-1 block">Description</label>
+            <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm resize-none focus:outline-none focus:border-fuchsia-400/40"
+              className="w-full bg-canvas border border-border-strong rounded-md px-3 py-2 text-ink text-sm resize-none outline-none focus-visible:border-primary focus-visible:ring-primary/30 focus-visible:ring-[3px] transition-[color,box-shadow]"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-white/40 mb-1 block">Price</label>
-              <PriceInput
-                value={price}
-                onChange={setPrice}
-                className="bg-white/5 border-white/10 text-white text-sm"
-                placeholder="0"
-              />
+              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Price</label>
+              <PriceInput value={price} onChange={setPrice} className="text-sm" placeholder="0" />
             </div>
             <div>
-              <label className="text-xs text-white/40 mb-1 block">Condition</label>
+              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Condition</label>
               <select
                 value={condition}
                 onChange={(e) => setCondition(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-fuchsia-400/40 appearance-none"
+                className="w-full bg-canvas border border-border-strong rounded-md px-3 py-2 text-ink text-sm outline-none focus-visible:border-primary focus-visible:ring-primary/30 focus-visible:ring-[3px] transition-[color,box-shadow] appearance-none"
               >
                 {CONDITIONS.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -203,23 +191,14 @@ export function EditListingModal({
           </div>
 
           <div>
-            <label className="text-xs text-white/40 mb-1 block">Location</label>
-            <Input
-              value={location}
-              readOnly
-              disabled
-              className="bg-white/5 border-white/10 text-white/50 text-sm cursor-not-allowed"
-            />
-            <p className="text-[10px] text-white/30 mt-1">Location is synced from your profile</p>
+            <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Location</label>
+            <Input value={location} readOnly disabled className="text-sm" />
+            <p className="text-[11px] text-muted-soft mt-1">Location is synced from your profile</p>
           </div>
 
           {showCategory && (
             <>
-              <CategorySelector
-                category={category}
-                schemas={categorySchemas}
-                onChange={setCategory}
-              />
+              <CategorySelector category={category} schemas={categorySchemas} onChange={setCategory} />
               <CategoryAttributeFields
                 category={category}
                 schemas={categorySchemas}
@@ -232,17 +211,19 @@ export function EditListingModal({
           )}
 
           <div>
-            <label className="text-xs text-white/40 mb-1 block">Tags</label>
+            <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Tags</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {tags.map((tag, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-fuchsia-500/10 border border-fuchsia-400/20 text-fuchsia-300"
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-primary-soft border border-primary/30 text-primary"
                 >
                   {tag}
                   <button
+                    type="button"
                     onClick={() => setTags(tags.filter((_, j) => j !== i))}
-                    className="hover:text-white"
+                    aria-label={`Remove tag ${tag}`}
+                    className="text-primary/70 hover:text-primary transition-colors"
                   >
                     <X className="size-2.5" />
                   </button>
@@ -260,18 +241,20 @@ export function EditListingModal({
                     setNewTag("");
                   }
                 }}
-                placeholder="Add tag..."
-                className="bg-white/5 border-white/10 text-white text-sm flex-1"
+                placeholder="Add tag…"
+                className="text-sm flex-1"
               />
               <Button
+                type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   if (newTag.trim()) {
                     setTags([...tags, newTag.trim()]);
                     setNewTag("");
                   }
                 }}
-                size="sm"
-                className="bg-white/10 hover:bg-white/15 text-white/60 border-0"
+                aria-label="Add tag"
               >
                 <Plus className="size-3.5" />
               </Button>
@@ -279,18 +262,13 @@ export function EditListingModal({
           </div>
 
           <div className="flex gap-3 pt-2">
-            <Button
-              onClick={onClose}
-              className="flex-1 bg-white/5 hover:bg-white/10 text-white/60 border border-white/10"
-            >
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
             <Button
               onClick={handleSave}
               disabled={isSaving || (!brand.trim() && !name.trim()) || !price.trim()}
-              className="flex-1 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0 disabled:opacity-40"
+              className="flex-1"
             >
-              {isSaving ? <Loader2 className="size-4 animate-spin" /> : "Save Changes"}
+              {isSaving ? <Loader2 className="size-4 animate-spin" /> : "Save changes"}
             </Button>
           </div>
         </div>

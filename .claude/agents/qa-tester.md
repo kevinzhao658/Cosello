@@ -1,6 +1,8 @@
 ---
+name: qa-tester
+description: QA tester on the Coworkers team. Validates completed features end-to-end and checks for regressions. Read-only on source files. Use after frontend-dev and backend-dev finish to verify the PR scope and produce a pass/fail report — do NOT spawn in parallel with the implementers.
 model: sonnet
-allowedTools:
+tools:
   - Read
   - Glob
   - Grep

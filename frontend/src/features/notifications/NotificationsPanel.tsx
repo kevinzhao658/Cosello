@@ -26,6 +26,23 @@ type NotificationsPanelProps = {
   onOpenUserDashboard: (userId: string) => void;
 };
 
+// Short relative-time label for the row meta line. Falls back to a static date
+// once the event is more than a week old.
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "";
+  const ts = new Date(iso).getTime();
+  if (Number.isNaN(ts)) return "";
+  const diffMs = Date.now() - ts;
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "Just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 // Memoized so unrelated state changes in App don't re-render the notification
 // list. countdownTick is only passed as non-zero for address_released items so
 // the 60s timer only re-renders those rows.
@@ -48,7 +65,11 @@ const NotificationItem = memo(function NotificationItem({
     const diff = target.getTime() - Date.now();
     if (diff > 0) {
       const { label } = formatCountdown(diff);
-      return <>{parts.baseText} <span className="text-cyan-400 font-semibold">{label}</span> until pickup at {parts.pickupTimeDisplay}.</>;
+      return (
+        <>
+          {parts.baseText} <span className="text-primary font-semibold">{label}</span> until pickup at {parts.pickupTimeDisplay}.
+        </>
+      );
     }
     return <>{parts.baseText}</>;
   }, [n, countdownTick]);
@@ -65,44 +86,94 @@ const NotificationItem = memo(function NotificationItem({
   const isClickable = isClickableNotification(n.type);
   const visuals = getNotificationVisuals(n.type);
   const Icon = visuals.Icon;
+  const isJoinRequest = n.type === "join_request";
+  const isUnread = !n.is_read;
+  const rowClickable = isClickable && !!n.listing_id;
 
   return (
     <div
-      className={`flex items-start gap-2.5 px-3 py-2.5 border-b border-white/5 transition-colors ${n.is_read ? "opacity-40" : ""} ${isClickable && n.listing_id ? "cursor-pointer hover:bg-white/5" : ""}`}
+      className={`relative flex gap-3 px-4 py-3 border-b border-hairline transition-colors ${
+        isUnread ? "bg-canvas" : "bg-surface-soft"
+      } ${rowClickable ? "cursor-pointer hover:bg-surface-strong" : "hover:bg-surface-strong"}`}
       onClick={onClick}
     >
-      {n.type === "join_request" && n.related_user_picture ? (
-        <img src={n.related_user_picture} alt="" className="size-7 rounded-full object-cover shrink-0 mt-0.5" />
+      {isUnread && (
+        <span
+          aria-hidden="true"
+          className="absolute top-3 right-3 size-2 rounded-full bg-primary"
+        />
+      )}
+      {/* Icon tile or avatar */}
+      {isJoinRequest && n.related_user_picture ? (
+        <img
+          src={n.related_user_picture}
+          alt=""
+          className="size-9 rounded-md object-cover shrink-0"
+        />
       ) : (
-        <div className={`size-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${visuals.bgClass}`}>
+        <div className={`size-9 rounded-md flex items-center justify-center shrink-0 ${visuals.bgClass}`}>
           <Icon className={visuals.iconClass} />
         </div>
       )}
-      <div className="flex-1 min-w-0">
-        <p className={`text-xs leading-relaxed ${n.is_read ? "text-white/60" : "text-white font-medium"}`}>
-          {n.type === "join_request" && n.related_user_name ? (
+      <div className="flex-1 min-w-0 pr-4">
+        <p className="text-sm font-semibold text-ink line-clamp-1">{n.title}</p>
+        <p className="text-sm text-body line-clamp-2 mt-0.5">
+          {isJoinRequest && n.related_user_name ? (
             <>
-              <button onClick={(e) => { e.stopPropagation(); n.related_user_id && onOpenUserDashboard(n.related_user_id); }} className="font-medium text-white hover:underline">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (n.related_user_id) onOpenUserDashboard(n.related_user_id);
+                }}
+                className="font-semibold text-ink hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
+              >
                 {n.related_user_name}
               </button>
-              {" "}{n.message.replace(n.related_user_name, "").trimStart()}
+              {" "}
+              {n.message.replace(n.related_user_name, "").trimStart()}
             </>
           ) : countdownContent ?? n.message}
         </p>
-        {n.type === "join_request" && n.join_request_status === "pending" && (
-          <div className="flex items-center gap-1.5 mt-1.5">
-            <button onClick={() => onAction(n.id, "accept")} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors"><Check className="size-3" />Accept</button>
-            <button onClick={() => onAction(n.id, "reject")} className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"><X className="size-3" />Deny</button>
+        {n.created_at && (
+          <p className="text-xs text-muted mt-1">{formatRelativeTime(n.created_at)}</p>
+        )}
+
+        {/* join_request inline actions */}
+        {isJoinRequest && n.join_request_status === "pending" && (
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onAction(n.id, "accept"); }}
+              className="inline-flex items-center gap-1 h-7 px-3 rounded-md text-xs font-semibold bg-primary text-on-primary hover:bg-primary-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <Check className="size-3" />Accept
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onAction(n.id, "reject"); }}
+              className="inline-flex items-center gap-1 h-7 px-3 rounded-md text-xs font-semibold border border-border-strong text-ink bg-canvas hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <X className="size-3" />Reject
+            </button>
           </div>
         )}
-        {n.type === "join_request" && n.join_request_status === "accepted" && <p className="text-[10px] text-green-400 mt-1">Accepted</p>}
-        {n.type === "join_request" && n.join_request_status === "rejected" && <p className="text-[10px] text-red-400 mt-1">Denied</p>}
+        {isJoinRequest && n.join_request_status === "accepted" && (
+          <p className="text-xs text-primary font-semibold mt-1">Accepted</p>
+        )}
+        {isJoinRequest && n.join_request_status === "rejected" && (
+          <p className="text-xs text-error font-semibold mt-1">Rejected</p>
+        )}
+
         {isPickupReady && (
-          <button onClick={(e) => { e.stopPropagation(); onConfirmPickup(); }} className="flex items-center gap-1 mt-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/15 text-green-400 hover:bg-green-500/25 transition-colors">
-            <CheckCircle className="size-3" />Confirm Pickup
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onConfirmPickup(); }}
+            className="inline-flex items-center gap-1 mt-2 h-7 px-3 rounded-md text-xs font-semibold bg-primary text-on-primary hover:bg-primary-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          >
+            <CheckCircle className="size-3" />Confirm pickup
           </button>
         )}
-        {n.created_at && <p className="text-[10px] text-white/25 mt-0.5">{new Date(n.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>}
       </div>
     </div>
   );
@@ -153,6 +224,8 @@ export function NotificationsPanel({
       if (!aPin && bPin) return 1;
       return 0;
     });
+    // notifCountdownTick is read implicitly via Date.now() in isActivePickup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifications, notifCountdownTick]);
 
   // Close on Escape — same close path as backdrop/X (parent's onClose handles
@@ -175,29 +248,37 @@ export function NotificationsPanel({
           Rendered via portal so it escapes the nav's `backdrop-blur` stacking
           context (which otherwise traps fixed-positioned children below z-50). */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[299] animate-in fade-in duration-200"
+        className="fixed inset-0 bg-ink/40 z-[299] motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
         onClick={onClose}
       />
       {/* Side panel — full viewport height, anchored to the right edge */}
       <div
-        className="fixed top-0 right-0 bottom-0 w-full max-w-md border-l border-white/15 shadow-2xl overflow-hidden flex flex-col z-[300] animate-in slide-in-from-right duration-200"
-        style={{ backgroundColor: '#18181b' }}
+        role="dialog"
+        aria-label="Notifications"
+        className="fixed top-0 right-0 bottom-0 w-[420px] max-w-[90vw] bg-canvas border-l border-hairline shadow-overlay overflow-hidden flex flex-col z-[300] motion-safe:animate-in motion-safe:slide-in-from-right motion-safe:duration-200"
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
-          <p className="text-sm font-medium">Notifications</p>
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between px-4 py-4 border-b border-hairline shrink-0 gap-3">
+          <div className="min-w-0">
+            <p className="text-lg font-bold text-ink leading-tight">Notifications</p>
+            <p className="text-xs text-muted mt-0.5">
+              {unreadCount > 0 ? `${unreadCount} unread` : "You're all caught up"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             {unreadCount > 0 && (
               <button
+                type="button"
                 onClick={onMarkAllRead}
-                className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                className="text-xs text-primary hover:text-primary-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded font-semibold"
               >
                 Mark all read
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
-              className="text-white/40 hover:text-white/70 transition-colors"
               aria-label="Close notifications"
+              className="inline-flex items-center justify-center size-9 rounded-full bg-surface-soft text-muted hover:bg-surface-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               <X className="size-4" />
             </button>
@@ -212,8 +293,8 @@ export function NotificationsPanel({
             </>
           ) : notifications.length === 0 ? (
             <div className="py-16 text-center">
-              <Bell className="size-6 text-white/15 mx-auto mb-3" />
-              <p className="text-xs text-white/30">No notifications</p>
+              <Bell className="size-6 text-muted-soft mx-auto mb-3" />
+              <p className="text-sm text-muted">No notifications yet</p>
             </div>
           ) : (
             sortedNotifications.map((n) => (

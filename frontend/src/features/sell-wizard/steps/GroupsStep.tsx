@@ -28,7 +28,7 @@ export interface GroupsStepProps {
   dragImageState: DragState | null;
   dragOverGroup: number | null;
   dragOverGap: number | null;
-  wizardAnchorRef: React.RefObject<HTMLDivElement | null>;
+  wizardAnchorRef: React.RefObject<HTMLDivElement>;
   onBackArrow: () => void;
   onAdvanceToReason: () => void;
   onGenerate: () => void;
@@ -47,7 +47,7 @@ export interface GroupsStepProps {
   onBrandChange: (groupIdx: number, value: string) => void;
   onNameChange: (groupIdx: number, value: string) => void;
   onCardSelect: (groupIdx: number) => void;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  fileInputRef: React.RefObject<HTMLInputElement>;
   onClearAll: () => void;
 }
 
@@ -62,12 +62,12 @@ export function GroupsStep({
 }: GroupsStepProps) {
   return (
     <>
-      <div ref={wizardAnchorRef} className="mt-3 flex items-center justify-center gap-2 text-xs text-white/40 uppercase tracking-wider">
+      <div ref={wizardAnchorRef} className="mt-3 flex items-center justify-center gap-2 text-xs text-muted uppercase tracking-wider">
         <button
           type="button"
           onClick={onBackArrow}
           aria-label="Back"
-          className="size-6 rounded-full flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+          className="size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
         >
           <ChevronRight className="size-3.5 rotate-180" />
         </button>
@@ -86,7 +86,7 @@ export function GroupsStep({
         {segmentation.groupings.map((group, groupIdx) => (
           <React.Fragment key={groupIdx}>
             {groupIdx > 0 && (
-              <div aria-hidden="true" className="self-stretch border-l border-white/10" />
+              <div aria-hidden="true" className="self-stretch border-l border-hairline" />
             )}
             <GroupCard
               group={group}
@@ -119,10 +119,10 @@ export function GroupsStep({
 
         {dragImageState && (
           <div
-            className={`self-stretch min-w-[5rem] rounded-lg border border-dashed flex items-center justify-center text-[11px] px-3 transition-all ${
+            className={`self-stretch min-w-[5rem] rounded-md border border-dashed flex items-center justify-center text-[11px] px-3 transition-colors ${
               dragOverGap === segmentation.groupings.length
-                ? "border-fuchsia-400/60 bg-fuchsia-500/10 text-fuchsia-200"
-                : "border-white/15 text-white/40"
+                ? "border-primary bg-primary-soft text-primary-active"
+                : "border-border-strong text-muted"
             }`}
             onDragOver={(e) => {
               e.preventDefault();
@@ -139,15 +139,17 @@ export function GroupsStep({
         {bulkReviewPhase === "review" && (
           <div className="ml-auto self-center shrink-0 flex flex-col gap-1">
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="size-8 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-white/40 hover:text-white/60 hover:border-white/40 transition-all"
+              className="size-8 rounded-md border border-dashed border-border-strong flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               aria-label="Add more photos"
             >
               <Plus className="size-4" />
             </button>
             <button
+              type="button"
               onClick={onClearAll}
-              className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-2 py-1 rounded border border-transparent hover:border-red-400/20 hover:bg-red-500/10"
+              className="text-[10px] text-muted hover:text-error transition-colors px-2 py-1 rounded-md border border-transparent hover:border-error/30 hover:bg-error/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               Clear all
             </button>
@@ -169,12 +171,12 @@ export function GroupsStep({
                 segmentation.groupings.length === 0 ||
                 segmentation.groupings.some((g) => g.length === 0)
               }
-              className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+              className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               {`Continue (${segmentation.groupings.length} ${segmentation.groupings.length === 1 ? "item" : "items"})`}
             </Button>
           ) : (
-            <div className="p-6 bg-white/5 rounded-lg border border-white/10 space-y-4 text-left">
+            <div className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left">
               <div className="space-y-2">
                 {[
                   "Moving",
@@ -188,11 +190,11 @@ export function GroupsStep({
                   return (
                     <label
                       key={opt}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-all ${
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-md border cursor-pointer transition-colors ${
                         isSelected
-                          ? "bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-100"
-                          : "bg-white/5 border-white/15 text-white/70 hover:bg-white/[0.07] hover:border-white/25"
-                      }`}
+                          ? "bg-primary-soft border-primary text-primary-active"
+                          : "bg-canvas border-hairline text-body hover:bg-surface-soft hover:border-border-strong"
+                      } focus-within:outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 focus-within:ring-offset-canvas`}
                     >
                       <input
                         type="radio"
@@ -200,7 +202,7 @@ export function GroupsStep({
                         value={opt}
                         checked={isSelected}
                         onChange={() => setRationale(opt)}
-                        className="size-4 accent-fuchsia-500 shrink-0"
+                        className="size-4 accent-primary shrink-0"
                       />
                       <span className="text-sm">{opt}</span>
                     </label>
@@ -209,13 +211,14 @@ export function GroupsStep({
               </div>
               {rationale === "Other" && (
                 <div>
-                  <label className="text-xs text-white/40 uppercase tracking-wider">Tell us briefly why</label>
+                  <label htmlFor="sell-rationale-other" className="text-xs text-muted uppercase tracking-wider">Tell us briefly why</label>
                   <Input
+                    id="sell-rationale-other"
                     value={rationaleOther}
                     onChange={(e) => setRationaleOther(e.target.value)}
                     placeholder="Tell us briefly why"
                     maxLength={200}
-                    className="mt-1 bg-white/5 border-white/20 text-white"
+                    className="mt-1"
                   />
                 </div>
               )}
@@ -225,7 +228,7 @@ export function GroupsStep({
                   isGenerating ||
                   (rationale === "Other" && rationaleOther.trim() === "")
                 }
-                className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
+                className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
                 {isGenerating ? (
                   <Loader2 className="size-4 animate-spin" />

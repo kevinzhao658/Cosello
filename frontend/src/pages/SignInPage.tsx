@@ -175,17 +175,17 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
   };
 
   return (
-    <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4">
+    <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 bg-canvas">
       <div className="w-full max-w-sm">
-        <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8">
+        <div className="bg-canvas border border-hairline rounded-md p-8 shadow-card">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center size-14 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-full mb-4">
-              <Phone className="size-7 text-cyan-400" />
+            <div className="inline-flex items-center justify-center size-14 bg-primary-soft rounded-full mb-4">
+              <Phone className="size-7 text-primary" />
             </div>
-            <h2 className="text-2xl font-light tracking-wider mb-1">
+            <h2 className="text-2xl font-extrabold tracking-tight text-ink mb-1" style={{ letterSpacing: "-0.5px" }}>
               {step === "phone" ? "Sign In" : "Enter Code"}
             </h2>
-            <p className="text-white/50 text-sm">
+            <p className="text-muted text-sm">
               {step === "phone"
                 ? "Enter your phone number to continue"
                 : `We sent a code to ${country.code} ${formatted}`}
@@ -195,7 +195,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
           {step === "phone" ? (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                   Phone Number
                 </label>
                 <div className="flex items-stretch gap-0">
@@ -204,17 +204,14 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                     <button
                       type="button"
                       onClick={() => setDropdownOpen(!dropdownOpen)}
-                      className="flex items-center gap-1 px-3 h-full rounded-l-md border border-r-0 border-white/20 bg-white/5 text-white text-sm hover:bg-white/10 transition-colors whitespace-nowrap"
+                      className="flex items-center gap-1 px-3 h-9 rounded-l-md border border-r-0 border-border-strong bg-canvas text-ink text-sm hover:bg-surface-soft transition-colors whitespace-nowrap"
                     >
                       {country.flag} {country.code}
-                      <ChevronDown className="size-3 text-white/40" />
+                      <ChevronDown className="size-3 text-muted" />
                     </button>
 
                     {dropdownOpen && (
-                      <div
-                        className="absolute z-50 mt-1 left-0 min-w-[280px] max-h-52 overflow-y-auto rounded-md border border-white/20 shadow-lg"
-                        style={{ backgroundColor: "#18181b" }}
-                      >
+                      <div className="absolute z-50 mt-1 left-0 min-w-[280px] max-h-52 overflow-y-auto rounded-md border border-border-strong bg-canvas shadow-overlay">
                         {COUNTRIES.map((c, i) => (
                           <button
                             key={`${c.code}-${c.name}`}
@@ -224,8 +221,8 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                               setRawDigits("");
                               setDropdownOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors ${
-                              i === countryIdx ? "text-cyan-400" : "text-white"
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
+                              i === countryIdx ? "text-primary" : "text-ink"
                             }`}
                           >
                             {c.flag} {c.name} ({c.code})
@@ -244,24 +241,24 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                       value={formatted}
                       onChange={handlePhoneChange}
                       onKeyDown={(e) => e.key === "Enter" && isPhoneComplete && handleSendOTP()}
-                      className="bg-white/5 border-white/20 text-white placeholder:text-white/30 rounded-l-none pr-9"
+                      className="rounded-l-none pr-9"
                     />
                     {isPhoneComplete && userExists === true && (
-                      <CheckCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 text-emerald-400" />
+                      <CheckCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 text-primary" />
                     )}
                     {checkingPhone && (
-                      <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 text-white/30 animate-spin" />
+                      <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 text-muted animate-spin" />
                     )}
                   </div>
                 </div>
               </div>
 
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && <p className="text-sm text-error">{error}</p>}
 
               <Button
                 onClick={handleSendOTP}
                 disabled={isLoading || !isPhoneComplete}
-                className="w-full bg-cyan-500 hover:bg-cyan-600 text-white border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -276,7 +273,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
               <Button
                 onClick={onCancel}
                 variant="ghost"
-                className="w-full text-white/40 hover:text-white/60"
+                className="w-full text-muted hover:text-ink"
               >
                 Cancel
               </Button>
@@ -284,7 +281,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
           ) : (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-white/40 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                   Verification Code
                 </label>
                 <Input
@@ -295,16 +292,16 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
                   onKeyDown={(e) => e.key === "Enter" && handleVerifyOTP()}
-                  className="bg-white/5 border-white/20 text-white text-center text-2xl tracking-[0.4em] placeholder:text-white/20"
+                  className="text-center text-2xl tracking-[0.4em]"
                 />
               </div>
 
-              {error && <p className="text-sm text-red-400">{error}</p>}
+              {error && <p className="text-sm text-error">{error}</p>}
 
               <Button
                 onClick={handleVerifyOTP}
                 disabled={isLoading || otp.length !== 6}
-                className="w-full bg-cyan-500 hover:bg-cyan-600 text-white border-0"
+                className="w-full"
               >
                 {isLoading ? <Loader2 className="size-4 animate-spin" /> : "Verify"}
               </Button>
@@ -317,18 +314,18 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                     handleSendOTP();
                   }}
                   disabled={isLoading}
-                  className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors disabled:opacity-50"
+                  className="text-sm text-primary hover:text-primary-hover transition-colors disabled:opacity-50"
                 >
                   Resend code
                 </button>
-                <span className="text-white/15">|</span>
+                <span className="text-hairline">|</span>
                 <button
                   onClick={() => {
                     setStep("phone");
                     setOtp("");
                     setError("");
                   }}
-                  className="text-sm text-white/40 hover:text-white/60 transition-colors"
+                  className="text-sm text-muted hover:text-ink transition-colors"
                 >
                   Use a different number
                 </button>

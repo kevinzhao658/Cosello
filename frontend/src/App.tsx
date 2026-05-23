@@ -1,91 +1,56 @@
-import { TrendingUp, Search, Menu, User, DollarSign, ArrowRight, X, Globe, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, RefreshCw, UserCheck, Eye, EyeOff, LogOut, HelpCircle, Type, Contrast, Minimize2, Zap, Sparkles, Leaf, Users, Recycle, Heart, Bell, Check, Lock, Pencil, Clock, Package, ShoppingBag, MapPin, ChevronRight } from "lucide-react";
+import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, Check, ImagePlus, ArrowRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
-import { useSettings } from "./contexts/SettingsContext";
+import { Tooltip } from "./components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "./components/ui/dropdown-menu";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
+import { useOrderModals } from "./contexts/OrderModalsContext";
+import { FOCUS_RING } from "./pages/MyAccount/constants";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
 const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { EditListingModal } from "./components/EditListingModal";
+import { ListingImage } from "./components/ui/ListingImage";
 import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
 import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
 import { ListingDetailModal, type SellerProfile } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
+import type { ProductDetails } from "./features/sell-wizard/useSellWizard";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
+import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
+import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
-import { logView, logSearch, logInteraction, type ViewSource } from "./lib/events";
-import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema } from "./lib/types";
+import { logView, logSearch, type ViewSource } from "./lib/events";
+import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
 import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
-type Page = "home" | "market" | "terms" | "settings" | "signin" | "signup" | "account" | "help" | "mission";
-
-function ListingImageCarousel({ images, alt }: { images: string[]; alt: string }) {
-  const [current, setCurrent] = useState(0);
-
-  useEffect(() => {
-    if (images.length <= 1) return;
-    const timer = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % images.length);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [images.length]);
-
-  if (images.length <= 1) {
-    return (
-      <img
-        src={images[0]}
-        alt={alt}
-        className="w-28 h-28 object-cover rounded-lg border border-white/10 shrink-0"
-      />
-    );
-  }
-
-  return (
-    <div className="relative w-28 h-28 rounded-lg border border-white/10 shrink-0 overflow-hidden">
-      {images.map((url, i) => (
-        <img
-          key={url}
-          src={url}
-          alt={`${alt} ${i + 1}`}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out"
-          style={{ opacity: i === current ? 1 : 0 }}
-        />
-      ))}
-      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1">
-        {images.map((_, i) => (
-          <span
-            key={i}
-            className={`block size-1.5 rounded-full transition-colors ${i === current ? "bg-white" : "bg-white/40"}`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
   const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
-  const { settings, updateSetting } = useSettings();
+  const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
   const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
   const [pendingSignupUser, setPendingSignupUser] = useState<AuthUser | null>(null);
 
   const [homeSearch, setHomeSearch] = useState("");
-  const [displayText, setDisplayText] = useState("");
-  const fullText = "COSELLO";
-  const [isTypingComplete, setIsTypingComplete] = useState(false);
-  const [currentLetterIndex, setCurrentLetterIndex] = useState(-1);
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
 
   // Sell wizard — all of its state lives inside <SellWizard>. App.tsx holds a
@@ -94,12 +59,55 @@ export default function App() {
   // while the wizard is in a deep step.
   const sellWizardRef = useRef<SellWizardHandle | null>(null);
   const [wizardPhase, setWizardPhase] = useState<"review" | "reason" | "cards" | "pickup" | null>(null);
+  // Mirror of wizard.uploadedImages.length so the #newlisting page can react
+  // (preview cover, checklist, photo counter). The wizard fires onImagesChange
+  // on every state.uploadedImages change.
+  const [wizardImageCount, setWizardImageCount] = useState(0);
+  // Mirrors of wizard-internal state for the right-column preview on
+  // #newlisting. The wizard fires onProductDetailsChange whenever its AI-generated
+  // productDetails updates, and onCoverImageChange whenever the first
+  // upload/segmentation thumb resolves. Both are read-only views — App.tsx
+  // never writes back through these.
+  const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
+  const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
+
+  // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
+  // flow and a blank-form manual flow. Manual form fields live here so the page
+  // owns the publish payload; the wizard owns the photo state and the publish
+  // network call (called via the imperative handle after seeding productDetails).
+  const [newListingMode, setNewListingMode] = useState<"ai" | "manual">("ai");
+  // Below lg: the preview/checklist column collapses into a floating overlay
+  // that the user opens via a jade circle button — keeps mid-flow vertical
+  // space clear and stops the preview from pushing the form below the fold.
+  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false);
+  const previewToggleRef = useRef<HTMLButtonElement | null>(null);
+  const previewCloseRef = useRef<HTMLButtonElement | null>(null);
+  const [manualBrand, setManualBrand] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualPrice, setManualPrice] = useState("");
+  const [manualCondition, setManualCondition] = useState<string>("Good");
+  const [manualCategory, setManualCategory] = useState<CategorySlug>("other");
+  const [manualPickup, setManualPickup] = useState("");
+  const [manualTags, setManualTags] = useState<string[]>([]);
+  const [manualTagInput, setManualTagInput] = useState("");
+  const [manualCategoryAttributes, setManualCategoryAttributes] = useState<Record<string, string>>({});
+  const [isPublishingManual, setIsPublishingManual] = useState(false);
 
   const [page, setPage] = useState<Page>(() => {
     const hash = window.location.hash.replace("#", "");
-    const validPages: Page[] = ["home", "market", "terms", "settings", "signin", "signup", "account", "help", "mission"];
+    const validPages: Page[] = ["home", "market", "terms", "signin", "signup", "account", "help", "mission", "newlisting"];
     return validPages.includes(hash as Page) ? (hash as Page) : "home";
   });
+  // Bumped each time a nav element wants to land on a specific MyAccount tab.
+  // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
+  // target (e.g. Settings → Settings) still re-applies the tab even when the
+  // page is already mounted.
+  const [requestedAccountTab, setRequestedAccountTab] = useState<{ tab: "overview" | "listings" | "saved" | "settings"; nonce: number } | null>(null);
+  const goToAccountTab = useCallback((tab: "overview" | "listings" | "saved" | "settings") => {
+    setRequestedAccountTab({ tab, nonce: Date.now() });
+    setPage("account");
+  }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -107,7 +115,18 @@ export default function App() {
   const [marketSearch, setMarketSearch] = useState("");
   const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
   const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
-  const [marketSort, setMarketSort] = useState("newest");
+  // R-3.1: new tri-mode sort. `recommended` and `trending` both fall through
+  // to backend `sort=newest` (FYP path kicks in when no community is selected
+  // and no search is active) until dedicated backend sort modes ship.
+  type MarketSort = "recommended" | "trending" | "newest";
+  const [marketSort, setMarketSort] = useState<MarketSort>("recommended");
+  // Distance is purely a visual placeholder for now — no backend filter, no
+  // distance data on the listing payload. Hooked to local state so the slider
+  // is interactive; will start filtering once Listing carries lat/long.
+  const [distanceMiles, setDistanceMiles] = useState<number>(5);
+  // Client-side pagination: backend returns the full feed, we reveal in
+  // chunks (24 initial, +18 per IO trigger).
+  const [visibleCount, setVisibleCount] = useState<number>(24);
   const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
@@ -141,17 +160,19 @@ export default function App() {
       prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
     );
   }, []);
-  const handleClearMarketCommunities = useCallback(() => setSelectedMarketCommunities([]), []);
   const handleToggleCategory = useCallback((slug: CategorySlug) => {
     setSelectedCategories((prev) =>
       prev.includes(slug) ? prev.filter((c) => c !== slug) : [...prev, slug]
     );
   }, []);
-  const handleClearCategories = useCallback(() => setSelectedCategories([]), []);
   const handleToggleMyListings = useCallback(() => setShowMyListings((v) => !v), []);
 
   // Wishlist state
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  // Listings currently playing the one-shot save-pulse animation. Items are
+  // added when the heart toggles unsaved → saved and cleared onAnimationEnd
+  // so each save plays the pulse exactly once.
+  const [pulseSavedIds, setPulseSavedIds] = useState<Set<string>>(new Set());
   const [wishlistItems, setWishlistItems] = useState<Listing[]>([]);
 
   // Profile dropdown state (custom, not Radix)
@@ -167,10 +188,9 @@ export default function App() {
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
 
-  // History state
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
-  const [historyItems, setHistoryItems] = useState<{ id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold"; timestamp: number }[]>(() => {
+  // Recent-activity log persisted to localStorage. Consumed by MyAccountPage
+  // (via onAddToHistory) — the in-nav dropdown was retired in R-2.
+  const [, setHistoryItems] = useState<{ id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold"; timestamp: number }[]>(() => {
     try {
       const stored = localStorage.getItem("ge_history");
       return stored ? JSON.parse(stored) : [];
@@ -205,6 +225,80 @@ export default function App() {
   // App.tsx only owns the open flag and the save handler.
   const [showEditListingModal, setShowEditListingModal] = useState(false);
 
+  // Reset the New Listing form back to defaults — called after a successful
+  // publish so a follow-up listing starts blank.
+  const resetNewListingForm = useCallback(() => {
+    setNewListingMode("ai");
+    setManualBrand("");
+    setManualName("");
+    setManualDescription("");
+    setManualPrice("");
+    setManualCondition("Good");
+    setManualCategory("other");
+    setManualPickup("");
+    setManualTags([]);
+    setManualTagInput("");
+    setManualCategoryAttributes({});
+    setWizardImageCount(0);
+    setAiProductDetails(null);
+    setAiCoverImageUrl(null);
+  }, []);
+
+  // Manual-mode publish. Seeds the wizard's productDetails from the page-level
+  // form fields, then calls the wizard's existing single-publish handler (which
+  // already wires images + categories + pickup + auth gates correctly).
+  const handlePublishNewListing = useCallback(async () => {
+    if (!isAuthenticated) {
+      setPage("signin");
+      return;
+    }
+    if (newListingMode === "ai") {
+      // AI mode publish happens via the wizard's own flow — Publish in the
+      // page toolbar is disabled until the wizard has produced a productDetails
+      // (single) or bulkItems (multi). For single, we route through the same
+      // confirm modal the home flow uses.
+      setShowPostConfirm(true);
+      return;
+    }
+    if (wizardImageCount === 0) {
+      alert("Add at least one photo before publishing.");
+      return;
+    }
+    const priceNumber = Number.parseInt(manualPrice, 10);
+    if (!Number.isFinite(priceNumber) || priceNumber <= 0) {
+      alert("Enter a valid price before publishing.");
+      return;
+    }
+    if (!manualBrand.trim() && !manualName.trim()) {
+      alert("Add a brand or item name before publishing.");
+      return;
+    }
+    const wizard = sellWizardRef.current;
+    if (!wizard) return;
+
+    setIsPublishingManual(true);
+    try {
+      const details = {
+        brand: manualBrand.trim(),
+        name: manualName.trim(),
+        description: manualDescription.trim(),
+        price: manualPrice,
+        condition: manualCondition,
+        location: user?.neighborhood || "",
+        tags: manualTags,
+        category: manualCategory,
+        categoryAttributes: manualCategoryAttributes,
+        identifierConfidence: "high" as const,
+        retrieval_fallback: false,
+      };
+      const pickup = manualPickup.trim() || user?.pickup_address || "";
+      await wizard.postSingleListing({ details, pickupLocation: pickup });
+      resetNewListingForm();
+    } finally {
+      setIsPublishingManual(false);
+    }
+  }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualCategoryAttributes, manualPickup, manualTags, user, resetNewListingForm]);
+
   const handleSaveListingFromMarket = async (patch: ListingUpdatePatch) => {
     if (!listingDetailData || !token) return;
     const formData = new FormData();
@@ -221,12 +315,40 @@ export default function App() {
     }
   };
 
-  const openUserDashboard = (userId: string) => {
+  const openUserDashboard = useCallback((userId: string) => {
     if (!token || userId === user?.id) return;
     setViewingUserId(userId);
-  };
+  }, [token, user?.id]);
+
+  // Register openUserDashboard with the OrderModalsProvider so the lifted
+  // OrderManagementModal's buyer-avatar click can navigate to the buyer
+  // profile from any page. The provider lives in main.tsx (outside App), so
+  // it can't take this as a prop — the register-on-mount pattern keeps the
+  // wiring shallow.
+  useEffect(() => {
+    registerViewUserHandler(openUserDashboard);
+    return () => registerViewUserHandler(null);
+  }, [registerViewUserHandler, openUserDashboard]);
 
   const listingViewSourceRef = useRef<ViewSource>("direct");
+
+  // Infinite-scroll sentinel for the marketplace grid.
+  const marketSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (page !== "market") return;
+    const el = marketSentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((v) => Math.min(v + 18, listings.length));
+        }
+      },
+      { rootMargin: "400px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [page, listings.length, visibleCount]);
 
   const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
     listingViewSourceRef.current = source;
@@ -313,9 +435,6 @@ export default function App() {
   // Close profile dropdown on outside click
   useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
 
-  // Close history dropdown on outside click
-  useClickOutside(historyRef, () => setHistoryOpen(false), historyOpen);
-
   // Fetch unread notification count periodically
   const fetchUnreadCount = async () => {
     if (!token) return;
@@ -384,13 +503,65 @@ export default function App() {
   }, []);
 
   const handleNotifClick = useCallback((notificationId: number, type: string, listingId: string | null) => {
-    const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","review_submitted","address_released","order_completed"].includes(type);
+    const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","pickup_ready","review_submitted","address_released","order_completed"].includes(type);
     const noListing = ["order_declined","order_cancelled","order_expired"].includes(type);
-    // Order-related notifs clear themselves on click — join_request/etc. require
-    // explicit accept/reject action so we leave them unread.
-    if (withListing || noListing) {
+    // Order-related notifs clear themselves on click — join_request still
+    // requires explicit accept/reject action so we leave it unread.
+    // request_accepted is terminal (informational) — clear it on click even
+    // though it has no listing_id to route to.
+    if (withListing || noListing || type === "request_accepted") {
       markNotificationRead(notificationId);
     }
+    // Confirmation-flow notifications open the OrderConfirmSummary modal in
+    // place. The modal's "Confirm pickup" CTA leads into the attestation +
+    // rating chain. pickup_ready fires to both buyer and seller after the
+    // seller hits "Notify pickup ready", so both sides land in the same
+    // summary view. No /account routing needed — the modal surfaces wherever
+    // the user happened to be when the notification landed.
+    const inPlaceTypes = ["order_confirmed", "pickup_ready", "address_released", "order_completed", "review_submitted"];
+    if (inPlaceTypes.includes(type) && listingId) {
+      setNotificationsOpen(false);
+      openOrderConfirmSummary(listingId);
+      return;
+    }
+    // Seller-side `purchase` (new pending order on one of your listings) —
+    // R-5.7.3 lifts OrderManagementModal to App level, so the click opens
+    // the picker IN PLACE. We synthesize a partial MyListing from the
+    // /api/orders payload (which carries listing_title/_image/_price) so
+    // the modal header has something to render before the order list
+    // populates. After-action subscribers (MyAccountPage when mounted)
+    // refetch on success; otherwise next mount picks up fresh state.
+    if (type === "purchase" && listingId) {
+      setNotificationsOpen(false);
+      (async () => {
+        try {
+          const res = await apiFetch("/api/orders");
+          if (!res.ok) return;
+          const allOrders: OrderData[] = await res.json();
+          const order = allOrders.find((o) => o.listing_id === listingId && o.role === "seller");
+          if (!order) return;
+          openOrderManagement({
+            id: listingId,
+            title: order.listing_title,
+            description: "",
+            price: order.listing_price,
+            condition: "",
+            location: "",
+            tags: [],
+            imageUrl: order.listing_image,
+            postedAt: 0,
+            status: "active",
+            brand: "",
+            name: order.listing_title,
+          });
+        } catch {
+          // ignore — modal stays closed on failure
+        }
+      })();
+      return;
+    }
+    // `order_updated` (buyer/seller mutual updates) and other listing-bearing
+    // notifs keep their existing /account routing.
     if (withListing && listingId) {
       setNotificationsOpen(false);
       setPendingListingId(listingId);
@@ -399,13 +570,14 @@ export default function App() {
       setNotificationsOpen(false);
       setPage("account");
     }
-  }, [markNotificationRead]);
+  }, [markNotificationRead, openOrderConfirmSummary, openOrderManagement]);
 
   const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
     setNotificationsOpen(false);
-    if (listingId) setPendingListingId(listingId);
-    setPage("account");
-  }, []);
+    // The "Confirm pickup" inline CTA on the address_released notification —
+    // route through the same in-place modal flow as a click on the body.
+    if (listingId) openOrderConfirmSummary(listingId);
+  }, [openOrderConfirmSummary]);
 
   useEffect(() => {
     if (!isAuthenticated || !token) return;
@@ -486,7 +658,13 @@ export default function App() {
 
     const params = new URLSearchParams();
     if (debouncedMarketSearch) params.set("search", debouncedMarketSearch);
-    params.set("sort", marketSort);
+    // Map the new UI sort labels onto backend modes. `recommended` and
+    // `trending` both ride the existing `sort=newest` request — when no
+    // community is selected and no search is active, the backend falls into
+    // its FYP scoring path, which is the current proxy for "recommended".
+    // TODO: add a real `trending` sort backend-side (view count window).
+    const backendSort = marketSort === "newest" ? "newest" : "newest";
+    params.set("sort", backendSort);
     if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
     if (isAuthenticated && token) {
@@ -558,20 +736,28 @@ export default function App() {
           wishlisted ? next.add(listingId) : next.delete(listingId);
           return next;
         });
+        if (wishlisted) {
+          setPulseSavedIds((prev) => {
+            const next = new Set(prev);
+            next.add(listingId);
+            return next;
+          });
+        }
       }
     } catch (err) {
       console.error("Failed to toggle wishlist:", err);
     }
   };
 
-  const handleNotForMe = (listingId: string) => {
-    setListings((prev) => prev.filter((l) => l.id !== listingId));
-    logInteraction({ listing_id: listingId, action: "not_interested" });
-  };
-
   useEffect(() => {
     if (page === "market") fetchListings();
   }, [page, debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
+
+  // Reset the visible window whenever the underlying feed changes so the user
+  // doesn't land deep into a now-shorter list.
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, showMyListings]);
 
   // Keep the URL hash in sync with the current page so a browser refresh
   // preserves where the user was. The initializer above reads from the hash
@@ -622,23 +808,6 @@ export default function App() {
     }
   }, [isAuthenticated, page, pendingSignupToken]);
 
-  useEffect(() => {
-    let currentIndex = 0;
-    const typingInterval = setInterval(() => {
-      if (currentIndex <= fullText.length) {
-        setDisplayText(fullText.slice(0, currentIndex));
-        setCurrentLetterIndex(currentIndex - 1);
-        currentIndex++;
-      } else {
-        clearInterval(typingInterval);
-        setIsTypingComplete(true);
-        setCurrentLetterIndex(-1);
-      }
-    }, 80);
-
-    return () => clearInterval(typingInterval);
-  }, []);
-
   // If user needs registration and we have a pending token, redirect to signup
   useEffect(() => {
     if (needsRegistration && pendingSignupToken && page !== "signup") {
@@ -646,109 +815,223 @@ export default function App() {
     }
   }, [needsRegistration, pendingSignupToken]);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-fuchsia-950 via-zinc-950 to-cyan-950 text-white">
-      {/* Navigation */}
-      <nav className="sticky top-0 border-b border-white/10 bg-black/60 backdrop-blur-md z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-8">
-              <button onClick={() => setPage("home")} className={`flex items-center gap-2 bg-transparent border-none cursor-pointer transition-opacity duration-500 ${(wizardPhase === "review" || wizardPhase === "reason") ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
-                <div className="relative">
-                  <DollarSign className="size-8 text-fuchsia-400 absolute top-0 left-0" />
-                  <DollarSign className="size-8 text-cyan-400 relative" style={{ transform: 'translate(8px, 0)' }} />
-                </div>
-              </button>
+  // Preview overlay (New Listing, below lg:) — ESC closes, focus moves to the
+  // close button on open and back to the toggle on close. Effect short-circuits
+  // when the overlay isn't open so the listeners don't sit live on other pages.
+  useEffect(() => {
+    if (!previewOverlayOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewOverlayOpen(false);
+    };
+    window.addEventListener("keydown", handleKey);
+    const focusFrame = requestAnimationFrame(() => {
+      previewCloseRef.current?.focus();
+    });
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      cancelAnimationFrame(focusFrame);
+      previewToggleRef.current?.focus();
+    };
+  }, [previewOverlayOpen]);
 
-              {/* Desktop Navigation */}
-              <div className="hidden md:flex gap-6">
-                <button onClick={() => setPage("home")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "home" ? "text-white" : "text-white/60"}`}>
-                  Search
+  // Auto-close the preview overlay when leaving the New Listing page so it
+  // doesn't reopen with stale state next time the user lands there.
+  useEffect(() => {
+    if (page !== "newlisting" && previewOverlayOpen) setPreviewOverlayOpen(false);
+  }, [page, previewOverlayOpen]);
+
+  const userInitials = (() => {
+    const name = user?.display_name?.trim();
+    if (!name) return "";
+    const parts = name.split(/\s+/);
+    const letters = parts.slice(0, 2).map((p) => p.charAt(0).toUpperCase());
+    return letters.join("");
+  })();
+
+  const navLinkClass = (active: boolean) =>
+    `relative bg-transparent border-none cursor-pointer text-sm transition-colors px-1 ${
+      active ? "text-primary font-semibold" : "text-muted hover:text-ink"
+    }`;
+
+  // Preview card + "Before you publish" checklist for the New Listing page.
+  // Rendered both inside the lg:+ sticky aside and inside the below-lg:
+  // floating drawer so the two share a single source of truth.
+  const newListingPreviewContent = (
+    <>
+      <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+      <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+          <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+        </div>
+        <div className="relative aspect-square bg-surface-soft">
+          {aiCoverImageUrl ? (
+            <img
+              src={aiCoverImageUrl}
+              alt="Listing cover preview"
+              className="absolute inset-0 size-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
+              <ImagePlus className="size-8" aria-hidden="true" />
+              <span className="text-[11px]">Photo preview after publish</span>
+            </div>
+          )}
+        </div>
+        <div className="p-3 space-y-1">
+          <p className="text-sm font-medium text-ink line-clamp-1">
+            {(() => {
+              if (newListingMode === "manual") {
+                const brand = manualBrand.trim();
+                const name = manualName.trim();
+                if (brand && name) return `${brand} — ${name}`;
+                return brand || name || "Untitled";
+              }
+              const brand = aiProductDetails?.brand?.trim() ?? "";
+              const name = aiProductDetails?.name?.trim() ?? "";
+              if (brand && name) return `${brand} — ${name}`;
+              return brand || name || "Untitled";
+            })()}
+          </p>
+          <p className="text-xs text-muted line-clamp-1">
+            {(() => {
+              const location = newListingMode === "manual"
+                ? (manualPickup.trim() || user?.neighborhood || "West Village")
+                : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
+              const condition = newListingMode === "manual"
+                ? manualCondition
+                : (aiProductDetails?.condition?.trim() ?? "");
+              return condition ? `${location} · ${condition}` : location;
+            })()}
+          </p>
+          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
+            {(() => {
+              if (newListingMode === "manual") {
+                return manualPrice ? `$${manualPrice}` : "$—";
+              }
+              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const num = raw ? Number.parseFloat(raw) : NaN;
+              return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
+            })()}
+          </p>
+        </div>
+      </article>
+
+      <div className="bg-canvas border border-hairline rounded-md p-4">
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
+        <ul className="space-y-2">
+          {(() => {
+            const isManual = newListingMode === "manual";
+            const hasBrandOrName = isManual
+              ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
+              : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+            const hasPrice = (() => {
+              if (isManual) {
+                return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+              }
+              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const num = raw ? Number.parseFloat(raw) : NaN;
+              return Number.isFinite(num) && num > 0;
+            })();
+            const hasDescription = isManual
+              ? manualDescription.trim().length >= 20
+              : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+            const rows: ReadonlyArray<readonly [string, boolean]> = [
+              ["At least one photo", wizardImageCount > 0],
+              ["Brand or name", hasBrandOrName],
+              ["Price set", hasPrice],
+              ["Description 20+ chars", hasDescription],
+            ];
+            return rows;
+          })().map(([label, done]) => (
+            <li key={label} className="flex items-center gap-2.5 text-sm">
+              <span
+                aria-hidden="true"
+                className={`inline-flex items-center justify-center size-4 rounded-full border ${
+                  done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
+                }`}
+              >
+                <Check className="size-3" />
+              </span>
+              <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen bg-canvas text-ink">
+      {/* Navigation */}
+      <nav className="sticky top-0 border-b border-hairline bg-canvas z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-6 h-16">
+            {/* Left: Wordmark */}
+            <button
+              onClick={() => setPage("home")}
+              className="bg-transparent border-none cursor-pointer text-primary text-2xl font-extrabold tracking-wordmark"
+            >
+              Cosello
+            </button>
+
+            {/* Center: Route-aware nav */}
+            <div className="hidden md:flex items-center justify-center gap-6">
+              <button
+                type="button"
+                onClick={() => setPage("home")}
+                aria-current={page === "home" ? "page" : undefined}
+                className={navLinkClass(page === "home")}
+              >
+                Home
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage("market")}
+                aria-current={page === "market" ? "page" : undefined}
+                className={navLinkClass(page === "market")}
+              >
+                Marketplace
+              </button>
+              <Tooltip content="Coming soon">
+                <button
+                  type="button"
+                  disabled
+                  className={`${navLinkClass(false)} opacity-50 cursor-not-allowed`}
+                >
+                  Communities
                 </button>
-                <button onClick={() => setPage("market")} className={`hover:text-white transition-colors bg-transparent border-none cursor-pointer ${page === "market" ? "text-white" : "text-white/60"}`}>
-                  Market
-                </button>
-              </div>
+              </Tooltip>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isAuthenticated) { setPage("signin"); return; }
+                  setPage("account");
+                }}
+                aria-current={page === "account" ? "page" : undefined}
+                className={navLinkClass(page === "account")}
+              >
+                My account
+              </button>
             </div>
 
             {/* Right Side */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {isAuthenticated ? (
                 <>
-                {/* History */}
-                <div className="relative" ref={historyRef}>
-                  <button
-                    onClick={() => setHistoryOpen((prev) => !prev)}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10"
-                  >
-                    <Clock className="size-4 text-white/80" />
-                  </button>
-
-                  {historyOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-80 rounded-md border border-white/15 shadow-xl overflow-hidden z-[100]" style={{ backgroundColor: '#18181b' }}>
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-                        <p className="text-xs font-medium">Recent Activity</p>
-                        {historyItems.length > 0 && (
-                          <button
-                            onClick={() => { setHistoryItems([]); localStorage.removeItem("ge_history"); }}
-                            className="text-[10px] text-white/30 hover:text-white/50 transition-colors"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                      <div className="max-h-[8.5rem] overflow-y-auto">
-                        {historyItems.length === 0 ? (
-                          <div className="py-8 text-center">
-                            <Clock className="size-5 text-white/15 mx-auto mb-2" />
-                            <p className="text-xs text-white/30">No recent activity</p>
-                          </div>
-                        ) : (
-                          historyItems.map((item, i) => (
-                            <button
-                              key={`${item.id}-${item.type}-${i}`}
-                              onClick={() => {
-                                setHistoryOpen(false);
-                                const listing = listings.find((l) => l.id === item.id);
-                                if (listing) openListingDetail(listing);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2 border-b border-white/5 hover:bg-white/5 transition-colors text-left"
-                            >
-                              <img src={item.imageUrl} alt="" className="size-9 rounded-md object-cover border border-white/10 shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs text-white/80 truncate">{item.title}</p>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  {item.type === "viewed" && <Eye className="size-2.5 text-white/25" />}
-                                  {item.type === "purchased" && <ShoppingBag className="size-2.5 text-green-400/60" />}
-                                  {item.type === "listed" && <Package className="size-2.5 text-fuchsia-400/60" />}
-                                  {item.type === "sold" && <DollarSign className="size-2.5 text-cyan-400/60" />}
-                                  <span className="text-[10px] text-white/25 capitalize">{item.type}</span>
-                                  <span className="text-[10px] text-white/15">
-                                    {(() => {
-                                      const diff = Date.now() - item.timestamp;
-                                      const mins = Math.floor(diff / 60000);
-                                      if (mins < 1) return "just now";
-                                      if (mins < 60) return `${mins}m ago`;
-                                      const hrs = Math.floor(mins / 60);
-                                      if (hrs < 24) return `${hrs}h ago`;
-                                      return `${Math.floor(hrs / 24)}d ago`;
-                                    })()}
-                                  </span>
-                                </div>
-                              </div>
-                              <span className="text-xs text-fuchsia-400 shrink-0">${item.price}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {/* Message (placeholder — no route) */}
+                <button
+                  type="button"
+                  aria-label="Messages"
+                  className="inline-flex items-center justify-center size-9 rounded-full bg-transparent text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+                >
+                  <MessageCircle className="size-[18px]" />
+                </button>
 
                 {/* Notifications Bell */}
                 <div className="relative">
                   <button
+                    aria-label="Notifications"
                     onClick={() => {
                       setNotificationsOpen((prev) => {
                         if (!prev) {
@@ -759,13 +1042,14 @@ export default function App() {
                         return !prev;
                       });
                     }}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10 relative"
+                    className="relative inline-flex items-center justify-center size-9 rounded-full bg-transparent text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
                   >
-                    <Bell className="size-4 text-white/80" />
+                    <Bell className="size-[18px]" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 size-4 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-bold text-white">
-                        {unreadCount > 9 ? "9+" : unreadCount}
-                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="absolute top-1.5 right-2 size-2 rounded-full bg-primary ring-2 ring-canvas"
+                      />
                     )}
                   </button>
 
@@ -786,55 +1070,67 @@ export default function App() {
                   />
                 </div>
 
+                {/* Sell pill — routes to the dedicated New Listing surface. */}
+                <button
+                  type="button"
+                  onClick={() => { setPage("newlisting"); }}
+                  className="inline-flex items-center justify-center bg-primary text-on-primary rounded-full px-4 h-9 text-sm font-semibold hover:bg-primary-hover transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  Sell
+                </button>
+
                 <div className="relative" ref={profileRef}>
                   <button
                     onClick={() => setProfileOpen((prev) => !prev)}
-                    className="flex items-center justify-center size-9 rounded-full bg-white/5 hover:bg-white/15 transition-colors cursor-pointer border border-white/10 overflow-hidden"
+                    aria-label="Account menu"
+                    className="inline-flex items-center justify-center size-9 rounded-full bg-canvas border border-primary text-ink text-xs font-semibold hover:bg-primary-soft transition-colors cursor-pointer overflow-hidden"
                   >
                     {user?.profile_picture ? (
                       <img src={user.profile_picture} alt="" className="size-full object-cover" />
+                    ) : userInitials ? (
+                      <span>{userInitials}</span>
                     ) : (
-                      <User className="size-4 text-white/80" />
+                      <User className="size-4 text-muted" />
                     )}
                   </button>
 
                   {profileOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-44 rounded-md border border-white/15 shadow-xl overflow-hidden z-50" style={{ backgroundColor: '#18181b' }}>
+                    <div className="absolute right-0 top-full mt-1.5 w-48 rounded-md border border-hairline bg-canvas shadow-overlay overflow-hidden z-50">
                       {user?.display_name && (
-                        <div className="px-3 py-2 border-b border-white/10">
-                          <p className="text-xs font-medium truncate">{user.display_name}</p>
-                          <p className="text-[11px] text-white/40 truncate">{user.neighborhood}</p>
+                        <div className="px-3 py-2 border-b border-hairline">
+                          <p className="text-xs font-semibold text-ink truncate">{user.display_name}</p>
+                          <p className="text-[11px] text-muted truncate">{user.neighborhood}</p>
                         </div>
                       )}
 
-                      <div className="py-0.5">
+                      <div className="py-1">
                         <button
                           onClick={() => { setProfileOpen(false); setPage("account"); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <User className="size-3.5" />
                           My Account
                         </button>
                         <button
-                          onClick={() => { setProfileOpen(false); setPage("settings"); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          onClick={() => { setProfileOpen(false); goToAccountTab("settings"); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <Settings className="size-3.5" />
                           Settings
                         </button>
                         <button
                           onClick={() => { setProfileOpen(false); setPage("help"); }}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-body hover:bg-surface-soft hover:text-ink transition-colors text-left"
                         >
                           <HelpCircle className="size-3.5" />
                           Help & Support
                         </button>
                       </div>
 
-                      <div className="border-t border-white/10 py-0.5">
+                      <div className="border-t border-hairline py-1">
                         <button
                           onClick={handleLogout}
-                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-error hover:bg-surface-soft transition-colors text-left"
                         >
                           <LogOut className="size-3.5" />
                           Log Out
@@ -849,15 +1145,111 @@ export default function App() {
                   onClick={() => setPage("signin")}
                   variant="outline"
                   size="sm"
-                  className="bg-white/5 border-white/20 text-white hover:bg-white/10 text-sm"
                 >
                   Log In
                 </Button>
               )}
 
-              <Button variant="ghost" size="icon" className="md:hidden text-white/60 hover:text-white">
-                <Menu className="size-5" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="md:hidden"
+                    aria-label="Open menu"
+                  >
+                    <Menu className="size-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={8}
+                  collisionPadding={8}
+                  className="w-56 bg-canvas border border-hairline shadow-overlay rounded-md p-1 z-[60]"
+                >
+                  <DropdownMenuItem
+                    onSelect={() => setPage("home")}
+                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                  >
+                    Home
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => setPage("market")}
+                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                  >
+                    Marketplace
+                  </DropdownMenuItem>
+                  {/* Not `disabled` — Radix DropdownMenuItem sets pointer-events:none
+                      when disabled, which suppresses the Tooltip trigger.
+                      Style as disabled, no-op the select, keep hover events. */}
+                  <Tooltip content="Coming soon" side="right">
+                    <DropdownMenuItem
+                      onSelect={(e) => e.preventDefault()}
+                      aria-disabled="true"
+                      className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink data-[highlighted]:bg-transparent"
+                    >
+                      Communities
+                    </DropdownMenuItem>
+                  </Tooltip>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      if (!isAuthenticated) { setPage("signin"); return; }
+                      setPage("account");
+                    }}
+                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                  >
+                    My account
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => { setPage("newlisting"); }}
+                    className="text-primary font-semibold hover:bg-surface-soft focus:bg-surface-soft focus:text-primary"
+                  >
+                    Sell
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {isAuthenticated ? (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={() => setPage("account")}
+                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                      >
+                        <User className="size-3.5" />
+                        Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => goToAccountTab("settings")}
+                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                      >
+                        <Settings className="size-3.5" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() => setPage("help")}
+                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                      >
+                        <HelpCircle className="size-3.5" />
+                        Help & Support
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => { void handleLogout(); }}
+                        className="text-error hover:bg-surface-soft focus:bg-surface-soft focus:text-error"
+                      >
+                        <LogOut className="size-3.5" />
+                        Log Out
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <DropdownMenuItem
+                      onSelect={() => setPage("signin")}
+                      className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
+                    >
+                      Sign in
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -903,27 +1295,424 @@ export default function App() {
         </Suspense>
       )}
 
-      {page === "home" && (
-        <>
-      {/* Hero Section */}
-      <section className="min-h-[calc(100vh-64px)] flex flex-col justify-center px-4 sm:px-6 lg:px-8 py-12">
-        <div className="max-w-7xl mx-auto w-full">
-          <div className={`text-center transition-all duration-300 overflow-hidden ${(wizardPhase === "review" || wizardPhase === "reason" || wizardPhase === "cards" || wizardPhase === "pickup") ? "max-h-0 mb-0 opacity-0" : "max-h-64 mb-12 opacity-100"}`}>
-            <h2 className="text-6xl sm:text-7xl mb-12 font-light tracking-widest inline-flex items-center justify-center" style={{ fontFamily: "'Courier Prime', monospace" }}>
-              {displayText.split('').map((letter, index) => (
-                <span
-                  key={index}
-                  className={`${index === currentLetterIndex ? 'animate-letter-flash' : ''}${letter === ' ' ? ' inline-block w-4 sm:w-6' : ''}`}
+      {/*
+        SellWizard is mounted at the app shell so its internal state
+        (uploadedImages, segmentation, bulkItems, etc.) survives navigation
+        between pages. It only renders content when isActive is true.
+      */}
+      {page === "newlisting" && (
+        <section className="min-h-[calc(100vh-64px)] bg-canvas">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {/* Breadcrumb + title + toolbar */}
+            <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+              <div className="min-w-0">
+                <nav aria-label="Breadcrumb" className="text-xs text-muted flex items-center gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => { if (!isAuthenticated) { setPage("signin"); return; } setPage("account"); }}
+                    className="hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
+                  >
+                    My account
+                  </button>
+                  <span aria-hidden="true">·</span>
+                  <span>Drafts</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-ink font-medium">New listing</span>
+                </nav>
+                <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
+                  New listing
+                </h1>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Drafts API isn't wired yet — flagged in backlog.md.
+                    alert("Drafts are coming soon. For now, finish the listing and publish it.");
+                  }}
+                  className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
-                  {letter === ' ' ? '\u00A0' : letter}
-                </span>
-              ))}
-              <span className={`inline-block w-1 h-16 sm:h-20 ml-2 ${isTypingComplete ? 'animate-cursor' : 'opacity-100 bg-cyan-400'}`}></span>
-            </h2>
-          </div>
+                  Save draft
+                </button>
+                {newListingMode === "manual" && (
+                  <button
+                    type="button"
+                    disabled={isPublishingManual || wizardImageCount === 0}
+                    onClick={handlePublishNewListing}
+                    className="inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                  >
+                    {isPublishingManual ? "Publishing…" : "Publish listing"}
+                  </button>
+                )}
+              </div>
+            </div>
 
-          {/* Search Bar / Sell Upload */}
-          <div className="max-w-4xl mx-auto">
+            {/* Two-column body */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+              {/* Left — form column */}
+              <div className="space-y-6 min-w-0">
+                {/* Photos section eyebrow */}
+                <section>
+                  <header className="flex items-baseline justify-between mb-3">
+                    <h2 className="text-sm font-semibold text-ink uppercase tracking-wider">Photos</h2>
+                    <span className={`text-xs ${wizardImageCount > 0 ? "text-primary" : "text-muted"}`}>
+                      {wizardImageCount}/20 — first photo becomes the cover
+                    </span>
+                  </header>
+                  {/* SellWizard photo composer renders below via the app-shell
+                      mount. In Manual mode it stays as the composer only; in
+                      AI mode it expands into the full wizard flow. */}
+                  <SellWizard
+                    ref={sellWizardRef}
+                    categorySchemas={categorySchemas}
+                    isActive={true}
+                    mode={newListingMode}
+                    photosOnly={newListingMode === "manual"}
+                    onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
+                    onRequestSignIn={() => setPage("signin")}
+                    onPosted={() => {
+                      resetNewListingForm();
+                      setPage("market");
+                      fetchListings();
+                    }}
+                    onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
+                    onPhaseChange={setWizardPhase}
+                    onImagesChange={setWizardImageCount}
+                    onProductDetailsChange={setAiProductDetails}
+                    onCoverImageChange={setAiCoverImageUrl}
+                  />
+                </section>
+
+                {/* AI / Manual toggle — green callout */}
+                <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
+                  <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newListingMode === "ai"}
+                      onClick={() => setNewListingMode("ai")}
+                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        newListingMode === "ai"
+                          ? "bg-primary text-on-primary"
+                          : "bg-transparent text-primary hover:bg-primary/10"
+                      }`}
+                    >
+                      AI Drafted
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={newListingMode === "manual"}
+                      onClick={() => setNewListingMode("manual")}
+                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        newListingMode === "manual"
+                          ? "bg-primary text-on-primary"
+                          : "bg-transparent text-primary hover:bg-primary/10"
+                      }`}
+                    >
+                      Manual
+                    </button>
+                  </div>
+                  <p className="text-xs text-body mt-3 leading-relaxed">
+                    {newListingMode === "ai"
+                      ? "Upload as many items and we'll take care of the rest."
+                      : "Fill out the product details, description, and pricing below to publish your listing."}
+                  </p>
+                </div>
+
+                {/* Manual form sections */}
+                {newListingMode === "manual" && (
+                  <>
+                    <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
+                      <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Product details</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="block">
+                          <span className="text-xs text-muted uppercase tracking-wider">Brand</span>
+                          <Input
+                            value={manualBrand}
+                            onChange={(e) => setManualBrand(e.target.value)}
+                            placeholder="Olivetti, Eames, Le Creuset…"
+                            className="mt-1"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-xs text-muted uppercase tracking-wider">Name / model</span>
+                          <Input
+                            value={manualName}
+                            onChange={(e) => setManualName(e.target.value)}
+                            placeholder="Lettera 32, LCW chair, 5.5qt dutch oven…"
+                            className="mt-1"
+                          />
+                        </label>
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted uppercase tracking-wider">Category</span>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {(Object.entries(categorySchemas).length > 0
+                            ? Object.entries(categorySchemas).map(([slug, schema]) => ({ slug: slug as CategorySlug, label: schema.label }))
+                            : ([
+                                { slug: "clothing", label: "Clothing" },
+                                { slug: "furniture", label: "Furniture" },
+                                { slug: "electronics", label: "Electronics" },
+                                { slug: "sports", label: "Sports" },
+                                { slug: "collectibles", label: "Collectibles" },
+                                { slug: "other", label: "Other" },
+                              ] as { slug: CategorySlug; label: string }[])
+                          ).map((c) => {
+                            const active = manualCategory === c.slug;
+                            return (
+                              <button
+                                key={c.slug}
+                                type="button"
+                                onClick={() => {
+                                  setManualCategory(c.slug);
+                                  // Different category → different schema. Drop
+                                  // stale attribute values so they don't ship
+                                  // alongside fields the new category doesn't have.
+                                  setManualCategoryAttributes({});
+                                }}
+                                aria-pressed={active}
+                                className={getChipClass(active)}
+                              >
+                                {c.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {/* Per-category dynamic fields (size/gender for clothing,
+                            carry_difficulty for furniture, etc.). Renders nothing
+                            for "other" since its schema has no extra fields. */}
+                        {Object.keys(categorySchemas).length > 0 && (
+                          <div className="mt-3">
+                            <CategoryAttributeFields
+                              category={manualCategory}
+                              schemas={categorySchemas}
+                              attributes={manualCategoryAttributes}
+                              onChange={(key, value) => setManualCategoryAttributes((prev) => ({ ...prev, [key]: value }))}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted uppercase tracking-wider">Condition</span>
+                        <div role="radiogroup" aria-label="Condition" className="flex flex-wrap gap-2 mt-2">
+                          {CONDITIONS.map((c) => {
+                            const active = manualCondition === c;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                role="radio"
+                                aria-checked={active}
+                                onClick={() => setManualCondition(c)}
+                                className={getChipClass(active)}
+                              >
+                                {c}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
+                      <header className="flex items-baseline justify-between">
+                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
+                        <span className={`text-xs ${manualDescription.length >= 20 ? "text-primary" : "text-muted"}`}>
+                          {manualDescription.length} / 20+ chars
+                        </span>
+                      </header>
+                      <textarea
+                        value={manualDescription}
+                        onChange={(e) => setManualDescription(e.target.value)}
+                        rows={5}
+                        placeholder="Tell the story. Where you got it, what you used it for, any flaws worth calling out."
+                        className="w-full min-h-32 bg-surface-soft border border-hairline rounded-md p-3 text-sm text-ink placeholder:text-muted-soft resize-y focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      />
+                      <div>
+                        <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {manualTags.map((t) => (
+                            <span key={t} className={getChipClass(true)}>
+                              {t}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${t}`}
+                                onClick={() => setManualTags((prev) => prev.filter((x) => x !== t))}
+                                className="text-on-primary/80 hover:text-on-primary transition-colors"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </span>
+                          ))}
+                          <input
+                            value={manualTagInput}
+                            onChange={(e) => setManualTagInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const trimmed = manualTagInput.trim();
+                              if (!trimmed || manualTags.includes(trimmed)) return;
+                              setManualTags((prev) => [...prev, trimmed]);
+                              setManualTagInput("");
+                            }}
+                            placeholder={manualTags.length ? "Add another…" : "typewriter, 1960s…"}
+                            className="flex-1 min-w-32 max-w-xs px-2.5 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
+                          />
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
+                      <header className="flex items-baseline justify-between gap-2">
+                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Pricing &amp; pickup</h3>
+                        {/* Price suggestion is faked for now; real suggestion logic
+                            is queued in backlog.md (sell-flow pricing). */}
+                        <span className="bg-primary-soft text-primary px-2 py-1 rounded-full text-xs font-medium">
+                          Suggested $60 – $120
+                        </span>
+                      </header>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-xs text-muted uppercase tracking-wider">Price</span>
+                          <div className="flex items-center gap-1 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
+                            <span className="text-3xl font-extrabold tracking-display text-ink">$</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={manualPrice}
+                              onChange={(e) => setManualPrice(e.target.value.replace(/\D/g, ""))}
+                              placeholder="0"
+                              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-3xl font-extrabold tracking-display text-ink placeholder:text-muted-soft"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs text-muted uppercase tracking-wider">Pickup neighborhood</span>
+                          <div className="flex items-center gap-2 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
+                            <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
+                            <input
+                              type="text"
+                              value={manualPickup}
+                              onChange={(e) => setManualPickup(e.target.value)}
+                              placeholder={user?.neighborhood || "West Village"}
+                              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-muted-soft"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-soft leading-relaxed">
+                        Your address will not be shared until pickup is confirmed.
+                      </p>
+                    </section>
+                  </>
+                )}
+              </div>
+
+              {/* Right — sticky preview column on lg:+ only. Below lg: this
+                  block is hidden (the floating overlay drawer below holds
+                  the same content). */}
+              <aside className="hidden lg:block lg:sticky lg:top-20 self-start space-y-4" aria-label="Listing preview">
+                {newListingPreviewContent}
+              </aside>
+            </div>
+            {/* Floating preview toggle + slide-in drawer — below lg: only.
+                Drawer slides in from the right with a backdrop; ESC closes
+                via the effect above. lg:hidden on both keeps the desktop
+                experience untouched. */}
+            <button
+              ref={previewToggleRef}
+              type="button"
+              onClick={() => setPreviewOverlayOpen(true)}
+              aria-label="Show listing preview"
+              aria-haspopup="dialog"
+              aria-expanded={previewOverlayOpen}
+              className={`lg:hidden fixed bottom-5 right-5 z-30 size-12 rounded-full bg-primary text-on-primary shadow-card hover:bg-primary-hover transition-colors flex items-center justify-center ${FOCUS_RING} ${previewOverlayOpen ? "hidden" : ""}`}
+            >
+              <Eye className="size-5" aria-hidden="true" />
+            </button>
+            {previewOverlayOpen && (
+              <div
+                className="lg:hidden fixed inset-0 z-40"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Listing preview"
+              >
+                <button
+                  type="button"
+                  aria-label="Close preview"
+                  tabIndex={-1}
+                  onClick={() => setPreviewOverlayOpen(false)}
+                  className="absolute inset-0 bg-ink/30 backdrop-blur-sm"
+                />
+                <div
+                  className="absolute inset-y-0 right-0 w-[min(380px,100vw)] bg-canvas border-l border-hairline shadow-overlay h-full overflow-y-auto motion-safe:transition-transform"
+                >
+                  <div className="sticky top-0 bg-canvas border-b border-hairline px-5 py-3 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-ink">Preview</p>
+                    <button
+                      ref={previewCloseRef}
+                      type="button"
+                      onClick={() => setPreviewOverlayOpen(false)}
+                      aria-label="Close preview"
+                      className={`inline-flex items-center justify-center size-8 rounded-md text-muted hover:text-ink hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                    >
+                      <X className="size-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-4">
+                    {newListingPreviewContent}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {page === "home" && (
+        <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-16">
+          <div className="w-full max-w-[760px]">
+            <div className="mb-8">
+              <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
+                {(() => {
+                  const d = new Date();
+                  const wk = d.toLocaleDateString("en-US", { weekday: "long" });
+                  const mo = d.toLocaleDateString("en-US", { month: "long" });
+                  return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`.toUpperCase();
+                })()}
+              </p>
+              <h1 className="text-5xl sm:text-6xl font-extrabold tracking-display text-ink leading-[1.05] mb-5">
+                Hey, {user?.display_name?.split(" ")[0] ?? "there"}.
+              </h1>
+              <p className="text-body text-base sm:text-lg leading-relaxed max-w-[56ch] mb-8">
+                Tell us what you're looking for, or drop a few photos and we'll write the listing for you.
+              </p>
+
+              <div role="tablist" aria-label="Buy or sell" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full mb-6">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tradeMode === "buy"}
+                  onClick={() => setTradeMode("buy")}
+                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${tradeMode === "buy" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
+                >
+                  Buy
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tradeMode === "sell"}
+                  onClick={() => setTradeMode("sell")}
+                  className={`px-5 h-8 text-sm font-semibold rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${tradeMode === "sell" ? "bg-primary-soft text-primary" : "text-muted hover:text-ink bg-transparent"}`}
+                >
+                  Sell
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full max-w-[720px]">
               {tradeMode === "buy" ? (
                 <>
                   <form
@@ -940,407 +1729,243 @@ export default function App() {
                         logSearch({ query, filters });
                       }
                     }}
-                    className="relative flex items-center gap-2 mb-2"
+                    className="flex items-center gap-2 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card"
                   >
-                    <div className="relative flex-1">
-                      <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-white/40 size-5" />
-                      <Input
-                        type="text"
-                        value={homeSearch}
-                        onChange={(e) => setHomeSearch(e.target.value)}
-                        placeholder="Search for items..."
-                        className="w-full pl-12 pr-4 py-6 text-lg bg-white/5 border-white/20 text-white placeholder:text-white/40 focus:border-cyan-400"
-                      />
-                    </div>
-
-                    {/* Buy/Sell Toggle */}
-                    <div className="flex bg-white/5 border border-white/20 rounded-lg overflow-hidden">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setTradeMode("buy")}
-                        className="h-[52px] px-4 rounded-none text-sm bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
-                      >
-                        Buy
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setTradeMode("sell")}
-                        className="h-[52px] px-4 rounded-none text-sm text-white/60 hover:text-white hover:bg-white/5"
-                      >
-                        Sell
-                      </Button>
-                    </div>
-
-                    {/* Submit Button */}
-                    <Button
+                    <Search className="size-[18px] text-muted shrink-0" />
+                    <input
+                      type="text"
+                      value={homeSearch}
+                      onChange={(e) => setHomeSearch(e.target.value)}
+                      placeholder="Search for vintage furniture, books, anything..."
+                      className="flex-1 bg-transparent border-0 outline-none text-base text-ink placeholder:text-muted-soft min-w-0"
+                    />
+                    <button
                       type="submit"
-                      size="icon"
-                      className="h-[52px] w-[52px] bg-cyan-500 hover:bg-cyan-600 text-white border-0"
+                      className="h-12 px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
-                      <ArrowRight className="size-5" />
-                    </Button>
+                      Search
+                    </button>
                   </form>
 
-                  {/* Community Filter Chips — mirrors market page */}
-                  {isAuthenticated && filterCommunities.length > 0 && (
-                    <div className="flex items-center justify-center gap-2 flex-wrap mb-2">
-                      {filterCommunities.map((community) => {
-                        const cid = String(community.id);
-                        const isSelected = selectedMarketCommunities.includes(cid);
-                        return (
-                          <button
-                            key={cid}
-                            onClick={() =>
-                              setSelectedMarketCommunities((prev) =>
-                                isSelected ? prev.filter((x) => x !== cid) : [...prev, cid]
-                              )
-                            }
-                            className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all ${
-                              isSelected
-                                ? "bg-fuchsia-500/15 border-fuchsia-400/30 text-fuchsia-300"
-                                : "bg-white/5 border-white/15 text-white/50 hover:bg-white/10"
-                            }`}
-                          >
-                            {community.is_public !== false ? <Globe className="size-3" /> : <Lock className="size-3" />}
-                            {community.name}
-                          </button>
-                        );
-                      })}
-                      {selectedMarketCommunities.length > 0 && (
-                        <button
-                          onClick={() => setSelectedMarketCommunities([])}
-                          className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border border-white/10 text-white/30 hover:text-white/50 hover:bg-white/5 transition-all"
-                        >
-                          <X className="size-3" />
-                          Clear
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <p className="text-sm text-white/60 text-center">
-                    Buying • {selectedMarketCommunities.length === 0
-                      ? "All"
-                      : filterCommunities
-                          .filter((c) => selectedMarketCommunities.includes(String(c.id)))
-                          .map((c) => c.name)
-                          .join(", ")}
-                  </p>
+                  <div className="flex flex-wrap gap-2 mt-5 items-center">
+                    <span className="text-sm text-muted mr-1">Try</span>
+                    {["Walnut sideboard", "Le Creuset", "Mid-century lamp", "Wool rug", "Vintage Levi's"].map((q) => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setHomeSearch(q)}
+                        className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
                 </>
-              ) : null}
-              {/*
-                SellWizard is always mounted (not gated on tradeMode) so its
-                internal state — uploadedImages, segmentation, etc. — survives
-                a buy/sell toggle. The wizard returns null when isActive is
-                false; on switch-back-to-sell its state is intact.
-              */}
-              <SellWizard
-                ref={sellWizardRef}
-                categorySchemas={categorySchemas}
-                isActive={tradeMode === "sell"}
-                onSwitchToBuy={() => setTradeMode("buy")}
-                onRequestSignIn={() => setPage("signin")}
-                onPosted={() => { setTradeMode("buy"); setPage("market"); fetchListings(); }}
-                onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
-                onPhaseChange={setWizardPhase}
-              />
-            </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-black/20 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="text-4xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent mb-2">1.2M+</div>
-              <div className="text-white/60">Active Traders</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent mb-2">5.8M+</div>
-              <div className="text-white/60">Items Listed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl bg-gradient-to-r from-fuchsia-400 to-cyan-400 bg-clip-text text-transparent mb-2">$2.4B+</div>
-              <div className="text-white/60">Total Trading Volume</div>
+              ) : (
+                // R-4.1: Home Sell composer is a thin entry point — photos
+                // drop only on the dedicated #newlisting surface to keep the
+                // wizard state plumbing simple (Option B). Click submit →
+                // navigate to the New Listing page.
+                <button
+                  type="button"
+                  onClick={() => setPage("newlisting")}
+                  className="group w-full flex items-center gap-3 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  <ImagePlus className="size-[18px] text-primary shrink-0" />
+                  <span className="flex-1 text-base text-muted">Tell us what you're selling…</span>
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-on-primary group-hover:bg-primary-hover transition-colors shrink-0"
+                  >
+                    <ArrowRight className="size-[18px]" />
+                  </span>
+                </button>
+              )}
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <h3 className="text-3xl text-center mb-12">Why Choose Cosello?</h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
-              <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
-                <TrendingUp className="size-6 text-cyan-400" />
-              </div>
-              <h4 className="text-xl mb-3">Instant Trading</h4>
-              <p className="text-white/60">
-                Buy and sell items instantly with our automated matching system. No waiting required.
-              </p>
-            </div>
-
-            <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
-              <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="size-6 text-fuchsia-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
-              <h4 className="text-xl mb-3">Secure Transactions</h4>
-              <p className="text-white/60">
-                Your items and payments are protected with bank-level security and escrow services.
-              </p>
-            </div>
-
-            <div className="bg-white/5 p-8 rounded-lg border border-white/10 backdrop-blur-sm">
-              <div className="size-12 bg-gradient-to-br from-fuchsia-500/20 to-cyan-500/20 rounded-lg flex items-center justify-center mb-4">
-                <svg className="size-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-              </div>
-              <h4 className="text-xl mb-3">Real-Time Prices</h4>
-              <p className="text-white/60">
-                Get accurate market data and price history to make informed trading decisions.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-        </>
+        </section>
       )}
 
+
       {page === "market" && (
-        <section
-          className={`relative min-h-[calc(100vh-64px)] transition-[padding] duration-300 ease-out ${
-            isDesktop && !marketSidebarCollapsed ? "lg:pl-72" : ""
-          }`}
-        >
+        <section className="relative min-h-[calc(100vh-64px)] flex">
           <MarketplaceSidebar
             collapsed={marketSidebarCollapsed}
             onToggleCollapsed={toggleMarketSidebar}
             isMobile={!isDesktop}
             marketSearch={marketSearch}
             onMarketSearchChange={setMarketSearch}
-            marketSort={marketSort}
-            onMarketSortChange={setMarketSort}
             isAuthenticated={isAuthenticated}
             filterCommunities={filterCommunities}
             selectedMarketCommunities={selectedMarketCommunities}
             onToggleCommunity={handleToggleMarketCommunity}
-            onClearCommunities={handleClearMarketCommunities}
             categorySchemas={categorySchemas}
             selectedCategories={selectedCategories}
             onToggleCategory={handleToggleCategory}
-            onClearCategories={handleClearCategories}
+            distanceMiles={distanceMiles}
+            onDistanceChange={setDistanceMiles}
             showMyListings={showMyListings}
             onToggleMyListings={handleToggleMyListings}
           />
-          <div className="py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-4xl mx-auto">
+          <main className="flex-1 min-w-0 px-6 lg:px-8 pt-8 pb-20">
+            {/* Header: neighborhood + sort */}
+            <header className="flex flex-wrap items-end justify-between gap-4 mb-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-4xl font-extrabold text-ink tracking-display leading-[1.05] truncate">
+                    {user?.neighborhood ?? "Marketplace"}
+                  </h1>
+                  <Tooltip content="Change location">
+                    <button
+                      type="button"
+                      aria-label="Change location"
+                      className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <Settings className="size-4" />
+                    </button>
+                  </Tooltip>
+                </div>
+                <p className="text-sm text-muted mt-1">
+                  {user?.zip_code ? `${user.zip_code} · ` : ""}
+                  {listings.length} {listings.length === 1 ? "item" : "items"} near you
+                </p>
+              </div>
+              <div role="tablist" aria-label="Sort by" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full">
+                {([
+                  ["recommended", "Recommended"],
+                  ["trending", "Trending"],
+                  ["newest", "Newest"],
+                ] as const).map(([id, label]) => {
+                  const active = marketSort === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setMarketSort(id)}
+                      className={`h-8 px-4 text-sm font-semibold rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        active
+                          ? "bg-canvas text-ink shadow-card"
+                          : "text-muted hover:text-ink bg-transparent"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </header>
 
-            {/* Listings */}
+            {/* Grid */}
             {!listingsLoaded && listings.length === 0 ? (
-              <div className="space-y-4">
-                {Array.from({ length: 12 }).map((_, i) => (
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
+                {Array.from({ length: 8 }).map((_, i) => (
                   <ListingCardSkeleton key={i} />
                 ))}
               </div>
             ) : listings.length === 0 ? (
-              <div className="text-center py-20">
-                <p className="text-white/40 text-lg">{marketSearch || selectedMarketCommunities.length > 0 ? "No matching listings" : "No listings yet"}</p>
-                {!marketSearch && selectedMarketCommunities.length === 0 && (
-                  <Button
-                    onClick={() => { setPage("home"); setTradeMode("sell"); }}
-                    className="mt-4 bg-fuchsia-500 hover:bg-fuchsia-600 text-white border-0"
-                  >
-                    Create your first listing
-                  </Button>
-                )}
+              <div className="text-center text-muted py-12 mt-7">
+                {marketSearch || selectedMarketCommunities.length > 0 || selectedCategories.length > 0 || showMyListings
+                  ? "No listings match your filters."
+                  : "No listings yet."}
               </div>
             ) : (
-              <div className="space-y-4">
-                {listings.map((listing) => (
-                  <div
-                    key={listing.id}
-                    className="relative flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors cursor-pointer"
-                    onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
-                  >
-                    {isAuthenticated && listing.userId !== user?.id && (
-                      <>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleNotForMe(listing.id); }}
-                          aria-label="Not for me"
-                          title="Not for me"
-                          className="absolute top-3 right-11 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
-                        >
-                          <EyeOff className="size-4 text-white/30 hover:text-white/50" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
-                          className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 transition-colors z-10"
-                        >
-                          <Heart
-                            className={`size-4 ${wishlist.has(listing.id) ? "text-red-400 fill-red-400" : "text-white/30 hover:text-white/50"}`}
-                          />
-                        </button>
-                      </>
-                    )}
-                    <ListingImageCarousel
-                      images={listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl]}
-                      alt={formatTitle(listing.brand, listing.name)}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-medium truncate pr-10">{formatTitle(listing.brand, listing.name)}</h3>
-                      <div className="flex items-center gap-3 mt-1.5 text-sm text-white/50">
-                        <span className="px-2 py-0.5 rounded bg-white/10 text-xs">{listing.condition}</span>
-                        {listing.status === "sold" && <span className="px-2 py-0.5 rounded bg-white/10 text-xs text-white/40">Sold</span>}
-                      </div>
-                      {/* Key category attributes — brand is now top-level on the
-                          listing, so for non-collectibles we show only the
-                          remaining category-specific attribute. brand_or_creator
-                          is still a category attribute on collectibles only. */}
-                      {(() => {
-                        const attrs = listing.categoryAttributes || {};
-                        const cat = listing.category || "other";
-                        const display: string[] = [];
-                        if (cat === "clothing") {
-                          if (attrs.size) display.push(attrs.size);
-                        } else if (cat === "furniture") {
-                          if (attrs.carry_difficulty) display.push(attrs.carry_difficulty);
-                        } else if (cat === "collectibles") {
-                          if (attrs.brand_or_creator) display.push(attrs.brand_or_creator);
-                          if (attrs.year) display.push(attrs.year);
-                        }
-                        if (display.length === 0) return null;
-                        return (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            {display.map((d, i) => (
-                              <span key={i} className="text-xs text-white/50">{d}{i < display.length - 1 ? " \u00b7 " : ""}</span>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                      {/* Seller */}
-                      {listing.seller_name && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <div className="size-5 rounded-full bg-gradient-to-br from-fuchsia-500/30 to-cyan-500/30 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
-                            {listing.seller_picture ? (
-                              <img src={listing.seller_picture} alt="" className="size-full object-cover" />
-                            ) : (
-                              <User className="size-2.5 text-white/50" />
-                            )}
-                          </div>
-                          <span className="text-xs text-white/50">{listing.seller_name}</span>
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
+                  {listings.slice(0, visibleCount).map((listing, idx) => {
+                    const images = listing.imageUrls && listing.imageUrls.length > 0
+                      ? listing.imageUrls
+                      : [listing.imageUrl];
+                    const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
+                      ?? listing.allCommunities?.[0]
+                      ?? PLACEHOLDER_COMMUNITY;
+                    const isOwn = isAuthenticated && listing.userId === user?.id;
+                    const isWishlisted = wishlist.has(listing.id);
+                    return (
+                      <article
+                        key={listing.id}
+                        onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
+                        className="group bg-canvas border border-hairline rounded-md overflow-hidden cursor-pointer hover:shadow-hover transition-shadow motion-safe:animate-mkt-card-in"
+                        style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
+                      >
+                        {/* Trust band — always renders community shape.
+                            Falls back to PLACEHOLDER_COMMUNITY until the
+                            sell-flow community selector lands (backlog.md). */}
+                        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+                          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+                          <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
+                          {listing.seller_name && (
+                            <>
+                              <span className="text-muted">·</span>
+                              <span className="text-muted truncate">@{listing.seller_name}</span>
+                            </>
+                          )}
                         </div>
-                      )}
-                      {/* Community tags */}
-                      {listing.allCommunities && listing.allCommunities.length > 0 && (() => {
-                        const neighborhood = listing.allCommunities!.find((c) => c.is_neighborhood);
-                        const others = listing.allCommunities!.filter((c) => !c.is_neighborhood);
-                        return (
-                          <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                            {neighborhood && (
-                              <span className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
-                                neighborhood.is_mutual
-                                  ? "bg-white/10 border-white/25 text-white"
-                                  : "bg-white/5 border-white/10 text-white/30"
-                              }`}>
-                                <MapPin className="size-2.5" />{neighborhood.name}
-                              </span>
-                            )}
-                            {neighborhood && others.length > 0 && (
-                              <span className="text-white/15 text-xs">|</span>
-                            )}
-                            {others.map((c, i) => (
-                              <span key={i} className={`px-2 py-0.5 rounded-full text-xs inline-flex items-center gap-1 border ${
-                                c.is_mutual
-                                  ? "bg-fuchsia-500/10 border-fuchsia-400/20 text-fuchsia-300"
-                                  : "bg-white/5 border-white/10 text-white/30"
-                              }`}>
-                                {c.is_public ? <Globe className="size-2.5" /> : <Lock className="size-2.5" />}{c.name}
-                              </span>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 mr-6">
-                      <span className="text-lg font-semibold text-fuchsia-400">${listing.price}</span>
-                      {((!isAuthenticated) || (isAuthenticated && listing.userId !== user?.id)) && listing.status !== "sold" && (() => {
-                        const orderInfo = myOrderStatuses[listing.id];
-                        if (orderInfo?.status === "pending") {
-                          return (
+
+                        {/* Photo */}
+                        <div className="relative aspect-square bg-surface-soft">
+                          <ListingImage
+                            src={images[0]}
+                            alt={formatTitle(listing.brand, listing.name)}
+                            size="card"
+                            priority={idx < 4}
+                            className="absolute inset-0 size-full object-cover"
+                          />
+                          {!isOwn && isAuthenticated && (
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // Fetch existing slots then open edit modal
-                                (async () => {
-                                  try {
-                                    const res = await apiFetch(`/api/orders/status/${listing.id}`);
-                                    if (res.ok) {
-                                      const data = await res.json();
-                                      openEditPickupSlots(listing, data.order_id, data.selected_pickup_slots || []);
-                                    }
-                                  } catch { /* ignore */ }
-                                })();
-                              }}
-                              className="text-xs text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/25 rounded-full px-5 py-1 transition-colors"
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
+                              aria-label={isWishlisted ? "Remove from saves" : "Save"}
+                              aria-pressed={isWishlisted}
+                              className={`absolute top-2 right-2 size-8 rounded-full backdrop-blur-sm border border-hairline inline-flex items-center justify-center transition-[transform,box-shadow,background-color,color] duration-150 ease-out hover:shadow-card hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                                isWishlisted
+                                  ? "bg-primary-soft/80 text-primary hover:bg-primary-soft"
+                                  : "bg-canvas/90 text-muted hover:bg-canvas hover:text-primary"
+                              }`}
                             >
-                              Pending
+                              <Heart
+                                className={`size-4 ${isWishlisted ? "fill-primary" : ""} ${
+                                  pulseSavedIds.has(listing.id) ? "motion-safe:animate-save-pulse" : ""
+                                }`}
+                                onAnimationEnd={() => {
+                                  if (!pulseSavedIds.has(listing.id)) return;
+                                  setPulseSavedIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(listing.id);
+                                    return next;
+                                  });
+                                }}
+                              />
                             </button>
-                          );
-                        }
-                        if (orderInfo?.status === "declined") {
-                          return (
-                            <span className="text-xs text-red-400/70 bg-red-500/10 border border-red-400/15 rounded-full px-5 py-1">
-                              Declined
+                          )}
+                          {listing.status === "sold" && (
+                            <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
+                              Sold
                             </span>
-                          );
-                        }
-                        if (orderInfo?.status === "confirmed") {
-                          return (
-                            <span className="text-xs text-green-400 bg-green-500/10 border border-green-400/15 rounded-full px-5 py-1">
-                              Confirmed
-                            </span>
-                          );
-                        }
-                        return (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isAuthenticated) { setPage("signin"); return; }
-                              setListingDetailData(listing);
-                              setBuyEditingOrder(null);
-                              setShowBuyModal(true);
-                            }}
-                            className="text-xs text-cyan-300 hover:text-white bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/25 rounded-full px-5 py-1 transition-colors"
-                          >
-                            Buy
-                          </button>
-                        );
-                      })()}
-                      {isAuthenticated && listing.userId === user?.id && listing.status !== "sold" && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openListingDetail(listing); setTimeout(() => setShowEditListingModal(true), 100); }}
-                          className="inline-flex items-center gap-1 text-xs text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 border border-fuchsia-400/30 rounded-full px-4 py-1 transition-colors"
-                        >
-                          <Pencil className="size-2.5" />
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                          )}
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-3 space-y-1">
+                          <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand, listing.name)}</p>
+                          <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
+                          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                {/* End sentinel — also drives the IntersectionObserver. */}
+                <div ref={marketSentinelRef} className="text-center py-8 text-sm text-muted italic">
+                  {visibleCount < listings.length
+                    ? "Loading more nearby…"
+                    : `You've reached the end · ${listings.length} ${listings.length === 1 ? "item" : "items"}`}
+                </div>
+              </>
             )}
-            </div>
-          </div>
+          </main>
         </section>
       )}
 
@@ -1349,11 +1974,11 @@ export default function App() {
         <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
           <div className="max-w-3xl mx-auto">
             <button
-              onClick={() => setPage("settings")}
+              onClick={() => setPage("home")}
               className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
             >
               <ChevronRight className="size-3 rotate-180" />
-              Back to Settings
+              Back
             </button>
 
             <div className="flex items-center gap-3 mb-8">
@@ -1503,159 +2128,8 @@ export default function App() {
 
               <div className="pt-4 border-t border-white/10">
                 <p className="text-white/40">
-                  If you have questions about these terms, contact us at <span className="text-cyan-400">support@cosello.app</span>.
+                  If you have questions about these terms, contact us at <span className="text-cyan-400">info@cosello.io</span>.
                 </p>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Settings Page */}
-      {page === "settings" && (
-        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl font-light tracking-wider mb-8" style={{ fontFamily: "'Courier Prime', monospace" }}>
-              Settings
-            </h2>
-
-            {/* Display */}
-            <div className="mb-8">
-              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">Display</h3>
-              <div className="space-y-1">
-                {/* Font Size */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Type className="size-5 text-cyan-400" />
-                    <div>
-                      <span className="text-sm">Font Size</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Adjust text size across the app</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
-                    {([
-                      { value: "default" as const, label: "A", title: "Default" },
-                      { value: "large" as const, label: "A", title: "Large" },
-                      { value: "extra-large" as const, label: "A", title: "Extra Large" },
-                    ]).map((opt, i) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => updateSetting("fontSize", opt.value)}
-                        title={opt.title}
-                        className={`px-2.5 py-1 rounded-md transition-colors ${
-                          settings.fontSize === opt.value
-                            ? "bg-cyan-500/20 text-cyan-400"
-                            : "text-white/40 hover:text-white/60"
-                        }`}
-                        style={{ fontSize: `${12 + i * 3}px` }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* High Contrast */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Contrast className="size-5 text-cyan-400" />
-                    <div>
-                      <span className="text-sm">High Contrast</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Increase text and border visibility</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => updateSetting("highContrast", !settings.highContrast)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      settings.highContrast ? "bg-cyan-500/30" : "bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                        settings.highContrast ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Compact Mode */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Minimize2 className="size-5 text-cyan-400" />
-                    <div>
-                      <span className="text-sm">Compact Mode</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Reduce spacing for denser layout</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => updateSetting("compactMode", !settings.compactMode)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      settings.compactMode ? "bg-cyan-500/30" : "bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                        settings.compactMode ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Accessibility */}
-            <div className="mb-8">
-              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">Accessibility</h3>
-              <div className="space-y-1">
-                {/* Reduce Motion */}
-                <div className="flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Zap className="size-5 text-fuchsia-400" />
-                    <div>
-                      <span className="text-sm">Reduce Motion</span>
-                      <p className="text-[10px] text-white/30 mt-0.5">Disable animations and transitions</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => updateSetting("reduceMotion", !settings.reduceMotion)}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      settings.reduceMotion ? "bg-fuchsia-500/30" : "bg-white/10"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                        settings.reduceMotion ? "translate-x-5" : "translate-x-0.5"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* About */}
-            <div className="mb-8">
-              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">About</h3>
-              <div className="space-y-1">
-                <button
-                  onClick={() => setPage("terms")}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <Scale className="size-5 text-fuchsia-400" />
-                    <span className="text-sm">Terms & Conditions</span>
-                  </div>
-                  <ChevronRight className="size-4 text-white/30" />
-                </button>
-                <button
-                  onClick={() => setPage("mission")}
-                  className="w-full flex items-center justify-between px-4 py-3.5 bg-white/5 border border-white/10 rounded-lg hover:bg-white/[0.07] transition-colors text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <Sparkles className="size-5 text-fuchsia-400" />
-                    <span className="text-sm">Our Mission</span>
-                  </div>
-                  <ChevronRight className="size-4 text-white/30" />
-                </button>
               </div>
             </div>
           </div>
@@ -1664,88 +2138,74 @@ export default function App() {
 
       {/* Help & Support Page */}
       {page === "help" && (
-        <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
-          <div className="max-w-3xl mx-auto">
-            <button
-              onClick={() => setPage("settings")}
-              className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
+        <section className="max-w-3xl mx-auto px-6 py-12">
+          <button
+            onClick={() => setPage(isAuthenticated ? "account" : "home")}
+            className="text-sm text-muted hover:text-ink transition-colors mb-6 inline-flex items-center gap-1"
+          >
+            <ChevronRight className="size-3 rotate-180" />
+            Back
+          </button>
+
+          <div className="flex items-center gap-3 mb-8">
+            <HelpCircle className="size-7 text-primary" />
+            <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">Help & Support</h1>
+          </div>
+
+          {/* Contact */}
+          <div className="bg-canvas border border-hairline rounded-md p-6 mb-6">
+            <h2 className="text-lg font-bold text-ink tracking-tight mb-2">Contact us</h2>
+            <p className="text-sm text-body leading-relaxed">
+              Have a question, concern, or feedback? We'd love to hear from you. Reach out to our support team and we'll get back to you as soon as possible.
+            </p>
+            <a
+              href="mailto:info@cosello.io"
+              className="mt-4 inline-flex items-center gap-2 bg-surface-soft border border-hairline rounded-md px-4 py-3 text-sm font-semibold text-primary hover:bg-primary-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
-              <ChevronRight className="size-3 rotate-180" />
-              Back to Settings
-            </button>
+              <MessageSquare className="size-4 text-primary shrink-0" />
+              info@cosello.io
+            </a>
+          </div>
 
-            <div className="flex items-center gap-3 mb-8">
-              <HelpCircle className="size-7 text-cyan-400" />
-              <h2 className="text-3xl font-light tracking-wider" style={{ fontFamily: "'Courier Prime', monospace" }}>
-                Help & Support
-              </h2>
-            </div>
-
-            {/* Contact */}
-            <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
-              <h3 className="text-lg font-medium mb-2">Contact Us</h3>
-              <p className="text-sm text-white/60 leading-relaxed">
-                Have a question, concern, or feedback? We'd love to hear from you. Reach out to our support team and we'll get back to you as soon as possible.
-              </p>
-              <div className="mt-4 flex items-center gap-2 bg-white/5 rounded-lg px-4 py-3">
-                <MessageSquare className="size-4 text-cyan-400 shrink-0" />
-                <span className="text-sm text-cyan-400">support@cosello.app</span>
-              </div>
-            </div>
-
-            {/* FAQ */}
-            <div>
-              <h3 className="text-lg font-medium mb-4">Frequently Asked Questions</h3>
-              <div className="space-y-3">
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">What is Cosello?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Cosello is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.
-                  </p>
+          {/* FAQ */}
+          <div className="bg-canvas border border-hairline rounded-md p-6">
+            <h2 className="text-lg font-bold text-ink tracking-tight mb-4">Frequently asked questions</h2>
+            <div className="divide-y divide-hairline-soft">
+              {[
+                {
+                  q: "What is Cosello?",
+                  a: "Cosello is a community-driven second-hand marketplace designed to make buying and selling pre-owned goods safe, fast, and local. We connect neighbors and communities so you can trade with people you trust.",
+                },
+                {
+                  q: "What is a community?",
+                  a: "A community is a group of users who share a common bond — whether it's a neighborhood, a school, a workplace, or any other group. Communities let you browse and post listings exclusively within your trusted circles. Public communities are open for anyone to join, while private communities require an invite code. Every user also gets a virtual “My Neighborhood” community that automatically connects them with others in the same area.",
+                },
+                {
+                  q: "How do I post a listing?",
+                  a: "From the homepage, switch to “Sell” mode and upload a photo of your item. Our AI will automatically generate a title, description, price suggestion, and tags. You can edit any of these details, select which communities to post to, and hit “Post listing” when you're ready.",
+                },
+                {
+                  q: "How do I join a community?",
+                  a: "Go to your Account page and click the “Join or create” tile in the Communities section. You can join by entering an invite code shared by a friend, or search for public communities by name. You can also create your own community and invite others.",
+                },
+                {
+                  q: "Who can see my listings?",
+                  a: "When you post a listing, you choose which communities to post it to. Listings posted to public communities are visible to all users. Listings posted to private communities are only visible to members of those communities. This gives you full control over who sees your items.",
+                },
+                {
+                  q: "Is it free to use?",
+                  a: "Yes. Cosello is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.",
+                },
+                {
+                  q: "How do I stay safe when meeting a buyer or seller?",
+                  a: "Always meet in a public, well-lit location. We recommend using your community's designated pickup location when available. Let someone know where you're going, and trust your instincts — if something feels off, don't proceed with the transaction.",
+                },
+              ].map((item) => (
+                <div key={item.q} className="py-4 first:pt-0 last:pb-0">
+                  <h3 className="text-sm font-semibold text-ink tracking-tight mb-1.5">{item.q}</h3>
+                  <p className="text-sm text-body leading-relaxed">{item.a}</p>
                 </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">What is a community?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    A community is a group of users who share a common bond — whether it's a neighborhood, a school, a workplace, or any other group. Communities let you browse and post listings exclusively within your trusted circles. Public communities are open for anyone to join, while private communities require an invite code. Every user also gets a virtual "My Neighborhood" community that automatically connects them with others in the same area.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I post a listing?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    From the homepage, switch to "Sell" mode and upload a photo of your item. Our AI will automatically generate a title, description, price suggestion, and tags. You can edit any of these details, select which communities to post to, and hit "Post Listing" when you're ready.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I join a community?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Go to your Account page and click the "Join or Create" tile in the Communities section. You can join by entering an invite code shared by a friend, or search for public communities by name. You can also create your own community and invite others.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">Who can see my listings?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    When you post a listing, you choose which communities to post it to. Listings posted to public communities are visible to all users. Listings posted to private communities are only visible to members of those communities. This gives you full control over who sees your items.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">Is it free to use?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Yes! Cosello is completely free for buyers and sellers. There are no listing fees, no transaction fees, and no hidden charges. Our goal is to make second-hand trading as accessible as possible.
-                  </p>
-                </div>
-
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-                  <h4 className="text-sm font-medium text-white/90 mb-2">How do I stay safe when meeting a buyer or seller?</h4>
-                  <p className="text-sm text-white/50 leading-relaxed">
-                    Always meet in a public, well-lit location. We recommend using your community's designated pickup location when available. Let someone know where you're going, and trust your instincts — if something feels off, don't proceed with the transaction.
-                  </p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </section>
@@ -1756,11 +2216,11 @@ export default function App() {
         <section className="py-12 px-4 sm:px-6 lg:px-8 min-h-[calc(100vh-64px)]">
           <div className="max-w-3xl mx-auto">
             <button
-              onClick={() => setPage("settings")}
+              onClick={() => setPage("home")}
               className="text-sm text-white/40 hover:text-white/60 transition-colors mb-6 flex items-center gap-1"
             >
               <ChevronRight className="size-3 rotate-180" />
-              Back to Settings
+              Back
             </button>
 
             <div className="flex items-center gap-3 mb-8">
@@ -1840,7 +2300,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 

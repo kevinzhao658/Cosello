@@ -1,5 +1,7 @@
-import { memo } from "react";
-import { Search, Globe, Lock, X, ChevronLeft, ChevronRight, User } from "lucide-react";
+import { memo, useRef, useState, useMemo } from "react";
+import { Search, Menu, X } from "lucide-react";
+import { Tooltip } from "./ui/tooltip";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
 
@@ -21,19 +23,25 @@ interface MarketplaceSidebarProps {
   isMobile: boolean;
   marketSearch: string;
   onMarketSearchChange: (value: string) => void;
-  marketSort: string;
-  onMarketSortChange: (value: string) => void;
   isAuthenticated: boolean;
   filterCommunities: Community[];
   selectedMarketCommunities: string[];
   onToggleCommunity: (cid: string) => void;
-  onClearCommunities: () => void;
   categorySchemas: Record<string, CategorySchema>;
   selectedCategories: CategorySlug[];
   onToggleCategory: (slug: CategorySlug) => void;
-  onClearCategories: () => void;
+  distanceMiles: number;
+  onDistanceChange: (miles: number) => void;
   showMyListings: boolean;
   onToggleMyListings: () => void;
+}
+
+function communityInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "··";
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return trimmed.slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
 export const MarketplaceSidebar = memo(function MarketplaceSidebar({
@@ -42,156 +50,221 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
   isMobile,
   marketSearch,
   onMarketSearchChange,
-  marketSort,
-  onMarketSortChange,
   isAuthenticated,
   filterCommunities,
   selectedMarketCommunities,
   onToggleCommunity,
-  onClearCommunities,
   categorySchemas,
   selectedCategories,
   onToggleCategory,
-  onClearCategories,
+  distanceMiles,
+  onDistanceChange,
   showMyListings,
   onToggleMyListings,
 }: MarketplaceSidebarProps) {
+  const [commMenuOpen, setCommMenuOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  useClickOutside(popoverRef, () => setCommMenuOpen(false), commMenuOpen);
+
+  const visibleComms = useMemo(() => filterCommunities.slice(0, 4), [filterCommunities]);
+  const extraComms = useMemo(() => filterCommunities.slice(4), [filterCommunities]);
+  const sliderFill = `${((Math.min(Math.max(distanceMiles, 1), 25) - 1) / 24) * 100}%`;
+  const distanceLabel = distanceMiles >= 25 ? "25+ mi" : `${distanceMiles} mi`;
+
+  const sidebarHidden = collapsed;
   const panel = (
     <aside
-      className={`fixed top-16 bottom-0 left-0 z-40 w-72 bg-black/40 backdrop-blur-sm border-r border-white/10 overflow-y-auto transition-transform duration-300 ease-out ${
-        collapsed ? "-translate-x-full" : "translate-x-0"
-      }`}
+      className={`fixed top-16 bottom-0 left-0 z-40 w-[280px] bg-canvas border-r border-hairline overflow-y-auto transition-transform duration-300 ease-out ${
+        sidebarHidden ? "-translate-x-full" : "translate-x-0"
+      } lg:translate-x-0 lg:static lg:h-[calc(100vh-64px)] lg:sticky lg:top-16 lg:flex-shrink-0`}
+      aria-label="Marketplace filters"
     >
-      <div className={`p-6 ${collapsed && !isMobile ? "opacity-0 pointer-events-none" : "opacity-100"} transition-opacity`}>
-        <h2
-          className="text-2xl font-light tracking-wider mb-6"
-          style={{ fontFamily: "'Courier Prime', monospace" }}
-        >
-          Marketplace
-        </h2>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col">
-            <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Search</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 size-4" />
-              <input
-                type="text"
-                value={marketSearch}
-                onChange={(e) => onMarketSearchChange(e.target.value)}
-                placeholder="Search items..."
-                className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-cyan-400 transition-colors"
-              />
-            </div>
+      <div className="px-6 pt-7 pb-8 flex flex-col gap-5">
+        {/* SEARCH */}
+        <div className="flex flex-col gap-2">
+          <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Search</label>
+          <div className="flex items-center gap-2 bg-surface-card border border-hairline rounded-md px-3 h-9">
+            <Search className="size-4 text-muted shrink-0" />
+            <input
+              type="text"
+              value={marketSearch}
+              onChange={(e) => onMarketSearchChange(e.target.value)}
+              placeholder="Search items…"
+              className="flex-1 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-muted-soft"
+            />
           </div>
+        </div>
 
-          <div className="flex flex-col">
-            <label className="text-[10px] text-white/40 uppercase tracking-wider mb-1">Sort By</label>
-            <select
-              value={marketSort}
-              onChange={(e) => onMarketSortChange(e.target.value)}
-              className="px-3 py-2.5 bg-white/5 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-400 transition-colors"
-            >
-              <option value="newest">Newest</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="price_high">Price: High to Low</option>
-            </select>
-          </div>
-
-          {isAuthenticated && filterCommunities.length > 0 && (
-            <div className="flex flex-col">
-              <label className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Communities</label>
-              <div className="flex flex-wrap gap-2">
-                {filterCommunities.map((community) => {
-                  const cid = String(community.id);
-                  const isSelected = selectedMarketCommunities.includes(cid);
-                  return (
-                    <button
-                      key={cid}
-                      onClick={() => onToggleCommunity(cid)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all ${
-                        isSelected
-                          ? "bg-fuchsia-500/15 border-fuchsia-400/30 text-fuchsia-300"
-                          : "bg-white/5 border-white/15 text-white/50 hover:bg-white/10"
-                      }`}
-                    >
-                      {community.is_public !== false ? <Globe className="size-3" /> : <Lock className="size-3" />}
-                      {community.name}
-                    </button>
-                  );
-                })}
-                {selectedMarketCommunities.length > 0 && (
+        {/* CATEGORIES */}
+        {Object.keys(categorySchemas).length > 0 && (
+          <div className="flex flex-col gap-2">
+            <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Categories</label>
+            <div className="flex flex-wrap gap-1.5">
+              {isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={onToggleMyListings}
+                  aria-pressed={showMyListings}
+                  className={`rounded-full px-2.5 py-1 text-xs border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                    showMyListings
+                      ? "bg-primary-tint text-primary border-primary"
+                      : "bg-canvas border-hairline text-body hover:border-border-strong hover:text-ink"
+                  }`}
+                >
+                  My listings
+                </button>
+              )}
+              {Object.entries(categorySchemas).map(([slug, schema]) => {
+                const isSelected = selectedCategories.includes(slug as CategorySlug);
+                return (
                   <button
-                    onClick={onClearCommunities}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border border-white/10 text-white/30 hover:text-white/50 hover:bg-white/5 transition-all"
-                  >
-                    <X className="size-3" />
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {(isAuthenticated || Object.keys(categorySchemas).length > 0) && (
-            <div className="flex flex-col">
-              <label className="text-[10px] text-white/40 uppercase tracking-wider mb-2">Categories</label>
-              <div className="flex flex-wrap gap-2">
-                {isAuthenticated && (
-                  <button
-                    onClick={onToggleMyListings}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all ${
-                      showMyListings
-                        ? "bg-cyan-500/20 border-cyan-400/40 text-cyan-300"
-                        : "bg-white/5 border-white/15 text-white/50 hover:text-white/70 hover:border-white/30"
+                    key={slug}
+                    type="button"
+                    onClick={() => onToggleCategory(slug as CategorySlug)}
+                    aria-pressed={isSelected}
+                    className={`rounded-full px-2.5 py-1 text-xs border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                      isSelected
+                        ? "bg-primary-tint text-primary border-primary"
+                        : "bg-canvas border-hairline text-body hover:border-border-strong hover:text-ink"
                     }`}
                   >
-                    <User className="size-3" />
-                    My Listings
+                    {schema.label}
                   </button>
-                )}
-                {Object.entries(categorySchemas).map(([slug, schema]) => {
-                  const isSelected = selectedCategories.includes(slug as CategorySlug);
-                  return (
-                    <button
-                      key={slug}
-                      onClick={() => onToggleCategory(slug as CategorySlug)}
-                      className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
-                        isSelected
-                          ? "bg-fuchsia-500/20 border-fuchsia-400/40 text-fuchsia-300"
-                          : "bg-white/5 border-white/15 text-white/50 hover:text-white/70 hover:border-white/30"
-                      }`}
-                    >
-                      {schema.label}
-                    </button>
-                  );
-                })}
-                {selectedCategories.length > 0 && (
-                  <button
-                    onClick={onClearCategories}
-                    className="px-3 py-1.5 rounded-full text-xs border border-white/15 text-white/30 hover:text-white/50 transition-all"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+                );
+              })}
             </div>
-          )}
+          </div>
+        )}
+
+        {/* COMMUNITIES */}
+        {isAuthenticated && filterCommunities.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Communities</label>
+              {selectedMarketCommunities.length > 0 && (
+                <span className="text-[11px] text-muted">{selectedMarketCommunities.length} active</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-3 pt-1">
+              {visibleComms.map((community) => {
+                const cid = String(community.id);
+                const isSelected = selectedMarketCommunities.includes(cid);
+                return (
+                  <Tooltip key={cid} content={community.name}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleCommunity(cid)}
+                      aria-pressed={isSelected}
+                      aria-label={community.name}
+                      className="flex flex-col items-center gap-1.5 w-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
+                    >
+                      <span
+                        className={`size-14 rounded-full flex items-center justify-center border bg-surface-card text-sm font-medium text-ink transition-colors ${
+                          isSelected
+                            ? "border-primary ring-2 ring-primary-soft"
+                            : "border-hairline hover:border-border-strong"
+                        }`}
+                      >
+                        {communityInitials(community.name)}
+                      </span>
+                      <span
+                        className={`text-[11px] leading-tight text-center truncate w-full ${
+                          isSelected ? "text-primary font-semibold" : "text-ink"
+                        }`}
+                      >
+                        {community.name.split(" ").slice(0, 2).join(" ")}
+                      </span>
+                    </button>
+                  </Tooltip>
+                );
+              })}
+              {extraComms.length > 0 && (
+                <div ref={popoverRef} className="relative inline-block">
+                  <button
+                    type="button"
+                    aria-haspopup="true"
+                    aria-expanded={commMenuOpen}
+                    onClick={() => setCommMenuOpen((v) => !v)}
+                    className="flex flex-col items-center gap-1.5 w-[72px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-md"
+                  >
+                    <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
+                      …
+                    </span>
+                    <span className="text-[11px] leading-tight text-center text-ink">More</span>
+                  </button>
+                  {commMenuOpen && (
+                    <div
+                      role="menu"
+                      className="absolute top-full left-0 mt-2 z-30 min-w-[220px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
+                    >
+                      <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
+                        More communities
+                      </div>
+                      {extraComms.map((community) => {
+                        const cid = String(community.id);
+                        const isSelected = selectedMarketCommunities.includes(cid);
+                        return (
+                          <label
+                            key={cid}
+                            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => onToggleCommunity(cid)}
+                              className="accent-primary"
+                            />
+                            <span className="truncate">{community.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* DISTANCE */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Distance</label>
+            <span className="text-[11px] text-muted">{distanceLabel}</span>
+          </div>
+          {/* TODO: backend has no distance filter today and listings carry no
+              distance data — the slider is a visual placeholder hooked to
+              local state until lat/long lands on User + Listing. */}
+          <input
+            type="range"
+            min={1}
+            max={25}
+            step={1}
+            value={distanceMiles}
+            onChange={(e) => onDistanceChange(Number(e.target.value))}
+            className="mkt-range w-full"
+            style={{ ["--mkt-range-fill" as string]: sliderFill }}
+            aria-label="Distance in miles"
+          />
+          <div className="flex justify-between text-[10px] text-muted px-0.5">
+            <span>1</span>
+            <span>10</span>
+            <span>25+</span>
+          </div>
         </div>
       </div>
     </aside>
   );
 
-  const toggleButton = (
+  const mobileToggle = !isMobile ? null : (
     <button
       type="button"
       onClick={onToggleCollapsed}
       aria-label={collapsed ? "Open filters" : "Close filters"}
-      className={`fixed top-1/2 -translate-y-1/2 z-50 h-14 w-4 flex items-center justify-center rounded-r-md bg-white/[0.08] hover:bg-white/15 border border-l-0 border-white/10 backdrop-blur-sm transition-[left] duration-300 ease-out ${
-        collapsed ? "left-0" : "left-72"
-      }`}
+      className="fixed top-20 left-3 z-50 h-9 px-3 flex items-center gap-1.5 rounded-full bg-canvas border border-hairline shadow-card text-sm font-medium text-ink lg:hidden"
     >
-      {collapsed ? <ChevronRight className="size-3 text-white/60" /> : <ChevronLeft className="size-3 text-white/60" />}
+      {collapsed ? <Menu className="size-4" /> : <X className="size-4" />}
+      {collapsed ? "Filters" : "Close"}
     </button>
   );
 
@@ -202,10 +275,10 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
         <div
           aria-hidden="true"
           onClick={onToggleCollapsed}
-          className="fixed inset-0 top-16 z-30 bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 top-16 z-30 bg-ink/40 backdrop-blur-sm lg:hidden"
         />
       )}
-      {toggleButton}
+      {mobileToggle}
     </>
   );
 });

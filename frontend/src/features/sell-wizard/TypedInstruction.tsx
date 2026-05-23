@@ -43,17 +43,32 @@ export function TypedInstruction({ bulkReviewPhase, exiting }: {
     bulkReviewPhase !== "pickup"
   ) return null;
 
+  const eyebrow = bulkReviewPhase === "review"
+    ? "Items"
+    : bulkReviewPhase === "reason"
+      ? "Reason"
+      : bulkReviewPhase === "pickup"
+        ? "Pickup"
+        : "Details";
+
   return (
-    <p
-      className="mt-3 text-4xl font-light text-white leading-snug tracking-wide text-center"
+    <div
+      className="mt-3 text-center"
       style={{
         animation: exiting
           ? "wizardStepOut 300ms ease-in forwards"
           : "wizardStepIn 300ms ease-out both",
       }}
     >
-      {typedInstruction}
-      {!typedInstruction.endsWith("?") && !typedInstruction.endsWith(".") && <span className="animate-pulse">|</span>}
-    </p>
+      <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-2">
+        {eyebrow}
+      </p>
+      <p className="text-4xl sm:text-5xl font-extrabold text-ink leading-[1.05] tracking-display">
+        {typedInstruction}
+        {!typedInstruction.endsWith("?") && !typedInstruction.endsWith(".") && (
+          <span className="text-primary motion-safe:animate-pulse">|</span>
+        )}
+      </p>
+    </div>
   );
 }

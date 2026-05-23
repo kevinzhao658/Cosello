@@ -613,6 +613,32 @@ async def update_community(
     return _community_to_out(community, db, current_user.id)
 
 
+@router.put("/{community_id}/image", response_model=CommunityOut)
+async def update_community_image(
+    community_id: int,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    community = db.query(Community).filter(Community.id == community_id).first()
+    if not community:
+        raise HTTPException(status_code=404, detail="Community not found")
+    if community.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can edit this community")
+
+    content_type = image.content_type or ""
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    ext = image.filename.rsplit(".", 1)[-1] if image.filename and "." in image.filename else "jpg"
+    contents = await image.read()
+    community.image = storage.upload_image("communities", str(community.id), contents, ext)
+
+    db.commit()
+    db.refresh(community)
+    return _community_to_out(community, db, current_user.id)
+
+
 @router.delete("/{community_id}")
 async def delete_community(
     community_id: int,
