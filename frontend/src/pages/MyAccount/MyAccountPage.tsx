@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type ComponentType } from "react";
 import { Input } from "../../components/ui/input";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { Tooltip } from "../../components/ui/tooltip";
@@ -122,9 +122,9 @@ interface PunchlistPickup {
 
 interface PunchlistResponse {
   pickups_to_confirm: PunchlistPickup[];
-  offers_to_review: unknown[];
+  offers_to_review: MyListing[];
   unread_messages: unknown[];
-  draft_listings: unknown[];
+  draft_listings: MyListing[];
 }
 
 type AccountTab = "overview" | "listings" | "saved" | "settings";
@@ -349,10 +349,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [wishlistFoldersAvailable, setWishlistFoldersAvailable] = useState(true);
   const [wishlistItemsWithFolder, setWishlistItemsWithFolder] = useState<WishlistListingWithFolder[]>([]);
 
-  // Punchlist (R-5 new)
-  const [punchlist, setPunchlist] = useState<PunchlistResponse | null>(null);
-  const [punchlistLoaded, setPunchlistLoaded] = useState(false);
-
   // Initial-load gates for skeleton rendering. Each defaults to `true`
   // so the very first render of MyAccount shows skeletons rather than
   // "Nothing here yet" empty copy. Flipped to `false` in the `finally`
@@ -513,7 +509,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         setRemovingListing(null);
         fetchMyListings();
         fetchAllOrders();
-        fetchPunchlist();
       } else {
         let message = "Failed to remove listing.";
         try {
@@ -731,24 +726,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setSelectedSavedIds(new Set());
   };
 
-  // ── Punchlist ──────────────────────────────────────────
-  const fetchPunchlist = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/me/punchlist");
-      if (res.ok) {
-        setPunchlist(await res.json());
-      } else if (res.status === 404) {
-        // Endpoint not shipped — leave punchlist empty (renders "All clear")
-        setPunchlist({ pickups_to_confirm: [], offers_to_review: [], unread_messages: [], draft_listings: [] });
-      }
-    } catch (err) {
-      console.error("Failed to fetch punchlist:", err);
-    } finally {
-      setPunchlistLoaded(true);
-    }
-  }, [token]);
-
   useEffect(() => {
     fetchCommunities();
     fetchStats();
@@ -756,8 +733,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchAllOrders();
     fetchWishlistFolders();
     fetchWishlistWithFolders();
-    fetchPunchlist();
-  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders, fetchPunchlist]);
+  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders]);
 
   // Refetch when an OrderModalsProvider action settles (rating submit, slot
   // confirm, decline). The Supabase realtime channel below also catches the
@@ -767,9 +743,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return subscribeAfterAction(() => {
       fetchAllOrders();
       fetchMyListings();
-      fetchPunchlist();
     });
-  }, [subscribeAfterAction, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+  }, [subscribeAfterAction, fetchAllOrders, fetchMyListings]);
 
   // History entries for confirmed sales fire through the same provider so
   // App-level openers (the `purchase` notification path) land in history
@@ -787,7 +762,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     });
   }, [subscribeListingSold, onAddToHistory]);
 
-  // Realtime: refresh orders + punchlist on purchase_orders changes
+  // Realtime: refresh orders on purchase_orders changes
   useEffect(() => {
     if (!user?.id) return;
     const channel = supabase
@@ -798,17 +773,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         () => {
           fetchAllOrders();
           fetchMyListings();
-          fetchPunchlist();
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+  }, [user?.id, fetchAllOrders, fetchMyListings]);
 
   // When a notification routes the user here, force a fresh fetch of
-  // orders/listings/punchlist so the auto-open watcher below has up-to-date
+  // orders/listings so the auto-open watcher below has up-to-date
   // state. Without this, a buyer's just-created pending order may not be in
   // mySellerOrders/myListings yet (the Supabase realtime channel covers the
   // already-mounted case but not the navigate-from-elsewhere case where
@@ -817,9 +791,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!pendingListingId) return;
     fetchAllOrders();
     fetchMyListings();
-    fetchPunchlist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingListingId]);
+
+  // Punchlist: derived client-side from loaded state — no server round-trip.
+  // The /api/me/punchlist endpoint was never shipped; this replaces it entirely.
+  const punchlist = useMemo<PunchlistResponse>(() => ({
+    pickups_to_confirm: mySellerOrders
+      .filter((o) => o.status === "confirmed" && !o.seller_reviewed && getPickupCountdown(o).expired)
+      .map((o) => ({
+        order_id: o.id ? Number(o.id) : 0,
+        listing_id: o.listing_id,
+        listing_title: o.listing_title,
+        listing_image: o.listing_image ?? null,
+        slot: o.confirmed_time ?? null,
+      })),
+    offers_to_review: myListings.filter((l) => (l.pendingOrderCount ?? 0) > 0),
+    draft_listings: myListings.filter((l) => l.status === "draft"),
+    unread_messages: [], // No client-side data source — renders "All clear" until a messages endpoint exists.
+  }), [mySellerOrders, myListings, getPickupCountdown]);
+
+  const punchlistLoaded = !isLoadingMyOrders && !isLoadingMyListings;
 
   // Auto-open order modal when routed from notification
   useEffect(() => {
@@ -1621,6 +1613,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                   const listing = myListings.find((l) => l.id === p.listing_id);
                   if (listing) openOrderManagement(listing);
                 }}
+                openOrderModal={openOrderManagement}
+                openEditListing={openEditListing}
               />
             </div>
           </div>
@@ -2727,12 +2721,45 @@ function PunchlistPanel({
   punchlist,
   punchlistLoaded,
   onConfirmPickup,
+  openOrderModal,
+  openEditListing,
 }: {
   punchlist: PunchlistResponse | null;
   punchlistLoaded: boolean;
   onConfirmPickup: (p: PunchlistPickup) => void;
+  openOrderModal: (l: MyListing) => void;
+  openEditListing: (l: MyListing) => void;
 }) {
-  const cats = [
+  // Each cat entry uses a typed discriminated union so the render loop can
+  // dispatch without `any`. Pickups carry PunchlistPickup items; offers and
+  // drafts carry MyListing items; messages carry unknown[].
+  type PickupCat = {
+    id: "pickups";
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    items: PunchlistPickup[];
+    cta: string;
+    onAction: (item: PunchlistPickup) => void;
+  };
+  type ListingCat = {
+    id: "offers" | "drafts";
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    items: MyListing[];
+    cta: string;
+    onAction: (item: MyListing) => void;
+  };
+  type MessageCat = {
+    id: "messages";
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    items: unknown[];
+    cta: string;
+    onAction: () => void;
+  };
+  type PunchCat = PickupCat | ListingCat | MessageCat;
+
+  const cats: PunchCat[] = [
     {
       id: "pickups",
       label: "Confirm pickups",
@@ -2747,7 +2774,7 @@ function PunchlistPanel({
       icon: Coins,
       items: punchlist?.offers_to_review ?? [],
       cta: "Review offer",
-      onAction: () => {},
+      onAction: (item: MyListing) => openOrderModal(item),
     },
     {
       id: "messages",
@@ -2763,19 +2790,19 @@ function PunchlistPanel({
       icon: Pencil,
       items: punchlist?.draft_listings ?? [],
       cta: "Resume draft",
-      onAction: () => {},
+      onAction: (item: MyListing) => openEditListing(item),
     },
   ];
 
   const totalTodo = cats.reduce((n, c) => n + c.items.length, 0);
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
-    const top = cats.reduce<(typeof cats)[number] | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
+    const top = cats.reduce<PunchCat | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
     return top && top.items.length > 0 ? { [top.id]: true } : {};
   });
   useEffect(() => {
     setOpen((cur) => {
       if (Object.values(cur).some(Boolean)) return cur;
-      const top = cats.reduce<(typeof cats)[number] | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
+      const top = cats.reduce<PunchCat | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
       return top && top.items.length > 0 ? { [top.id]: true } : cur;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2823,19 +2850,27 @@ function PunchlistPanel({
                   {cat.items.map((it, i) => {
                     const isPickup = cat.id === "pickups";
                     const pickup = isPickup ? (it as PunchlistPickup) : null;
+                    const listing = (cat.id === "offers" || cat.id === "drafts") ? (it as MyListing) : null;
+                    const itemTitle = pickup?.listing_title
+                      ?? (listing ? formatTitle(listing.brand, listing.name) : "Item");
+                    const itemImage = pickup?.listing_image ?? listing?.imageUrl ?? null;
                     return (
                       <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
-                        {pickup?.listing_image && (
-                          <ListingImage src={pickup.listing_image} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
+                        {itemImage && (
+                          <ListingImage src={itemImage} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-semibold text-ink truncate">
-                            {pickup ? pickup.listing_title : "Item"}
+                            {itemTitle}
                           </p>
                           {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
                         </div>
                         <button
-                          onClick={() => isPickup && pickup && cat.onAction(pickup)}
+                          onClick={() => {
+                            if (cat.id === "pickups" && pickup) cat.onAction(pickup);
+                            else if (cat.id === "offers" && listing) cat.onAction(listing);
+                            else if (cat.id === "drafts" && listing) cat.onAction(listing);
+                          }}
                           className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
                         >
                           {cat.cta}
