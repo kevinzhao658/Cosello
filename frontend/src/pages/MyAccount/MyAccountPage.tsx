@@ -117,6 +117,9 @@ interface PunchlistPickup {
   listing_title: string;
   listing_image: string | null;
   slot: string | null;
+  role: "seller" | "buyer";
+  pickup_expired: boolean;
+  countdown_label: string;
 }
 
 interface PunchlistResponse {
@@ -795,20 +798,37 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // Punchlist: derived client-side from loaded state — no server round-trip.
   // The /api/me/punchlist endpoint was never shipped; this replaces it entirely.
-  const punchlist = useMemo<PunchlistResponse>(() => ({
-    pickups_to_confirm: mySellerOrders
-      .filter((o) => o.status === "confirmed" && !o.seller_reviewed && getPickupCountdown(o).expired)
-      .map((o) => ({
+  const punchlist = useMemo<PunchlistResponse>(() => {
+    const mapOrderToPickup = (o: OrderData, role: "seller" | "buyer"): PunchlistPickup => {
+      const countdown = getPickupCountdown(o);
+      return {
         order_id: o.id ? Number(o.id) : 0,
         listing_id: o.listing_id,
         listing_title: o.listing_title,
         listing_image: o.listing_image ?? null,
         slot: o.confirmed_time ?? null,
-      })),
-    offers_to_review: myListings.filter((l) => (l.pendingOrderCount ?? 0) > 0),
-    draft_listings: myListings.filter((l) => l.status === "draft"),
-    unread_messages: [], // No client-side data source — renders "All clear" until a messages endpoint exists.
-  }), [mySellerOrders, myListings, getPickupCountdown]);
+        role,
+        pickup_expired: countdown.expired,
+        countdown_label: countdown.label,
+      };
+    };
+
+    const sellerPickups = mySellerOrders
+      .filter((o) => o.status === "confirmed" && !o.seller_reviewed && getPickupCountdown(o).expired)
+      .map((o) => mapOrderToPickup(o, "seller"));
+
+    // Buyer surfaces 1h ahead of pickup; CTA stays muted until expired.
+    const buyerPickups = myPurchases
+      .filter((o) => o.status === "confirmed" && !o.buyer_reviewed && getPickupCountdown(o).diff <= 3600000)
+      .map((o) => mapOrderToPickup(o, "buyer"));
+
+    return {
+      pickups_to_confirm: [...sellerPickups, ...buyerPickups],
+      offers_to_review: myListings.filter((l) => (l.pendingOrderCount ?? 0) > 0),
+      draft_listings: myListings.filter((l) => l.status === "draft"),
+      unread_messages: [], // No client-side data source — renders "All clear" until a messages endpoint exists.
+    };
+  }, [mySellerOrders, myPurchases, myListings, getPickupCountdown]);
 
   const punchlistLoaded = !isLoadingMyOrders && !isLoadingMyListings;
 
@@ -1614,6 +1634,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 }}
                 openOrderModal={openOrderManagement}
                 openEditListing={openEditListing}
+                openRatingModal={openRatingModal}
+                myPurchases={myPurchases}
               />
             </div>
           </div>
@@ -2699,12 +2721,16 @@ function PunchlistPanel({
   onConfirmPickup,
   openOrderModal,
   openEditListing,
+  openRatingModal,
+  myPurchases,
 }: {
   punchlist: PunchlistResponse | null;
   punchlistLoaded: boolean;
   onConfirmPickup: (p: PunchlistPickup) => void;
   openOrderModal: (l: MyListing) => void;
   openEditListing: (l: MyListing) => void;
+  openRatingModal: (o: OrderData) => void;
+  myPurchases: OrderData[];
 }) {
   // Each cat entry uses a typed discriminated union so the render loop can
   // dispatch without `any`. Pickups carry PunchlistPickup items; offers and
@@ -2742,7 +2768,16 @@ function PunchlistPanel({
       icon: CalendarCheck,
       items: punchlist?.pickups_to_confirm ?? [],
       cta: "Confirm slot",
-      onAction: (item: PunchlistPickup) => onConfirmPickup(item),
+      onAction: (item: PunchlistPickup) => {
+        if (item.role === "seller") {
+          onConfirmPickup(item);
+          return;
+        }
+        // Buyer side — disabled until slot passes
+        if (!item.pickup_expired) return;
+        const order = myPurchases.find((o) => o.id === item.order_id);
+        if (order) openRatingModal(order);
+      },
     },
     {
       id: "offers",
@@ -2841,16 +2876,35 @@ function PunchlistPanel({
                           </p>
                           {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
                         </div>
-                        <button
-                          onClick={() => {
-                            if (cat.id === "pickups" && pickup) cat.onAction(pickup);
-                            else if (cat.id === "offers" && listing) cat.onAction(listing);
-                            else if (cat.id === "drafts" && listing) cat.onAction(listing);
-                          }}
-                          className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                        >
-                          {cat.cta}
-                        </button>
+                        {cat.id === "pickups" && pickup ? (
+                          pickup.role === "buyer" && !pickup.pickup_expired ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center justify-center h-7 px-3 rounded-md bg-surface-strong text-muted text-[11px] font-semibold cursor-not-allowed"
+                            >
+                              Pickup in {pickup.countdown_label}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); cat.onAction(pickup); }}
+                              className={`inline-flex items-center justify-center h-7 px-3 rounded-md bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                            >
+                              Confirm pickup
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (cat.id === "offers" && listing) cat.onAction(listing);
+                              else if (cat.id === "drafts" && listing) cat.onAction(listing);
+                            }}
+                            className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                          >
+                            {cat.cta}
+                          </button>
+                        )}
                       </li>
                     );
                   })}
