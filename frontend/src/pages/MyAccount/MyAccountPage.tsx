@@ -28,6 +28,7 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
+  Package,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
@@ -55,6 +56,11 @@ import { ShareCommunityModal } from "./modals/ShareCommunityModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
 import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
+import { Skeleton } from "../../components/ui/Skeleton";
+import { ListingRowSkeleton } from "../../components/ListingRowSkeleton";
+import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
+import { KpiCardSkeleton } from "../../components/KpiCardSkeleton";
+import { PunchlistRowSkeleton } from "../../components/PunchlistRowSkeleton";
 
 interface CommunityData {
   id: number;
@@ -186,7 +192,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
-  const [_communitiesLoaded, setCommunitiesLoaded] = useState(false);
+  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
 
   const [createName, setCreateName] = useState("");
@@ -345,7 +351,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // Punchlist (R-5 new)
   const [punchlist, setPunchlist] = useState<PunchlistResponse | null>(null);
-  const [_punchlistLoaded, setPunchlistLoaded] = useState(false);
+  const [punchlistLoaded, setPunchlistLoaded] = useState(false);
+
+  // Initial-load gates for skeleton rendering. Each defaults to `true`
+  // so the very first render of MyAccount shows skeletons rather than
+  // "Nothing here yet" empty copy. Flipped to `false` in the `finally`
+  // block of the corresponding fetch* function.
+  const [isLoadingMyListings, setIsLoadingMyListings] = useState(true);
+  const [isLoadingMyOrders, setIsLoadingMyOrders] = useState(true);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(true);
 
   // Listings tab state (R-5.2)
   const [listingsFilter, setListingsFilter] = useState<string>("all");
@@ -415,6 +430,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const fetchAllOrders = useCallback(async () => {
     if (!token) return;
+    setIsLoadingMyOrders(true);
     try {
       const res = await apiFetch("/api/orders");
       if (res.ok) {
@@ -426,6 +442,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       // ignore
     } finally {
       setOrdersLoaded(true);
+      setIsLoadingMyOrders(false);
     }
   }, [token]);
 
@@ -449,16 +466,20 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const fetchStats = useCallback(async () => {
     if (!token) return;
+    setIsLoadingStats(true);
     try {
       const res = await apiFetch("/api/friends/stats");
       if (res.ok) setStats(await res.json());
     } catch (err) {
       console.error("Failed to fetch stats:", err);
+    } finally {
+      setIsLoadingStats(false);
     }
   }, [token]);
 
   const fetchMyListings = useCallback(async () => {
     if (!token) return;
+    setIsLoadingMyListings(true);
     try {
       const res = await apiFetch("/api/listings/mine");
       if (res.ok) setMyListings(await res.json());
@@ -466,6 +487,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       console.error("Failed to fetch my listings:", err);
     } finally {
       setMyListingsLoaded(true);
+      setIsLoadingMyListings(false);
     }
   }, [token]);
 
@@ -606,6 +628,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const fetchWishlistWithFolders = useCallback(async () => {
     if (!token) return;
+    setIsLoadingSaved(true);
     try {
       const res = await apiFetch("/api/wishlist/listings");
       if (res.ok) {
@@ -614,6 +637,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       }
     } catch (err) {
       console.error("Failed to fetch wishlist listings with folders:", err);
+    } finally {
+      setIsLoadingSaved(false);
     }
   }, [token]);
 
@@ -1568,6 +1593,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
             <OverviewCommunitiesRow
               communities={communities}
+              communitiesLoaded={communitiesLoaded}
               openCommunityDetail={openCommunityDetail}
               openJoinModal={() => setShowJoinModal(true)}
             />
@@ -1578,6 +1604,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 myListings={myListings}
                 myPurchases={myPurchases}
                 mySellerOrders={mySellerOrders}
+                isLoadingMyListings={isLoadingMyListings}
+                isLoadingMyOrders={isLoadingMyOrders}
                 openEditListing={openEditListing}
                 openOrderModal={openOrderManagement}
                 openConfirmedOrderSummary={openConfirmedOrderSummary}
@@ -1588,6 +1616,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               />
               <PunchlistPanel
                 punchlist={punchlist}
+                punchlistLoaded={punchlistLoaded}
                 onConfirmPickup={(p) => {
                   const listing = myListings.find((l) => l.id === p.listing_id);
                   if (listing) openOrderManagement(listing);
@@ -1607,6 +1636,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               myListings={myListings}
               myPurchases={myPurchases}
               mySellerOrders={mySellerOrders}
+              isLoadingStats={isLoadingStats}
+              isLoadingMyListings={isLoadingMyListings}
+              isLoadingMyOrders={isLoadingMyOrders}
               sellingActiveCount={sellingActiveCount}
               sellingDraftCount={sellingDraftCount}
               sellingSoldCount={sellingSoldCount}
@@ -1637,6 +1669,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               folders={wishlistFolders}
               foldersAvailable={wishlistFoldersAvailable}
               items={visibleSavedItems}
+              isLoadingSaved={isLoadingSaved}
               selectedFolderId={selectedFolderId}
               setSelectedFolderId={setSelectedFolderId}
               selectedIds={selectedSavedIds}
@@ -1676,6 +1709,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               openFriendsModal={openFriendsModal}
               friendsCount={stats.friends_count}
               communities={communities}
+              communitiesLoaded={communitiesLoaded}
               openCommunityDetail={openCommunityDetail}
               openJoinModal={() => setShowJoinModal(true)}
               logout={async () => {
@@ -2232,10 +2266,12 @@ const COMM_TILE_LABEL =
 
 function OverviewCommunitiesRow({
   communities,
+  communitiesLoaded,
   openCommunityDetail,
   openJoinModal,
 }: {
   communities: CommunityData[];
+  communitiesLoaded: boolean;
   openCommunityDetail: (c: CommunityData) => void;
   openJoinModal: () => void;
 }) {
@@ -2256,106 +2292,116 @@ function OverviewCommunitiesRow({
       <div className="flex items-baseline justify-between gap-2 mb-3">
         <h2 className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">
           Communities
-          {!isEmpty && (
+          {!isEmpty && communitiesLoaded && (
             <span className="text-muted font-normal ml-1">({communities.length})</span>
           )}
         </h2>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        {visible.map((c) => (
-          <Tooltip key={c.id} content={c.name}>
-            <button
-              type="button"
-              onClick={() => openCommunityDetail(c)}
-              aria-label={c.name}
-              className={COMM_TILE_BTN}
-            >
-              <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
-                {c.image ? (
-                  <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
-                ) : (
-                  communityInitials(c.name)
-                )}
-              </span>
-              <span className={COMM_TILE_LABEL}>
-                {c.name.split(" ").slice(0, 2).join(" ")}
-              </span>
-            </button>
-          </Tooltip>
-        ))}
+      {!communitiesLoaded ? (
+        <div className="flex flex-wrap gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="size-14 rounded-full" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-3">
+            {visible.map((c) => (
+              <Tooltip key={c.id} content={c.name}>
+                <button
+                  type="button"
+                  onClick={() => openCommunityDetail(c)}
+                  aria-label={c.name}
+                  className={COMM_TILE_BTN}
+                >
+                  <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
+                    {c.image ? (
+                      <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
+                    ) : (
+                      communityInitials(c.name)
+                    )}
+                  </span>
+                  <span className={COMM_TILE_LABEL}>
+                    {c.name.split(" ").slice(0, 2).join(" ")}
+                  </span>
+                </button>
+              </Tooltip>
+            ))}
 
-        {extra.length > 0 && (
-          <div ref={popoverRef} className="relative inline-block">
-            <button
-              type="button"
-              aria-haspopup="true"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((v) => !v)}
-              className={COMM_TILE_BTN}
-            >
-              <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
-                …
-              </span>
-              <span className={COMM_TILE_LABEL}>More</span>
-            </button>
-            {moreOpen && (
-              <div
-                role="menu"
-                className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
-              >
-                <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
-                  More communities
-                </div>
-                {extra.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      openCommunityDetail(c);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft text-left ${FOCUS_RING}`}
+            {extra.length > 0 && (
+              <div ref={popoverRef} className="relative inline-block">
+                <button
+                  type="button"
+                  aria-haspopup="true"
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((v) => !v)}
+                  className={COMM_TILE_BTN}
+                >
+                  <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
+                    …
+                  </span>
+                  <span className={COMM_TILE_LABEL}>More</span>
+                </button>
+                {moreOpen && (
+                  <div
+                    role="menu"
+                    className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
                   >
-                    <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
-                      {c.image ? (
-                        <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
-                      ) : (
-                        communityInitials(c.name)
-                      )}
-                    </span>
-                    <span className="truncate">{c.name}</span>
-                  </button>
-                ))}
+                    <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
+                      More communities
+                    </div>
+                    {extra.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          openCommunityDetail(c);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft text-left ${FOCUS_RING}`}
+                      >
+                        <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
+                          {c.image ? (
+                            <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
+                          ) : (
+                            communityInitials(c.name)
+                          )}
+                        </span>
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
+
+            <Tooltip content="Join or create a community">
+              <button
+                type="button"
+                onClick={openJoinModal}
+                aria-label="Join or create a community"
+                className={COMM_TILE_BTN}
+              >
+                <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
+                  <Plus className="size-5" aria-hidden="true" />
+                </span>
+                {/* Wrap onto two lines when the tile is narrow — single-line
+                    "Join Community" was truncating with the COMM_TILE_LABEL
+                    72px tile width. */}
+                <span className="text-[11px] leading-tight text-center whitespace-normal w-full text-ink">
+                  Join Community
+                </span>
+              </button>
+            </Tooltip>
           </div>
-        )}
 
-        <Tooltip content="Join or create a community">
-          <button
-            type="button"
-            onClick={openJoinModal}
-            aria-label="Join or create a community"
-            className={COMM_TILE_BTN}
-          >
-            <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
-              <Plus className="size-5" aria-hidden="true" />
-            </span>
-            {/* Wrap onto two lines when the tile is narrow — single-line
-                "Join Community" was truncating with the COMM_TILE_LABEL
-                72px tile width. */}
-            <span className="text-[11px] leading-tight text-center whitespace-normal w-full text-ink">
-              Join Community
-            </span>
-          </button>
-        </Tooltip>
-      </div>
-
-      {isEmpty && (
-        <p className="text-xs text-muted mt-2">
-          Join a community to surface trust signals on your listings.
-        </p>
+          {isEmpty && (
+            <p className="text-xs text-muted mt-2">
+              Join a community to surface trust signals on your listings.
+            </p>
+          )}
+        </>
       )}
     </section>
   );
@@ -2368,6 +2414,8 @@ function OverviewListingsPanel({
   myListings,
   myPurchases,
   mySellerOrders,
+  isLoadingMyListings,
+  isLoadingMyOrders,
   openEditListing,
   openOrderModal,
   openConfirmedOrderSummary,
@@ -2381,6 +2429,8 @@ function OverviewListingsPanel({
   myListings: MyListing[];
   myPurchases: OrderData[];
   mySellerOrders: OrderData[];
+  isLoadingMyListings: boolean;
+  isLoadingMyOrders: boolean;
   openEditListing: (l: MyListing) => void;
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
@@ -2422,7 +2472,16 @@ function OverviewListingsPanel({
       </div>
 
       {listingsTab === "selling" ? (
-        myListings.length === 0 ? (
+        isLoadingMyListings && myListings.length === 0 ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+              <span>Item</span>
+              <span className="text-right">Price</span>
+              <span className="text-right">Status</span>
+            </div>
+            {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
+          </div>
+        ) : myListings.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
             <p className="text-sm text-muted mb-4">No listings yet</p>
             <button
@@ -2434,13 +2493,11 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* Locked grid template: Item flexes (minmax 0,2fr), Community
-                takes a flexible 1fr cell so long names truncate cleanly,
-                Price + Status auto-size. Prevents vertical reflow when
-                listing or community names overflow. */}
-            <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            {/* 3-col grid: Item (with community subtitle) / Price / Status.
+                Identical to the Buying table below so the two read as one
+                visual system. */}
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span>Community</span>
               <span className="text-right">Price</span>
               <span className="text-right">Status</span>
             </div>
@@ -2462,19 +2519,26 @@ function OverviewListingsPanel({
                   sellerOrderStatus: sellerOrder?.status ?? null,
                   hasPendingOrders,
                 });
+
+                // Confirmed-and-still-ticking state renders the countdown label
+                // with a Package icon. Other states keep their existing labels.
+                const isConfirmedTicking = sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired;
+
                 const statusLabel = isCompleted
                   ? "Completed"
                   : isSellerPickupReady
                     ? "Pickup ready"
                     : isSellerWaitingForBuyer
                       ? "Awaiting buyer"
-                      : sellerOrder?.status === "confirmed"
-                        ? "Confirmed"
-                        : hasPendingOrders
-                          ? `${listing.pendingOrderCount} pending`
-                          : timeInfo.expired
-                            ? "Expired"
-                            : "Live";
+                      : isConfirmedTicking
+                        ? sellerCountdown.label
+                        : sellerOrder?.status === "confirmed"
+                          ? "Confirmed"
+                          : hasPendingOrders
+                            ? `${listing.pendingOrderCount} pending`
+                            : timeInfo.expired
+                              ? "Expired"
+                              : "Live";
 
                 const isClickable = !timeInfo.expired && !isSellerWaitingForBuyer;
 
@@ -2490,33 +2554,29 @@ function OverviewListingsPanel({
                       else openEditListing(listing);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
+                    {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
                       <ListingImage src={listing.imageUrl} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <div className="min-w-0">
+                        <p className="text-[10px] text-muted truncate">{PLACEHOLDER_COMMUNITY.name}</p>
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
-                        <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
                       </div>
                     </div>
-                    {/* Community cell — MyListing payload omits
-                        allCommunities; falls back to PLACEHOLDER_COMMUNITY
-                        until the sell-flow community selector ships. */}
-                    <Tooltip content={PLACEHOLDER_COMMUNITY.name}>
-                      <span className="inline-flex items-center gap-1.5 min-w-0 text-xs text-body">
-                        <span className="size-2 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                        <span className="truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                      </span>
-                    </Tooltip>
                     <span className="text-sm font-bold text-ink tabular-nums text-right">${listing.price}</span>
-                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       cta === "expired" || isCompleted
                         ? "bg-surface-strong text-muted"
                         : cta === "default"
                           ? "bg-primary-soft text-primary"
                           : "bg-primary text-on-primary"
                     }`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {isConfirmedTicking ? (
+                        <Package className="size-3" aria-hidden />
+                      ) : (
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      )}
                       {statusLabel}
                     </span>
                   </button>
@@ -2526,7 +2586,16 @@ function OverviewListingsPanel({
           </div>
         )
       ) : (
-        myPurchases.length === 0 ? (
+        isLoadingMyOrders && myPurchases.length === 0 ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+              <span>Item</span>
+              <span className="text-right">Price</span>
+              <span className="text-right">Status</span>
+            </div>
+            {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
+          </div>
+        ) : myPurchases.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
             <p className="text-sm text-muted mb-4">No purchases yet</p>
             <button
@@ -2538,16 +2607,11 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* Locked grid template: Item (2fr) and Community (1fr) get
-                truncate-able tracks; Price/Seller/Last Updated/Status
-                auto-size. Long titles never push other cells out of
-                alignment. */}
-            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            {/* 3-col grid: Item (with community subtitle) / Price / Status —
+                identical template to the Selling table above. */}
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
               <span className="text-right">Price</span>
-              <span>Community</span>
-              <span>Seller</span>
-              <span className="text-right">Last updated</span>
               <span className="text-right">Status</span>
             </div>
             <div>
@@ -2559,13 +2623,14 @@ function OverviewListingsPanel({
                   hasReviewed: order.buyer_reviewed,
                   otherReviewed: order.seller_reviewed,
                 });
+                const isConfirmedTicking = viewState === "confirmedCountdown";
                 const statusLabel = viewState === "declined" ? "Declined"
                   : viewState === "withdrawn" ? "Withdrawn"
                   : viewState === "expired" ? "Expired"
                   : viewState === "cancelledBySeller" ? "Cancelled by seller"
                   : viewState === "waitingForOther" ? "Awaiting seller"
                   : viewState === "pickupReady" ? "Pickup ready"
-                  : viewState === "confirmedCountdown" ? "Confirmed"
+                  : isConfirmedTicking ? countdown.label
                   : order.status === "completed" ? "Completed"
                   : "Pending";
                 const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "cancelledBySeller" || viewState === "waitingForOther");
@@ -2578,41 +2643,31 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
+                    {/* Item cell — thumb + community subtitle above title.
+                        Seller @handle no longer rendered in the table; still
+                        available via the order summary modal. */}
                     <div className="flex items-center gap-3 min-w-0">
                       <ListingImage src={order.listing_image} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
-                      <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted truncate">{PLACEHOLDER_COMMUNITY.name}</p>
+                        <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
+                      </div>
                     </div>
                     <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
-                    {/* Community cell — OrderData omits the listing's
-                        communities; falls back to PLACEHOLDER_COMMUNITY
-                        until the sell-flow community selector ships and
-                        the orders endpoint enriches with allCommunities. */}
-                    <Tooltip content={PLACEHOLDER_COMMUNITY.name}>
-                      <span className="inline-flex items-center gap-1.5 min-w-0 text-xs text-body">
-                        <span className="size-2 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                        <span className="truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                      </span>
-                    </Tooltip>
-                    <span className="text-xs text-muted truncate">@{order.seller_name}</span>
-                    {/* Last updated — OrderData has no `updated_at`; fall
-                        back to confirmed_time when present, else
-                        created_at. Backend gap tracked in backlog.md. */}
-                    <span className="text-xs text-muted whitespace-nowrap text-right">
-                      {(() => {
-                        const ts = order.confirmed_time ?? order.created_at;
-                        return ts ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
-                      })()}
-                    </span>
-                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
                         ? "bg-surface-strong text-muted"
                         : viewState === "cancelledBySeller" || viewState === "waitingForOther"
                           ? "bg-warning/10 text-warning"
                           : "bg-primary text-on-primary"
                     }`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {isConfirmedTicking ? (
+                        <Package className="size-3" aria-hidden />
+                      ) : (
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      )}
                       {statusLabel}
                     </span>
                   </button>
@@ -2629,9 +2684,11 @@ function OverviewListingsPanel({
 // ── Overview: Punchlist Panel ───────────────────────────────
 function PunchlistPanel({
   punchlist,
+  punchlistLoaded,
   onConfirmPickup,
 }: {
   punchlist: PunchlistResponse | null;
+  punchlistLoaded: boolean;
   onConfirmPickup: (p: PunchlistPickup) => void;
 }) {
   const cats = [
@@ -2690,7 +2747,9 @@ function PunchlistPanel({
         <span className="text-xs text-muted">{totalTodo} to do today</span>
       </div>
       <ul className="space-y-2 flex-1">
-        {cats.map((cat) => {
+        {!punchlistLoaded
+          ? Array.from({ length: 4 }).map((_, i) => <PunchlistRowSkeleton key={i} />)
+          : cats.map((cat) => {
           const empty = cat.items.length === 0;
           const isOpen = !!open[cat.id] && !empty;
           const Icon = cat.icon;
@@ -2762,6 +2821,9 @@ function ListingsTabContent({
   myListings,
   myPurchases,
   mySellerOrders,
+  isLoadingStats,
+  isLoadingMyListings,
+  isLoadingMyOrders,
   sellingActiveCount,
   sellingDraftCount,
   sellingSoldCount,
@@ -2790,6 +2852,9 @@ function ListingsTabContent({
   myListings: MyListing[];
   myPurchases: OrderData[];
   mySellerOrders: OrderData[];
+  isLoadingStats: boolean;
+  isLoadingMyListings: boolean;
+  isLoadingMyOrders: boolean;
   sellingActiveCount: number;
   sellingDraftCount: number;
   sellingSoldCount: number;
@@ -2885,13 +2950,15 @@ function ListingsTabContent({
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {(listingsTab === "selling" ? sellingKpis : buyingKpis).map((kpi) => (
-          <div key={kpi.label} className="bg-surface-card border border-hairline rounded-md p-4">
-            <p className="text-[11px] text-muted uppercase tracking-wider">{kpi.label}</p>
-            <p className={`text-3xl font-extrabold tracking-display mt-1 ${kpi.value === "—" ? "text-muted-soft" : "text-ink"}`}>{kpi.value}</p>
-            <p className={`text-[11px] mt-0.5 ${kpi.value === "—" ? "text-muted-soft" : "text-muted"}`}>{kpi.sub}</p>
-          </div>
-        ))}
+        {isLoadingStats
+          ? Array.from({ length: 4 }).map((_, i) => <KpiCardSkeleton key={i} />)
+          : (listingsTab === "selling" ? sellingKpis : buyingKpis).map((kpi) => (
+              <div key={kpi.label} className="bg-surface-card border border-hairline rounded-md p-4">
+                <p className="text-[11px] text-muted uppercase tracking-wider">{kpi.label}</p>
+                <p className={`text-3xl font-extrabold tracking-display mt-1 ${kpi.value === "—" ? "text-muted-soft" : "text-ink"}`}>{kpi.value}</p>
+                <p className={`text-[11px] mt-0.5 ${kpi.value === "—" ? "text-muted-soft" : "text-muted"}`}>{kpi.sub}</p>
+              </div>
+            ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -2911,7 +2978,11 @@ function ListingsTabContent({
       </div>
 
       {listingsTab === "selling" ? (
-        filteredListings.length === 0 ? (
+        isLoadingMyListings && filteredListings.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => <ListingCardSkeleton key={i} />)}
+          </div>
+        ) : filteredListings.length === 0 ? (
           <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
             <p className="text-sm text-muted">Nothing in this view yet.</p>
           </div>
@@ -3034,7 +3105,11 @@ function ListingsTabContent({
           </div>
         )
       ) : (
-        filteredPurchases.length === 0 ? (
+        isLoadingMyOrders && filteredPurchases.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => <ListingCardSkeleton key={i} />)}
+          </div>
+        ) : filteredPurchases.length === 0 ? (
           <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
             <p className="text-sm text-muted">Nothing in this view yet.</p>
           </div>
@@ -3165,6 +3240,7 @@ function SavedTabContent({
   folders,
   foldersAvailable,
   items,
+  isLoadingSaved,
   selectedFolderId,
   setSelectedFolderId,
   selectedIds,
@@ -3193,6 +3269,7 @@ function SavedTabContent({
   folders: WishlistFolder[];
   foldersAvailable: boolean;
   items: WishlistListingWithFolder[] | Listing[];
+  isLoadingSaved: boolean;
   selectedFolderId: number | "all";
   setSelectedFolderId: (id: number | "all") => void;
   selectedIds: Set<string>;
@@ -3425,7 +3502,15 @@ function SavedTabContent({
           )}
         </div>
 
-        {items.length === 0 ? (
+        {/* Skeleton fires while the folder-aware fetch is in flight, even
+            if the parent's `wishlistItems` prop has already populated the
+            `items` fallback. This way the user sees a clear loading affordance
+            every time they land on Saved, not just on first-ever empty load. */}
+        {isLoadingSaved && wishlistItemsWithFolder.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => <ListingCardSkeleton key={i} />)}
+          </div>
+        ) : items.length === 0 ? (
           <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
             <p className="text-sm text-muted mb-4">Nothing saved here yet.</p>
             <button
@@ -3472,11 +3557,11 @@ function SavedTabContent({
 
                   {/* Photo */}
                   <div className="relative aspect-square bg-surface-soft">
-                    <img
+                    <ListingImage
                       src={images[0]}
-                      alt={formatTitle(listing.brand ?? "", listing.name ?? "")}
+                      alt=""
+                      size="card"
                       className="absolute inset-0 size-full object-cover"
-                      loading="lazy"
                     />
                     <button
                       type="button"
@@ -3554,6 +3639,7 @@ function SettingsTabContent({
   openFriendsModal,
   friendsCount,
   communities,
+  communitiesLoaded,
   openCommunityDetail,
   openJoinModal,
   logout,
@@ -3566,6 +3652,7 @@ function SettingsTabContent({
   openFriendsModal: () => void;
   friendsCount: number;
   communities: CommunityData[];
+  communitiesLoaded: boolean;
   openCommunityDetail: (c: CommunityData) => void;
   openJoinModal: () => void;
   logout: () => Promise<void>;
@@ -3757,7 +3844,11 @@ function SettingsTabContent({
                 Join or create
               </button>
             </div>
-            {communities.length === 0 ? (
+            {!communitiesLoaded ? (
+              <ul className="space-y-1">
+                {Array.from({ length: 6 }).map((_, i) => <PunchlistRowSkeleton key={i} />)}
+              </ul>
+            ) : communities.length === 0 ? (
               <p className="text-xs text-muted">You haven't joined any communities yet.</p>
             ) : (
               <ul className="space-y-1">

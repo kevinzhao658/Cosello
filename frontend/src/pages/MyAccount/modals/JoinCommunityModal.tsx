@@ -1,6 +1,7 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
+import { ListingImage } from "../../../components/ui/ListingImage";
 import { X, Globe, Search, Loader2, Lock, MapPin, Plus } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
@@ -101,7 +102,7 @@ export function JoinCommunityModal({
                       >
                         <div className="size-10 rounded-md bg-surface-strong flex items-center justify-center overflow-hidden shrink-0">
                           {c.image ? (
-                            <img src={c.image} alt={c.name} className="size-full object-cover rounded-md" />
+                            <ListingImage src={c.image} alt="" size="small" className="size-full object-cover rounded-md" />
                           ) : (
                             <Globe className="size-5 text-muted" />
                           )}

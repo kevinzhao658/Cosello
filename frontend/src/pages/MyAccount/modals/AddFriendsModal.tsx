@@ -3,6 +3,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, UserPlus, Search, Loader2, User, MessageSquare, Globe } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
+import { FriendRecommendationSkeleton } from "../../../components/FriendRecommendationSkeleton";
 
 export type AddFriendsTab = "recommended" | "contacts" | "qr";
 
@@ -177,9 +178,7 @@ export function AddFriendsModal({
               {addFriendsTab === "recommended" && (
                 <div className="space-y-1">
                   {isLoadingRecommended ? (
-                    <div className="flex justify-center py-8">
-                      <Loader2 className="size-5 text-muted-soft motion-safe:animate-spin" />
-                    </div>
+                    Array.from({ length: 3 }).map((_, i) => <FriendRecommendationSkeleton key={i} />)
                   ) : recommendedFriends.length === 0 ? (
                     <div className="text-center py-8">
                       <UserPlus className="size-8 text-muted-soft mx-auto mb-2" />
