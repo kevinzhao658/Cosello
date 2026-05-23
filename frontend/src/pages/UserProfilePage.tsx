@@ -33,7 +33,15 @@ interface ProfileData {
   // responses during the rollout — keep it optional for back-compat.
   active_listings: { id: string; brand: string; name: string; title?: string; price: string; imageUrl: string; imageUrls?: string[]; condition: string; status: string }[];
   reviews: { rating: number; comment: string | null; reviewer_name: string | null; reviewer_picture: string | null; reviewer_role: string; created_at: string | null }[];
-  stats: { total_listings: number; review_count: number; avg_rating: number | null };
+  stats: {
+    total_listings: number;
+    review_count: number;
+    avg_rating: number | null;
+    avg_seller_rating: number;
+    seller_review_count: number;
+    avg_buyer_rating: number;
+    buyer_review_count: number;
+  };
   member_since: string | null;
 }
 

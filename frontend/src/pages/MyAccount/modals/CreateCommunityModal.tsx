@@ -19,7 +19,7 @@ export interface CreateCommunityModalProps {
   createImagePreview: string | null;
   createError: string | null;
   isCreating: boolean;
-  createImageRef: React.RefObject<HTMLInputElement | null>;
+  createImageRef: React.RefObject<HTMLInputElement>;
   setCreateName: (s: string) => void;
   setCreateDescription: (s: string) => void;
   setCreatePickupAddress: (s: string) => void;
