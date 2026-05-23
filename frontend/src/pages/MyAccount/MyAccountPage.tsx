@@ -56,6 +56,11 @@ import { ShareCommunityModal } from "./modals/ShareCommunityModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
 import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
+import { Skeleton } from "../../components/ui/Skeleton";
+import { ListingRowSkeleton } from "../../components/ListingRowSkeleton";
+import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
+import { KpiCardSkeleton } from "../../components/KpiCardSkeleton";
+import { PunchlistRowSkeleton } from "../../components/PunchlistRowSkeleton";
 
 interface CommunityData {
   id: number;
@@ -187,7 +192,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityData[]>([]);
-  const [_communitiesLoaded, setCommunitiesLoaded] = useState(false);
+  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
   const [copiedConfirm, setCopiedConfirm] = useState(false);
 
   const [createName, setCreateName] = useState("");
@@ -346,7 +351,15 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // Punchlist (R-5 new)
   const [punchlist, setPunchlist] = useState<PunchlistResponse | null>(null);
-  const [_punchlistLoaded, setPunchlistLoaded] = useState(false);
+  const [punchlistLoaded, setPunchlistLoaded] = useState(false);
+
+  // Initial-load gates for skeleton rendering. Each defaults to `true`
+  // so the very first render of MyAccount shows skeletons rather than
+  // "Nothing here yet" empty copy. Flipped to `false` in the `finally`
+  // block of the corresponding fetch* function.
+  const [isLoadingMyListings, setIsLoadingMyListings] = useState(true);
+  const [isLoadingMyOrders, setIsLoadingMyOrders] = useState(true);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
 
   // Listings tab state (R-5.2)
   const [listingsFilter, setListingsFilter] = useState<string>("all");
@@ -416,6 +429,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const fetchAllOrders = useCallback(async () => {
     if (!token) return;
+    setIsLoadingMyOrders(true);
     try {
       const res = await apiFetch("/api/orders");
       if (res.ok) {
@@ -427,6 +441,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       // ignore
     } finally {
       setOrdersLoaded(true);
+      setIsLoadingMyOrders(false);
     }
   }, [token]);
 
@@ -450,16 +465,20 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   const fetchStats = useCallback(async () => {
     if (!token) return;
+    setIsLoadingStats(true);
     try {
       const res = await apiFetch("/api/friends/stats");
       if (res.ok) setStats(await res.json());
     } catch (err) {
       console.error("Failed to fetch stats:", err);
+    } finally {
+      setIsLoadingStats(false);
     }
   }, [token]);
 
   const fetchMyListings = useCallback(async () => {
     if (!token) return;
+    setIsLoadingMyListings(true);
     try {
       const res = await apiFetch("/api/listings/mine");
       if (res.ok) setMyListings(await res.json());
@@ -467,6 +486,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       console.error("Failed to fetch my listings:", err);
     } finally {
       setMyListingsLoaded(true);
+      setIsLoadingMyListings(false);
     }
   }, [token]);
 
@@ -1569,6 +1589,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
             <OverviewCommunitiesRow
               communities={communities}
+              communitiesLoaded={communitiesLoaded}
               openCommunityDetail={openCommunityDetail}
               openJoinModal={() => setShowJoinModal(true)}
             />
@@ -1579,6 +1600,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 myListings={myListings}
                 myPurchases={myPurchases}
                 mySellerOrders={mySellerOrders}
+                isLoadingMyListings={isLoadingMyListings}
+                isLoadingMyOrders={isLoadingMyOrders}
                 openEditListing={openEditListing}
                 openOrderModal={openOrderManagement}
                 openConfirmedOrderSummary={openConfirmedOrderSummary}
@@ -1589,6 +1612,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               />
               <PunchlistPanel
                 punchlist={punchlist}
+                punchlistLoaded={punchlistLoaded}
                 onConfirmPickup={(p) => {
                   const listing = myListings.find((l) => l.id === p.listing_id);
                   if (listing) openOrderManagement(listing);
@@ -1608,6 +1632,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               myListings={myListings}
               myPurchases={myPurchases}
               mySellerOrders={mySellerOrders}
+              isLoadingStats={isLoadingStats}
+              isLoadingMyListings={isLoadingMyListings}
+              isLoadingMyOrders={isLoadingMyOrders}
               sellingActiveCount={sellingActiveCount}
               sellingDraftCount={sellingDraftCount}
               sellingSoldCount={sellingSoldCount}
@@ -1677,6 +1704,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               openFriendsModal={openFriendsModal}
               friendsCount={stats.friends_count}
               communities={communities}
+              communitiesLoaded={communitiesLoaded}
               openCommunityDetail={openCommunityDetail}
               openJoinModal={() => setShowJoinModal(true)}
               logout={async () => {
@@ -2233,10 +2261,12 @@ const COMM_TILE_LABEL =
 
 function OverviewCommunitiesRow({
   communities,
+  communitiesLoaded,
   openCommunityDetail,
   openJoinModal,
 }: {
   communities: CommunityData[];
+  communitiesLoaded: boolean;
   openCommunityDetail: (c: CommunityData) => void;
   openJoinModal: () => void;
 }) {
@@ -2257,106 +2287,116 @@ function OverviewCommunitiesRow({
       <div className="flex items-baseline justify-between gap-2 mb-3">
         <h2 className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">
           Communities
-          {!isEmpty && (
+          {!isEmpty && communitiesLoaded && (
             <span className="text-muted font-normal ml-1">({communities.length})</span>
           )}
         </h2>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        {visible.map((c) => (
-          <Tooltip key={c.id} content={c.name}>
-            <button
-              type="button"
-              onClick={() => openCommunityDetail(c)}
-              aria-label={c.name}
-              className={COMM_TILE_BTN}
-            >
-              <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
-                {c.image ? (
-                  <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
-                ) : (
-                  communityInitials(c.name)
-                )}
-              </span>
-              <span className={COMM_TILE_LABEL}>
-                {c.name.split(" ").slice(0, 2).join(" ")}
-              </span>
-            </button>
-          </Tooltip>
-        ))}
+      {!communitiesLoaded ? (
+        <div className="flex flex-wrap gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="size-14 rounded-full" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-3">
+            {visible.map((c) => (
+              <Tooltip key={c.id} content={c.name}>
+                <button
+                  type="button"
+                  onClick={() => openCommunityDetail(c)}
+                  aria-label={c.name}
+                  className={COMM_TILE_BTN}
+                >
+                  <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
+                    {c.image ? (
+                      <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
+                    ) : (
+                      communityInitials(c.name)
+                    )}
+                  </span>
+                  <span className={COMM_TILE_LABEL}>
+                    {c.name.split(" ").slice(0, 2).join(" ")}
+                  </span>
+                </button>
+              </Tooltip>
+            ))}
 
-        {extra.length > 0 && (
-          <div ref={popoverRef} className="relative inline-block">
-            <button
-              type="button"
-              aria-haspopup="true"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((v) => !v)}
-              className={COMM_TILE_BTN}
-            >
-              <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
-                …
-              </span>
-              <span className={COMM_TILE_LABEL}>More</span>
-            </button>
-            {moreOpen && (
-              <div
-                role="menu"
-                className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
-              >
-                <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
-                  More communities
-                </div>
-                {extra.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      openCommunityDetail(c);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft text-left ${FOCUS_RING}`}
+            {extra.length > 0 && (
+              <div ref={popoverRef} className="relative inline-block">
+                <button
+                  type="button"
+                  aria-haspopup="true"
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((v) => !v)}
+                  className={COMM_TILE_BTN}
+                >
+                  <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
+                    …
+                  </span>
+                  <span className={COMM_TILE_LABEL}>More</span>
+                </button>
+                {moreOpen && (
+                  <div
+                    role="menu"
+                    className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
                   >
-                    <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
-                      {c.image ? (
-                        <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
-                      ) : (
-                        communityInitials(c.name)
-                      )}
-                    </span>
-                    <span className="truncate">{c.name}</span>
-                  </button>
-                ))}
+                    <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
+                      More communities
+                    </div>
+                    {extra.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          openCommunityDetail(c);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft text-left ${FOCUS_RING}`}
+                      >
+                        <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
+                          {c.image ? (
+                            <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
+                          ) : (
+                            communityInitials(c.name)
+                          )}
+                        </span>
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
+
+            <Tooltip content="Join or create a community">
+              <button
+                type="button"
+                onClick={openJoinModal}
+                aria-label="Join or create a community"
+                className={COMM_TILE_BTN}
+              >
+                <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
+                  <Plus className="size-5" aria-hidden="true" />
+                </span>
+                {/* Wrap onto two lines when the tile is narrow — single-line
+                    "Join Community" was truncating with the COMM_TILE_LABEL
+                    72px tile width. */}
+                <span className="text-[11px] leading-tight text-center whitespace-normal w-full text-ink">
+                  Join Community
+                </span>
+              </button>
+            </Tooltip>
           </div>
-        )}
 
-        <Tooltip content="Join or create a community">
-          <button
-            type="button"
-            onClick={openJoinModal}
-            aria-label="Join or create a community"
-            className={COMM_TILE_BTN}
-          >
-            <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
-              <Plus className="size-5" aria-hidden="true" />
-            </span>
-            {/* Wrap onto two lines when the tile is narrow — single-line
-                "Join Community" was truncating with the COMM_TILE_LABEL
-                72px tile width. */}
-            <span className="text-[11px] leading-tight text-center whitespace-normal w-full text-ink">
-              Join Community
-            </span>
-          </button>
-        </Tooltip>
-      </div>
-
-      {isEmpty && (
-        <p className="text-xs text-muted mt-2">
-          Join a community to surface trust signals on your listings.
-        </p>
+          {isEmpty && (
+            <p className="text-xs text-muted mt-2">
+              Join a community to surface trust signals on your listings.
+            </p>
+          )}
+        </>
       )}
     </section>
   );
@@ -2369,6 +2409,8 @@ function OverviewListingsPanel({
   myListings,
   myPurchases,
   mySellerOrders,
+  isLoadingMyListings,
+  isLoadingMyOrders,
   openEditListing,
   openOrderModal,
   openConfirmedOrderSummary,
@@ -2382,6 +2424,8 @@ function OverviewListingsPanel({
   myListings: MyListing[];
   myPurchases: OrderData[];
   mySellerOrders: OrderData[];
+  isLoadingMyListings: boolean;
+  isLoadingMyOrders: boolean;
   openEditListing: (l: MyListing) => void;
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
@@ -2423,7 +2467,16 @@ function OverviewListingsPanel({
       </div>
 
       {listingsTab === "selling" ? (
-        myListings.length === 0 ? (
+        isLoadingMyListings && myListings.length === 0 ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+              <span>Item</span>
+              <span className="text-right">Price</span>
+              <span className="text-right">Status</span>
+            </div>
+            {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
+          </div>
+        ) : myListings.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
             <p className="text-sm text-muted mb-4">No listings yet</p>
             <button
@@ -2528,7 +2581,16 @@ function OverviewListingsPanel({
           </div>
         )
       ) : (
-        myPurchases.length === 0 ? (
+        isLoadingMyOrders && myPurchases.length === 0 ? (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+              <span>Item</span>
+              <span className="text-right">Price</span>
+              <span className="text-right">Status</span>
+            </div>
+            {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
+          </div>
+        ) : myPurchases.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
             <p className="text-sm text-muted mb-4">No purchases yet</p>
             <button
@@ -2617,9 +2679,11 @@ function OverviewListingsPanel({
 // ── Overview: Punchlist Panel ───────────────────────────────
 function PunchlistPanel({
   punchlist,
+  punchlistLoaded,
   onConfirmPickup,
 }: {
   punchlist: PunchlistResponse | null;
+  punchlistLoaded: boolean;
   onConfirmPickup: (p: PunchlistPickup) => void;
 }) {
   const cats = [
@@ -2678,7 +2742,9 @@ function PunchlistPanel({
         <span className="text-xs text-muted">{totalTodo} to do today</span>
       </div>
       <ul className="space-y-2 flex-1">
-        {cats.map((cat) => {
+        {!punchlistLoaded
+          ? Array.from({ length: 4 }).map((_, i) => <PunchlistRowSkeleton key={i} />)
+          : cats.map((cat) => {
           const empty = cat.items.length === 0;
           const isOpen = !!open[cat.id] && !empty;
           const Icon = cat.icon;
@@ -2750,6 +2816,9 @@ function ListingsTabContent({
   myListings,
   myPurchases,
   mySellerOrders,
+  isLoadingStats,
+  isLoadingMyListings,
+  isLoadingMyOrders,
   sellingActiveCount,
   sellingDraftCount,
   sellingSoldCount,
@@ -2778,6 +2847,9 @@ function ListingsTabContent({
   myListings: MyListing[];
   myPurchases: OrderData[];
   mySellerOrders: OrderData[];
+  isLoadingStats: boolean;
+  isLoadingMyListings: boolean;
+  isLoadingMyOrders: boolean;
   sellingActiveCount: number;
   sellingDraftCount: number;
   sellingSoldCount: number;
@@ -2873,13 +2945,15 @@ function ListingsTabContent({
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {(listingsTab === "selling" ? sellingKpis : buyingKpis).map((kpi) => (
-          <div key={kpi.label} className="bg-surface-card border border-hairline rounded-md p-4">
-            <p className="text-[11px] text-muted uppercase tracking-wider">{kpi.label}</p>
-            <p className={`text-3xl font-extrabold tracking-display mt-1 ${kpi.value === "—" ? "text-muted-soft" : "text-ink"}`}>{kpi.value}</p>
-            <p className={`text-[11px] mt-0.5 ${kpi.value === "—" ? "text-muted-soft" : "text-muted"}`}>{kpi.sub}</p>
-          </div>
-        ))}
+        {isLoadingStats
+          ? Array.from({ length: 4 }).map((_, i) => <KpiCardSkeleton key={i} />)
+          : (listingsTab === "selling" ? sellingKpis : buyingKpis).map((kpi) => (
+              <div key={kpi.label} className="bg-surface-card border border-hairline rounded-md p-4">
+                <p className="text-[11px] text-muted uppercase tracking-wider">{kpi.label}</p>
+                <p className={`text-3xl font-extrabold tracking-display mt-1 ${kpi.value === "—" ? "text-muted-soft" : "text-ink"}`}>{kpi.value}</p>
+                <p className={`text-[11px] mt-0.5 ${kpi.value === "—" ? "text-muted-soft" : "text-muted"}`}>{kpi.sub}</p>
+              </div>
+            ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -2899,7 +2973,11 @@ function ListingsTabContent({
       </div>
 
       {listingsTab === "selling" ? (
-        filteredListings.length === 0 ? (
+        isLoadingMyListings && filteredListings.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => <ListingCardSkeleton key={i} />)}
+          </div>
+        ) : filteredListings.length === 0 ? (
           <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
             <p className="text-sm text-muted">Nothing in this view yet.</p>
           </div>
@@ -3022,7 +3100,11 @@ function ListingsTabContent({
           </div>
         )
       ) : (
-        filteredPurchases.length === 0 ? (
+        isLoadingMyOrders && filteredPurchases.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => <ListingCardSkeleton key={i} />)}
+          </div>
+        ) : filteredPurchases.length === 0 ? (
           <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
             <p className="text-sm text-muted">Nothing in this view yet.</p>
           </div>
@@ -3542,6 +3624,7 @@ function SettingsTabContent({
   openFriendsModal,
   friendsCount,
   communities,
+  communitiesLoaded,
   openCommunityDetail,
   openJoinModal,
   logout,
@@ -3554,6 +3637,7 @@ function SettingsTabContent({
   openFriendsModal: () => void;
   friendsCount: number;
   communities: CommunityData[];
+  communitiesLoaded: boolean;
   openCommunityDetail: (c: CommunityData) => void;
   openJoinModal: () => void;
   logout: () => Promise<void>;
@@ -3745,7 +3829,11 @@ function SettingsTabContent({
                 Join or create
               </button>
             </div>
-            {communities.length === 0 ? (
+            {!communitiesLoaded ? (
+              <ul className="space-y-1">
+                {Array.from({ length: 6 }).map((_, i) => <PunchlistRowSkeleton key={i} />)}
+              </ul>
+            ) : communities.length === 0 ? (
               <p className="text-xs text-muted">You haven't joined any communities yet.</p>
             ) : (
               <ul className="space-y-1">
