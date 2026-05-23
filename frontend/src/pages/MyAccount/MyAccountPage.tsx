@@ -28,6 +28,7 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
+  Package,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
@@ -2434,13 +2435,11 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* Locked grid template: Item flexes (minmax 0,2fr), Community
-                takes a flexible 1fr cell so long names truncate cleanly,
-                Price + Status auto-size. Prevents vertical reflow when
-                listing or community names overflow. */}
-            <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            {/* 3-col grid: Item (with community subtitle) / Price / Status.
+                Identical to the Buying table below so the two read as one
+                visual system. */}
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span>Community</span>
               <span className="text-right">Price</span>
               <span className="text-right">Status</span>
             </div>
@@ -2462,19 +2461,26 @@ function OverviewListingsPanel({
                   sellerOrderStatus: sellerOrder?.status ?? null,
                   hasPendingOrders,
                 });
+
+                // Confirmed-and-still-ticking state renders the countdown label
+                // with a Package icon. Other states keep their existing labels.
+                const isConfirmedTicking = sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired;
+
                 const statusLabel = isCompleted
                   ? "Completed"
                   : isSellerPickupReady
                     ? "Pickup ready"
                     : isSellerWaitingForBuyer
                       ? "Awaiting buyer"
-                      : sellerOrder?.status === "confirmed"
-                        ? "Confirmed"
-                        : hasPendingOrders
-                          ? `${listing.pendingOrderCount} pending`
-                          : timeInfo.expired
-                            ? "Expired"
-                            : "Live";
+                      : isConfirmedTicking
+                        ? sellerCountdown.label
+                        : sellerOrder?.status === "confirmed"
+                          ? "Confirmed"
+                          : hasPendingOrders
+                            ? `${listing.pendingOrderCount} pending`
+                            : timeInfo.expired
+                              ? "Expired"
+                              : "Live";
 
                 const isClickable = !timeInfo.expired && !isSellerWaitingForBuyer;
 
@@ -2490,33 +2496,29 @@ function OverviewListingsPanel({
                       else openEditListing(listing);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
+                    {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
                       <ListingImage src={listing.imageUrl} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
                       <div className="min-w-0">
+                        <p className="text-[10px] text-muted truncate">{PLACEHOLDER_COMMUNITY.name}</p>
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
-                        <p className="text-[11px] text-muted truncate">{listing.location || "—"}</p>
                       </div>
                     </div>
-                    {/* Community cell — MyListing payload omits
-                        allCommunities; falls back to PLACEHOLDER_COMMUNITY
-                        until the sell-flow community selector ships. */}
-                    <Tooltip content={PLACEHOLDER_COMMUNITY.name}>
-                      <span className="inline-flex items-center gap-1.5 min-w-0 text-xs text-body">
-                        <span className="size-2 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                        <span className="truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                      </span>
-                    </Tooltip>
                     <span className="text-sm font-bold text-ink tabular-nums text-right">${listing.price}</span>
-                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       cta === "expired" || isCompleted
                         ? "bg-surface-strong text-muted"
                         : cta === "default"
                           ? "bg-primary-soft text-primary"
                           : "bg-primary text-on-primary"
                     }`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {isConfirmedTicking ? (
+                        <Package className="size-3" aria-hidden />
+                      ) : (
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      )}
                       {statusLabel}
                     </span>
                   </button>
@@ -2538,16 +2540,11 @@ function OverviewListingsPanel({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">
-            {/* Locked grid template: Item (2fr) and Community (1fr) get
-                truncate-able tracks; Price/Seller/Last Updated/Status
-                auto-size. Long titles never push other cells out of
-                alignment. */}
-            <div className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            {/* 3-col grid: Item (with community subtitle) / Price / Status —
+                identical template to the Selling table above. */}
+            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
               <span className="text-right">Price</span>
-              <span>Community</span>
-              <span>Seller</span>
-              <span className="text-right">Last updated</span>
               <span className="text-right">Status</span>
             </div>
             <div>
@@ -2559,13 +2556,14 @@ function OverviewListingsPanel({
                   hasReviewed: order.buyer_reviewed,
                   otherReviewed: order.seller_reviewed,
                 });
+                const isConfirmedTicking = viewState === "confirmedCountdown";
                 const statusLabel = viewState === "declined" ? "Declined"
                   : viewState === "withdrawn" ? "Withdrawn"
                   : viewState === "expired" ? "Expired"
                   : viewState === "cancelledBySeller" ? "Cancelled by seller"
                   : viewState === "waitingForOther" ? "Awaiting seller"
                   : viewState === "pickupReady" ? "Pickup ready"
-                  : viewState === "confirmedCountdown" ? "Confirmed"
+                  : isConfirmedTicking ? countdown.label
                   : order.status === "completed" ? "Completed"
                   : "Pending";
                 const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "cancelledBySeller" || viewState === "waitingForOther");
@@ -2578,41 +2576,31 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,2fr)_auto_minmax(0,1fr)_minmax(0,1fr)_auto_auto] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
+                    {/* Item cell — thumb + community subtitle above title.
+                        Seller @handle no longer rendered in the table; still
+                        available via the order summary modal. */}
                     <div className="flex items-center gap-3 min-w-0">
                       <ListingImage src={order.listing_image} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
-                      <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted truncate">{PLACEHOLDER_COMMUNITY.name}</p>
+                        <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
+                      </div>
                     </div>
                     <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
-                    {/* Community cell — OrderData omits the listing's
-                        communities; falls back to PLACEHOLDER_COMMUNITY
-                        until the sell-flow community selector ships and
-                        the orders endpoint enriches with allCommunities. */}
-                    <Tooltip content={PLACEHOLDER_COMMUNITY.name}>
-                      <span className="inline-flex items-center gap-1.5 min-w-0 text-xs text-body">
-                        <span className="size-2 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                        <span className="truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                      </span>
-                    </Tooltip>
-                    <span className="text-xs text-muted truncate">@{order.seller_name}</span>
-                    {/* Last updated — OrderData has no `updated_at`; fall
-                        back to confirmed_time when present, else
-                        created_at. Backend gap tracked in backlog.md. */}
-                    <span className="text-xs text-muted whitespace-nowrap text-right">
-                      {(() => {
-                        const ts = order.confirmed_time ?? order.created_at;
-                        return ts ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
-                      })()}
-                    </span>
-                    <span className={`text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
                       viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
                         ? "bg-surface-strong text-muted"
                         : viewState === "cancelledBySeller" || viewState === "waitingForOther"
                           ? "bg-warning/10 text-warning"
                           : "bg-primary text-on-primary"
                     }`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {isConfirmedTicking ? (
+                        <Package className="size-3" aria-hidden />
+                      ) : (
+                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      )}
                       {statusLabel}
                     </span>
                   </button>
