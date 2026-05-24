@@ -36,6 +36,12 @@ export type Notification = {
   join_request_status: string | null;
   listing_id: string | null;
   created_at: string | null;
+  // Optional fields — populated by backend for listing-related notifications.
+  // Frontend renders enriched anatomy when present; falls back gracefully when absent.
+  listing_image?: string | null;
+  listing_price?: string | null;
+  selected_pickup_slots?: { date: string; time: string }[] | null;
+  confirmed_time?: string | null;
 };
 
 // Brutalist Trade icon tones (per design_handoff_cosello/README.md §8):
