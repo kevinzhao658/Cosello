@@ -127,8 +127,8 @@ export default function App() {
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
   const [visibleCount, setVisibleCount] = useState<number>(24);
-  const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
-  const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [privateCommunities, setPrivateCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
@@ -670,9 +670,6 @@ export default function App() {
     if (isAuthenticated && token) {
       if (selectedMarketCommunities.length > 0) {
         params.set("community", selectedMarketCommunities.join(","));
-        if (selectedMarketCommunities.includes("neighborhood") && user?.neighborhood) {
-          params.set("neighborhood", user.neighborhood);
-        }
       } else {
         // Default feed: no community filter → backend returns tier-ranked results
         if (user?.neighborhood) params.set("neighborhood", user.neighborhood);
