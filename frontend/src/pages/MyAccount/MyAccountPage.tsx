@@ -41,7 +41,7 @@ import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { ListingImage } from "../../components/ui/ListingImage";
-import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
+import { useNeighborhoods } from "../../lib/useNeighborhoods";
 import {
   getBuyerOrderViewState,
   getPickupCountdown,
@@ -155,6 +155,9 @@ interface MyAccountPageProps {
 export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting, resetSettings } = useSettings();
+
+  const { list: neighborhoodsList, isLoading: isLoadingNeighborhoodsList, error: neighborhoodsListError } = useNeighborhoods();
+  const neighborhoods = neighborhoodsList ?? [];
 
   // ── Tab state (persisted) ──────────────────────────────
   const [accountTab, setAccountTab] = useState<AccountTab>(() => {
@@ -1403,12 +1406,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setAddFriendsResults([]);
   };
 
-  const editIsValidNeighborhood = MANHATTAN_NEIGHBORHOODS.some(
+  const editIsValidNeighborhood = neighborhoods.some(
     (n) => n.toLowerCase() === editNeighborhood.trim().toLowerCase(),
   );
   const editFilteredNeighborhoods = editNeighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
-    : MANHATTAN_NEIGHBORHOODS;
+    ? neighborhoods.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
+    : neighborhoods;
 
   const openEditProfileModal = () => {
     const name = user?.display_name || "";
@@ -1815,6 +1818,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         editIsValidNeighborhood={editIsValidNeighborhood}
         editProfileError={editProfileError}
         isUpdatingProfile={isUpdatingProfile}
+        isLoadingNeighborhoods={isLoadingNeighborhoodsList}
+        neighborhoodsError={neighborhoodsListError}
         editNeighborhoodRef={editNeighborhoodRef}
         editSuggestionsRef={editSuggestionsRef}
         setEditFirstName={setEditFirstName}
