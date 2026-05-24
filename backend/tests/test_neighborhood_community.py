@@ -335,7 +335,7 @@ def test_get_neighborhoods_endpoint_returns_curated_list(client):
 
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) == 30
+    assert len(data) == 43
     assert "Chinatown" in data
     assert "West Village" in data
     assert "Not A Real Neighborhood" not in data
