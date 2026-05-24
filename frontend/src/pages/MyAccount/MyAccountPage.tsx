@@ -2569,21 +2569,23 @@ function OverviewListingsPanel({
                 // as text ("Pickup in Xh Ym"). Other states keep their existing labels.
                 const isConfirmedTicking = sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired;
 
-                const statusLabel = isCompleted
-                  ? "Completed"
-                  : isSellerPickupReady
-                    ? "Pickup ready"
-                    : isSellerWaitingForBuyer
-                      ? "Awaiting buyer"
-                      : isConfirmedTicking
-                        ? sellerCountdown.label
-                        : sellerOrder?.status === "confirmed"
-                          ? "Confirmed"
-                          : hasPendingOrders
-                            ? `${listing.pendingOrderCount} pending`
-                            : timeInfo.expired
-                              ? "Expired"
-                              : "Live";
+                const statusLabel = listing.status === "draft"
+                  ? "Draft"
+                  : listing.status === "sold"
+                    ? "Sold"
+                    : isCompleted
+                      ? "Completed"
+                      : isSellerPickupReady
+                        ? "Pickup ready"
+                        : isSellerWaitingForBuyer
+                          ? "Awaiting buyer"
+                          : isConfirmedTicking
+                            ? `Pickup in ${sellerCountdown.label}`
+                            : hasPendingOrders
+                              ? `${listing.pendingOrderCount} offers`
+                              : timeInfo.expired
+                                ? "Expired"
+                                : "Live";
 
                 // Terminal states (expired / completed / sold) open the
                 // product details modal. Awaiting-buyer falls through to the
@@ -2616,14 +2618,14 @@ function OverviewListingsPanel({
                     </div>
                     <span className="text-sm font-bold text-ink tabular-nums">${listing.price}</span>
                     <span className={`justify-self-start text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      cta === "expired" || isCompleted
+                      statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
                         ? "bg-surface-strong text-muted"
-                        : cta === "default"
-                          ? "bg-primary-soft text-primary"
-                          : "bg-primary text-on-primary"
+                        : statusLabel === "Awaiting buyer"
+                          ? "bg-warning/10 text-warning"
+                          : "bg-primary-soft text-primary"
                     }`}>
-                      {isConfirmedTicking ? null : <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />}
-                      {isConfirmedTicking ? `Pickup in ${sellerCountdown.label}` : statusLabel}
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {statusLabel}
                     </span>
                   </button>
                 );
@@ -2676,7 +2678,7 @@ function OverviewListingsPanel({
                   : viewState === "cancelledBySeller" ? "Cancelled by seller"
                   : viewState === "waitingForOther" ? "Awaiting seller"
                   : viewState === "pickupReady" ? "Pickup ready"
-                  : isConfirmedTicking ? countdown.label
+                  : isConfirmedTicking ? `Pickup in ${countdown.label}`
                   : order.status === "completed" ? "Completed"
                   : "Pending";
                 const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "cancelledBySeller" || viewState === "waitingForOther");
@@ -2703,14 +2705,14 @@ function OverviewListingsPanel({
                     </div>
                     <span className="text-sm font-bold text-primary tabular-nums">${order.listing_price}</span>
                     <span className={`justify-self-start text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
+                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || order.status === "completed"
                         ? "bg-surface-strong text-muted"
                         : viewState === "cancelledBySeller" || viewState === "waitingForOther"
                           ? "bg-warning/10 text-warning"
-                          : "bg-primary text-on-primary"
+                          : "bg-primary-soft text-primary"
                     }`}>
-                      {isConfirmedTicking ? null : <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />}
-                      {isConfirmedTicking ? `Pickup in ${countdown.label}` : statusLabel}
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+                      {statusLabel}
                     </span>
                   </button>
                 );
@@ -3145,21 +3147,30 @@ function ListingsTabContent({
               const isSellerPickupReady = !!(sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed);
               const isSellerWaitingForBuyer = !!(sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed);
               const isCompleted = sellerOrder?.status === "completed";
+              const isConfirmedTicking = !!(sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired);
 
-              const statusLabel = isCompleted
-                ? "Completed"
-                : timeInfo.expired
-                  ? "Expired"
-                  : listing.status === "draft"
-                    ? "Draft"
-                    : listing.status === "sold"
-                      ? "Sold"
-                      : "Live";
-              const statusClass = isCompleted || timeInfo.expired || listing.status === "sold"
+              const statusLabel = listing.status === "draft"
+                ? "Draft"
+                : listing.status === "sold"
+                  ? "Sold"
+                  : isCompleted
+                    ? "Completed"
+                    : isSellerPickupReady
+                      ? "Pickup ready"
+                      : isSellerWaitingForBuyer
+                        ? "Awaiting buyer"
+                        : isConfirmedTicking
+                          ? `Pickup in ${sellerCountdown.label}`
+                          : hasPendingOrders
+                            ? `${listing.pendingOrderCount} offers`
+                            : timeInfo.expired
+                              ? "Expired"
+                              : "Live";
+              const statusClass = statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
                 ? "bg-surface-strong text-muted"
-                : listing.status === "draft"
+                : statusLabel === "Awaiting buyer"
                   ? "bg-warning/10 text-warning"
-                  : "bg-primary text-on-primary";
+                  : "bg-primary-soft text-primary";
 
               // Cards in terminal states (expired / completed / sold) and the
               // awaiting-buyer transient state get a card-level click handler
@@ -3296,14 +3307,14 @@ function ListingsTabContent({
                 : viewState === "cancelledBySeller" ? "Cancelled by seller"
                 : viewState === "waitingForOther" ? "Awaiting seller"
                 : viewState === "pickupReady" ? "Pickup ready"
-                : viewState === "confirmedCountdown" ? "Confirmed"
+                : viewState === "confirmedCountdown" ? `Pickup in ${countdown.label}`
                 : order.status === "completed" ? "Completed"
                 : "Pending";
               const statusClass = ["declined", "withdrawn", "expired"].includes(viewState) || order.status === "completed"
                 ? "bg-surface-strong text-muted"
                 : viewState === "cancelledBySeller" || viewState === "waitingForOther"
                   ? "bg-warning/10 text-warning"
-                  : "bg-primary text-on-primary";
+                  : "bg-primary-soft text-primary";
 
               // Pending buyer-side orders get the distinct "Pending" overlay
               // (uppercase tracking-widest jade pill) mirroring the marketplace
