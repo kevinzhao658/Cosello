@@ -231,6 +231,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [editShowSuggestions, setEditShowSuggestions] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [editProfileError, setEditProfileError] = useState("");
+  const [showNeighborhoodChangeConfirm, setShowNeighborhoodChangeConfirm] = useState(false);
   const editSuggestionsRef = useRef<HTMLDivElement>(null);
   const editNeighborhoodRef = useRef<HTMLInputElement>(null);
 
@@ -1426,15 +1427,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowEditProfileModal(true);
   };
 
-  const handleUpdateProfile = async () => {
-    if (!editFirstName.trim() || !editLastName.trim()) {
-      setEditProfileError("Please enter your first and last name");
-      return;
-    }
-    if (!editIsValidNeighborhood) {
-      setEditProfileError("Please select a valid Manhattan neighborhood");
-      return;
-    }
+  const isNeighborhoodChanging = editNeighborhood.trim() !== (user?.neighborhood ?? "");
+
+  const doUpdateProfile = async () => {
     setIsUpdatingProfile(true);
     setEditProfileError("");
     try {
@@ -1460,6 +1455,27 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     } finally {
       setIsUpdatingProfile(false);
     }
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!editFirstName.trim() || !editLastName.trim()) {
+      setEditProfileError("Please enter your first and last name");
+      return;
+    }
+    if (!editIsValidNeighborhood) {
+      setEditProfileError("Please select a valid Manhattan neighborhood");
+      return;
+    }
+    if (isNeighborhoodChanging) {
+      setShowNeighborhoodChangeConfirm(true);
+      return;
+    }
+    await doUpdateProfile();
+  };
+
+  const handleConfirmNeighborhoodChange = async () => {
+    setShowNeighborhoodChangeConfirm(false);
+    await doUpdateProfile();
   };
 
   useClickOutside([createLocationRef, createLocationSuggestionsRef], () => setCreateShowLocationSuggestions(false), createShowLocationSuggestions);
@@ -1831,6 +1847,36 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onClose={() => setShowEditProfileModal(false)}
         onSubmit={handleUpdateProfile}
       />
+
+      {showNeighborhoodChangeConfirm && (
+        <ModalShell open onClose={() => setShowNeighborhoodChangeConfirm(false)} z={60}>
+          <div className="bg-canvas border border-hairline rounded-md max-w-md w-full mx-4 p-6 shadow-overlay">
+            <h3 className="text-base font-semibold text-ink mb-2">Change neighborhood?</h3>
+            <p className="text-sm text-body leading-relaxed">
+              You'll leave the <strong>{user?.neighborhood ?? "—"}</strong> community
+              and join <strong>{editNeighborhood}</strong>. Your existing listings
+              stay tagged to {user?.neighborhood ?? "your previous neighborhood"}.
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowNeighborhoodChangeConfirm(false)}
+                className={`h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold ${FOCUS_RING}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmNeighborhoodChange}
+                disabled={isUpdatingProfile}
+                className={`h-9 px-4 rounded-md bg-primary text-on-primary hover:bg-primary-hover text-sm font-semibold disabled:opacity-50 ${FOCUS_RING}`}
+              >
+                {isUpdatingProfile ? <Loader2 className="size-4 animate-spin" /> : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
 
       <AddFriendsModal
         open={showAddFriendsModal}
