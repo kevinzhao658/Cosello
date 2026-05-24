@@ -103,6 +103,18 @@ def _community_to_out(community: Community, db: Session, user_id: str) -> dict:
 # ---------- Endpoints ----------
 
 
+@router.get("/neighborhoods")
+async def list_neighborhoods():
+    """Return the curated list of canonical Manhattan neighborhood names.
+
+    Used by the FE onboarding picker. Single source of truth lives in
+    backend/constants/neighborhoods.py — extend that list to add new
+    neighborhoods. No auth required (the list is public).
+    """
+    from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
+    return sorted(MANHATTAN_NEIGHBORHOODS)
+
+
 @router.get("/search")
 async def search_communities(
     q: str,
