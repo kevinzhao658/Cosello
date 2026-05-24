@@ -9,6 +9,7 @@ from database import get_db
 from models import User
 from auth import get_current_user
 from services import storage
+from services.neighborhood import set_user_neighborhood
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -90,12 +91,18 @@ async def register(
         db.add(existing)
 
     existing.display_name = req.display_name
-    existing.neighborhood = req.neighborhood
     if req.pickup_address is not None:
         existing.pickup_address = req.pickup_address
     if req.zip_code is not None:
         existing.zip_code = req.zip_code
-    db.commit()
+    db.commit()  # flush profile fields first
+
+    # Then handle neighborhood + auto-join membership in one tx
+    try:
+        set_user_neighborhood(db, existing, req.neighborhood)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     db.refresh(existing)
     return _user_to_out(db, existing)
 
@@ -108,15 +115,22 @@ async def update_profile(
 ):
     if req.display_name is not None:
         current_user.display_name = req.display_name
-    if req.neighborhood is not None:
-        current_user.neighborhood = req.neighborhood
     if req.pickup_address is not None:
         current_user.pickup_address = req.pickup_address
     if req.zip_code is not None:
         current_user.zip_code = req.zip_code
-    db.commit()
-    db.refresh(current_user)
-    return _user_to_out(db, current_user)
+    db.commit()  # flush non-neighborhood fields first
+
+    if req.neighborhood is not None:
+        try:
+            set_user_neighborhood(db, current_user, req.neighborhood)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Re-fetch rather than refresh so the returned object is bound to this
+    # session (current_user may come from a different session in test contexts).
+    refreshed = db.query(User).filter(User.id == current_user.id).first()
+    return _user_to_out(db, refreshed)
 
 
 @router.get("/me", response_model=UserOut)

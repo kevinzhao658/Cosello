@@ -159,8 +159,12 @@ def authed_user_factory(db_session, supabase_admin, override_auth_user, client):
         assert user is not None
 
         # Wire membership if neighborhood is set (simulates the auth endpoint calling
-        # set_user_neighborhood on first registration).
+        # set_user_neighborhood on first registration). Temporarily clear
+        # user.neighborhood so set_user_neighborhood treats this as a new assignment
+        # (not a no-op).
         if neighborhood and neighborhood in MANHATTAN_NEIGHBORHOODS:
+            user.neighborhood = None
+            db_session.commit()
             set_user_neighborhood(db_session, user, neighborhood)
             db_session.refresh(user)
 
