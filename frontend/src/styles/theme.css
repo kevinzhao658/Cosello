@@ -44,6 +44,7 @@
 
   /* Status */
   --warning: #D89A3C;
+  --warning-soft: #F5E5C5;
   --error: #B84A3B;
 
   /* Radii */
@@ -126,6 +127,7 @@
   --color-on-dark: var(--on-dark);
 
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
   --color-error: var(--error);
 
   /* Radii */
