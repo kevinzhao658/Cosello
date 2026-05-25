@@ -2621,7 +2621,7 @@ function OverviewListingsPanel({
                       statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
                         ? "bg-surface-strong text-muted"
                         : statusLabel === "Awaiting buyer"
-                          ? "bg-warning/10 text-warning"
+                          ? "bg-warning-soft text-warning"
                           : "bg-primary-soft text-primary"
                     }`}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
@@ -2708,7 +2708,7 @@ function OverviewListingsPanel({
                       viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || order.status === "completed"
                         ? "bg-surface-strong text-muted"
                         : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                          ? "bg-warning/10 text-warning"
+                          ? "bg-warning-soft text-warning"
                           : "bg-primary-soft text-primary"
                     }`}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
@@ -3169,7 +3169,7 @@ function ListingsTabContent({
               const statusClass = statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
                 ? "bg-surface-strong text-muted"
                 : statusLabel === "Awaiting buyer"
-                  ? "bg-warning/10 text-warning"
+                  ? "bg-warning-soft text-warning"
                   : "bg-primary-soft text-primary";
 
               // Cards in terminal states (expired / completed / sold) and the
@@ -3313,7 +3313,7 @@ function ListingsTabContent({
               const statusClass = ["declined", "withdrawn", "expired"].includes(viewState) || order.status === "completed"
                 ? "bg-surface-strong text-muted"
                 : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                  ? "bg-warning/10 text-warning"
+                  ? "bg-warning-soft text-warning"
                   : "bg-primary-soft text-primary";
 
               // Pending buyer-side orders get the distinct "Pending" overlay
