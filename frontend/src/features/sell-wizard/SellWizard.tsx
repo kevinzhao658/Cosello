@@ -20,6 +20,7 @@ import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
+import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -1006,6 +1007,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onRequestSinglePostConfirm();
           }}
           isAuthenticated={isAuthenticated}
+          availableCommunities={availableCommunities}
+          selectedCommunityIds={selectedCommunityIds}
+          onToggleCommunity={(id) => {
+            setSelectedCommunityIds((prev) =>
+              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+            );
+          }}
+          userNeighborhood={user?.neighborhood ?? null}
         />
       )}
 
@@ -1053,11 +1062,16 @@ interface SingleListingFormProps {
   setNewTag: (v: string) => void;
   onPost: () => void;
   isAuthenticated: boolean;
+  availableCommunities: CommunityOption[];
+  selectedCommunityIds: number[];
+  onToggleCommunity: (id: number) => void;
+  userNeighborhood: string | null;
 }
 
 function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
+  availableCommunities, selectedCommunityIds, onToggleCommunity, userNeighborhood,
 }: SingleListingFormProps) {
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
@@ -1198,6 +1212,15 @@ function SingleListingForm({
         <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
           Your address will not be shared until pickup is confirmed.
         </p>
+      </div>
+
+      <div className="mt-3">
+        <CommunityPicker
+          availableCommunities={availableCommunities}
+          selectedCommunityIds={selectedCommunityIds}
+          onToggleCommunity={onToggleCommunity}
+          userNeighborhood={userNeighborhood}
+        />
       </div>
 
       <Button
