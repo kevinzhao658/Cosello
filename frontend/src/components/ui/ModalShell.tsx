@@ -23,7 +23,7 @@ type ModalShellProps = {
   // When `align="start"`, the modal pins to the top of the viewport with
   // overflow-y-auto on the outer container — used for very tall content
   // (e.g. UserProfile overlay) that needs to scroll past the viewport.
-  align?: "center" | "start";
+  align?: "center" | "start" | "right";
 };
 
 export function ModalShell({
@@ -38,7 +38,9 @@ export function ModalShell({
   const alignment =
     align === "center"
       ? "flex items-center justify-center"
-      : "flex items-start justify-center overflow-y-auto";
+      : align === "start"
+        ? "flex items-start justify-center overflow-y-auto"
+        : "flex items-stretch justify-end";
   return (
     <div className={`fixed inset-0 ${alignment}`} style={{ zIndex: z }}>
       <div
