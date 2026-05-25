@@ -979,6 +979,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               if (!isAuthenticated) { onRequestSignIn(); return; }
               handleBulkPostFromPickupStep();
             }}
+            availableCommunities={availableCommunities}
+            selectedCommunityIds={selectedCommunityIds}
+            onToggleCommunity={(id) => {
+              setSelectedCommunityIds((prev) =>
+                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+              );
+            }}
+            userNeighborhood={user?.neighborhood ?? null}
           />
         </div>
       )}
