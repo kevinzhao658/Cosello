@@ -114,7 +114,7 @@ export default function App() {
   const [listingsLoaded, setListingsLoaded] = useState(false);
   const [marketSearch, setMarketSearch] = useState("");
   const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
-  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
+  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<number[]>([]);
   // R-3.1: new tri-mode sort. `recommended` and `trending` both fall through
   // to backend `sort=newest` (FYP path kicks in when no community is selected
   // and no search is active) until dedicated backend sort modes ship.
@@ -155,7 +155,7 @@ export default function App() {
     }
   }, [isDesktop]);
   const toggleMarketSidebar = useCallback(() => setMarketSidebarCollapsed((c) => !c), []);
-  const handleToggleMarketCommunity = useCallback((cid: string) => {
+  const handleToggleMarketCommunity = useCallback((cid: number) => {
     setSelectedMarketCommunities((prev) =>
       prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
     );

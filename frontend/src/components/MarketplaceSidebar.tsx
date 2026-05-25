@@ -11,7 +11,7 @@ interface CategorySchema {
 }
 
 interface Community {
-  id: string | number;
+  id: number;
   name: string;
   neighborhood?: string;
   is_public?: boolean;
@@ -25,8 +25,8 @@ interface MarketplaceSidebarProps {
   onMarketSearchChange: (value: string) => void;
   isAuthenticated: boolean;
   filterCommunities: Community[];
-  selectedMarketCommunities: string[];
-  onToggleCommunity: (cid: string) => void;
+  selectedMarketCommunities: number[];
+  onToggleCommunity: (cid: number) => void;
   categorySchemas: Record<string, CategorySchema>;
   selectedCategories: CategorySlug[];
   onToggleCategory: (slug: CategorySlug) => void;
@@ -147,7 +147,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
             </div>
             <div className="flex flex-wrap gap-3 pt-1">
               {visibleComms.map((community) => {
-                const cid = String(community.id);
+                const cid = community.id;
                 const isSelected = selectedMarketCommunities.includes(cid);
                 return (
                   <Tooltip key={cid} content={community.name}>
@@ -201,7 +201,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                         More communities
                       </div>
                       {extraComms.map((community) => {
-                        const cid = String(community.id);
+                        const cid = community.id;
                         const isSelected = selectedMarketCommunities.includes(cid);
                         return (
                           <label
