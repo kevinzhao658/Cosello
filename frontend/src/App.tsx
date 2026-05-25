@@ -621,16 +621,12 @@ export default function App() {
   const fetchFilterCommunities = async () => {
     if (!token) return;
     try {
-      const res = await apiFetch("/api/communities/mine-with-neighborhood");
+      const res = await apiFetch("/api/communities/mine");
       if (res.ok) {
-        const data = await res.json();
-        // Drop the legacy "neighborhood" pseudo-id entry that mine-with-neighborhood
-        // still emits — PR 3 will delete the endpoint entirely.
-        const publicList: typeof data.public = (data.public || []).filter(
-          (c: { id: string | number }) => c.id !== "neighborhood"
-        );
-        setPublicCommunities(publicList);
-        setPrivateCommunities(data.private || []);
+        const all: { id: number; name: string; neighborhood?: string; is_public: boolean }[] =
+          await res.json();
+        setPublicCommunities(all.filter((c) => c.is_public));
+        setPrivateCommunities(all.filter((c) => !c.is_public));
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
