@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, startTransition, forwardRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, startTransition, forwardRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
@@ -43,9 +43,10 @@ export interface SellWizardProps {
   // no submit arrow, no downstream phases). Used by the #newlisting page where
   // the page owns the publish button.
   photosOnly?: boolean;
-  // The user's communities (from mine-with-neighborhood). Used to pre-select
-  // the neighborhood community in the community selector.
+  // The user's communities (from /mine). Used to pre-select the neighborhood
+  // community in the community selector and populate the picker.
   publicCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
+  privateCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
@@ -70,6 +71,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   mode = "ai",
   photosOnly = false,
   publicCommunities = [],
+  privateCommunities = [],
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
@@ -81,12 +83,28 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
 
-  // Resolve the user's neighborhood community from the publicCommunities list.
-  // This id is pre-attached to every listing submission as a non-removable
-  // community (mirrors the backend auto-attach in PR 1).
-  const userNeighborhoodCommunityId = publicCommunities.find(
-    (c) => c.neighborhood === user?.neighborhood
-  )?.id ?? null;
+  // PR 3: seller picks up to 3 communities per listing. We pre-select the
+  // user's neighborhood community as a default; the seller can deselect it.
+  // The picker lives in PickupStep — see Task 7.
+  const availableCommunities = useMemo(
+    () => [...publicCommunities, ...privateCommunities],
+    [publicCommunities, privateCommunities],
+  );
+  const userNeighborhoodCommunityId = useMemo(
+    () => publicCommunities.find((c) => c.neighborhood === user?.neighborhood)?.id ?? null,
+    [publicCommunities, user?.neighborhood],
+  );
+  const [selectedCommunityIds, setSelectedCommunityIds] = useState<number[]>([]);
+  // Initial pre-selection: when the user's neighborhood community resolves,
+  // seed the picker with it (only if the seller hasn't touched the picker yet).
+  const initializedFromNeighborhoodRef = useRef(false);
+  useEffect(() => {
+    if (initializedFromNeighborhoodRef.current) return;
+    if (userNeighborhoodCommunityId !== null) {
+      setSelectedCommunityIds([userNeighborhoodCommunityId]);
+      initializedFromNeighborhoodRef.current = true;
+    }
+  }, [userNeighborhoodCommunityId]);
   const [state, actions] = useSellWizard();
 
   const {
@@ -522,12 +540,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       void _; void _rf;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
-      // Include the user's neighborhood community id so it is explicitly
-      // attached. The backend also auto-attaches it (PR 1 defense-in-depth).
-      formData.append(
-        "communities",
-        userNeighborhoodCommunityId !== null ? String(userNeighborhoodCommunityId) : "",
-      );
+      // Seller's community picks from the PickupStep picker (PR 3). Capped to
+      // 3 client-side; backend re-validates cap + membership.
+      formData.append("communities", selectedCommunityIds.join(","));
       formData.append("visibility", "public");
       formData.append("pickup_location", pickup);
 
@@ -543,7 +558,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, userNeighborhoodCommunityId, actions, onPosted, onRequestSignIn]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onRequestSignIn]);
 
   const resetForLogout = useCallback(() => {
     segmentationAbortRef.current?.abort();
@@ -619,11 +634,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           void _indices; void _conf; void _rf; void _itemPickup;
           const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
           formData.append("data", JSON.stringify(productData));
-          // Include the user's neighborhood community id (same as single-post).
-          formData.append(
-            "communities",
-            userNeighborhoodCommunityId !== null ? String(userNeighborhoodCommunityId) : "",
-          );
+          // Bulk items share one community selection from PickupStep.
+          formData.append("communities", selectedCommunityIds.join(","));
           formData.append("visibility", "public");
           const itemPickup =
             item.pickupLocation && item.pickupLocation.trim() !== ""
@@ -986,9 +998,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onRequestSinglePostConfirm();
           }}
           isAuthenticated={isAuthenticated}
-          neighborhoodCommunityName={
-            publicCommunities.find((c) => c.neighborhood === user?.neighborhood)?.name ?? null
-          }
         />
       )}
 
@@ -1036,14 +1045,11 @@ interface SingleListingFormProps {
   setNewTag: (v: string) => void;
   onPost: () => void;
   isAuthenticated: boolean;
-  /** Name of the user's neighborhood community, pre-selected for the listing. */
-  neighborhoodCommunityName: string | null;
 }
 
 function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
-  neighborhoodCommunityName,
 }: SingleListingFormProps) {
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
@@ -1185,16 +1191,6 @@ function SingleListingForm({
           Your address will not be shared until pickup is confirmed.
         </p>
       </div>
-
-      {neighborhoodCommunityName && (
-        <div className="flex items-center gap-2 py-2 px-3 rounded-md bg-primary-soft border border-primary/20 text-xs text-body">
-          <MapPin className="size-3.5 text-primary shrink-0" />
-          <span>
-            Auto-tagged to <strong className="text-ink">{neighborhoodCommunityName}</strong>
-            <span className="text-muted ml-1">(default — your neighborhood)</span>
-          </span>
-        </div>
-      )}
 
       <Button
         onClick={onPost}

@@ -1371,6 +1371,7 @@ export default function App() {
                     mode={newListingMode}
                     photosOnly={newListingMode === "manual"}
                     publicCommunities={publicCommunities}
+                    privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={() => setPage("signin")}
                     onPosted={() => {
