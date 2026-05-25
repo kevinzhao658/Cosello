@@ -624,7 +624,12 @@ export default function App() {
       const res = await apiFetch("/api/communities/mine-with-neighborhood");
       if (res.ok) {
         const data = await res.json();
-        setPublicCommunities(data.public || []);
+        // Drop the legacy "neighborhood" pseudo-id entry that mine-with-neighborhood
+        // still emits — PR 3 will delete the endpoint entirely.
+        const publicList: typeof data.public = (data.public || []).filter(
+          (c: { id: string | number }) => c.id !== "neighborhood"
+        );
+        setPublicCommunities(publicList);
         setPrivateCommunities(data.private || []);
       }
     } catch (err) {
