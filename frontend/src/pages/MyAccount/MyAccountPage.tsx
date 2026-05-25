@@ -741,6 +741,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchWishlistWithFolders();
   }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders]);
 
+  // Refetch local communities list whenever the user's neighborhood changes
+  // (set_user_neighborhood swap on the server adds/removes membership).
+  // Reactive — not called imperatively in doUpdateProfile — to avoid races
+  // with the AuthContext re-render triggered by updateUser(). App.tsx has its
+  // own neighborhood-watching effect for its publicCommunities state — keep
+  // those decoupled so the `onCommunitiesChanged` callback prop (which is
+  // recreated every App render) can't pull this effect into a render loop.
+  useEffect(() => {
+    if (!user?.neighborhood) return;
+    fetchCommunities();
+  }, [user?.neighborhood, fetchCommunities]);
+
   // Refetch when an OrderModalsProvider action settles (rating submit, slot
   // confirm, decline). The Supabase realtime channel below also catches the
   // underlying purchase_orders row update, but the explicit subscription is
@@ -1450,6 +1462,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const updatedUser = await res.json();
       updateUser(updatedUser);
       setShowEditProfileModal(false);
+      // Communities refetch fires reactively via the `user?.neighborhood`
+      // useEffect below — see comment there for why.
     } catch (err) {
       setEditProfileError(err instanceof Error ? err.message : "Update failed");
     } finally {
@@ -1467,6 +1481,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       return;
     }
     if (isNeighborhoodChanging) {
+      setShowEditProfileModal(false);
       setShowNeighborhoodChangeConfirm(true);
       return;
     }
@@ -1476,6 +1491,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const handleConfirmNeighborhoodChange = async () => {
     setShowNeighborhoodChangeConfirm(false);
     await doUpdateProfile();
+  };
+
+  const handleCancelNeighborhoodChange = () => {
+    setShowNeighborhoodChangeConfirm(false);
+    setShowEditProfileModal(true);
   };
 
   useClickOutside([createLocationRef, createLocationSuggestionsRef], () => setCreateShowLocationSuggestions(false), createShowLocationSuggestions);
@@ -1849,7 +1869,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       />
 
       {showNeighborhoodChangeConfirm && (
-        <ModalShell open onClose={() => setShowNeighborhoodChangeConfirm(false)} z={60}>
+        <ModalShell open onClose={handleCancelNeighborhoodChange} z={60}>
           <div className="bg-canvas border border-hairline rounded-md max-w-md w-full mx-4 p-6 shadow-overlay">
             <h3 className="text-base font-semibold text-ink mb-2">Change neighborhood?</h3>
             <p className="text-sm text-body leading-relaxed">
@@ -1860,7 +1880,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             <div className="flex justify-end gap-2 mt-4">
               <button
                 type="button"
-                onClick={() => setShowNeighborhoodChangeConfirm(false)}
+                onClick={handleCancelNeighborhoodChange}
                 className={`h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold ${FOCUS_RING}`}
               >
                 Cancel

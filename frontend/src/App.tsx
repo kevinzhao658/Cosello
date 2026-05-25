@@ -639,7 +639,11 @@ export default function App() {
 
   useEffect(() => {
     if (isAuthenticated) fetchFilterCommunities();
-  }, [isAuthenticated, page]);
+    // user?.neighborhood is in deps so the marketplace filter sidebar refreshes
+    // after a neighborhood swap (set_user_neighborhood adds/removes membership)
+    // without needing an imperative callback from MyAccountPage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, page, user?.neighborhood]);
 
   useEffect(() => {
     apiFetch("/api/categories")
