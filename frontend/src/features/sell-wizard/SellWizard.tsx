@@ -3,7 +3,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
-import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
+import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight, ChevronRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
@@ -106,6 +106,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       initializedFromNeighborhoodRef.current = true;
     }
   }, [userNeighborhoodCommunityId]);
+  // Single-listing wizard has its own two-phase split (review → pickup) to
+  // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
+  const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
   const [state, actions] = useSellWizard();
 
   const {
@@ -114,6 +117,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     isGenerating, isPostingBulk, segmentationError, dragImageState, dragOverGroup, dragOverGap,
     newTag, editingTitle, instructionExiting,
   } = state;
+
+  // Reset the single-listing two-phase split whenever a new productDetails
+  // cycle begins (i.e. productDetails clears between submissions).
+  useEffect(() => {
+    if (productDetails === null) {
+      setSinglePostPhase("review");
+    }
+  }, [productDetails]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wizardAnchorRef = useRef<HTMLDivElement>(null);
@@ -992,16 +1003,27 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         </div>
       )}
 
-      {productDetails && !isGenerating && !photosOnly && (
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "review" && (
         <SingleListingForm
           productDetails={productDetails}
           setProductDetails={actions.setProductDetails}
           categorySchemas={categorySchemas}
           setSingleCategory={setSingleCategory}
-          postPickupLocation={postPickupLocation}
-          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
           newTag={newTag}
           setNewTag={(v) => actions.setNewTag(v)}
+          onContinue={() => {
+            if (!isAuthenticated) { onRequestSignIn(); return; }
+            setSinglePostPhase("pickup");
+          }}
+          isAuthenticated={isAuthenticated}
+        />
+      )}
+
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && (
+        <SinglePickupStep
+          postPickupLocation={postPickupLocation}
+          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+          onBack={() => setSinglePostPhase("review")}
           onPost={() => {
             if (!isAuthenticated) { onRequestSignIn(); return; }
             onRequestSinglePostConfirm();
@@ -1015,6 +1037,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             );
           }}
           userNeighborhood={user?.neighborhood ?? null}
+          instructionExiting={instructionExiting}
         />
       )}
 
@@ -1051,27 +1074,22 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 });
 
 // ─── Single Listing Form (extracted from inline JSX) ────────────────────────
+// Step 3 of the single-listing wizard: product details review only. Pickup +
+// community picker were moved to a dedicated step 4 (SinglePickupStep).
 interface SingleListingFormProps {
   productDetails: ProductDetails;
   setProductDetails: (details: ProductDetails | null) => void;
   categorySchemas: Record<string, CategorySchema>;
   setSingleCategory: (slug: CategorySlug) => void;
-  postPickupLocation: string;
-  setPostPickupLocation: (v: string) => void;
   newTag: string;
   setNewTag: (v: string) => void;
-  onPost: () => void;
+  onContinue: () => void;
   isAuthenticated: boolean;
-  availableCommunities: CommunityOption[];
-  selectedCommunityIds: number[];
-  onToggleCommunity: (id: number) => void;
-  userNeighborhood: string | null;
 }
 
 function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
-  postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
-  availableCommunities, selectedCommunityIds, onToggleCommunity, userNeighborhood,
+  newTag, setNewTag, onContinue, isAuthenticated,
 }: SingleListingFormProps) {
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
@@ -1197,38 +1215,82 @@ function SingleListingForm({
           </form>
         </div>
       </div>
-      <div className="mt-3">
-        <label className="text-xs text-muted uppercase tracking-wider">Pickup Location</label>
-        <div className="mt-1.5 flex items-center gap-2">
-          <MapPin className="size-3.5 text-primary shrink-0" />
-          <input
-            type="text"
+      <Button
+        onClick={onContinue}
+        className="w-full mt-3"
+      >
+        {isAuthenticated ? "Continue →" : "Sign in to Continue"}
+      </Button>
+    </div>
+  );
+}
+
+// ─── Single-listing pickup step (mirrors PickupStep for bulk) ───────────────
+// Step 4 of the single-listing wizard. Owns the typed "Where are you
+// selling?" header, pickup input, community picker, back chevron, and the
+// final Post Listing button.
+interface SinglePickupStepProps {
+  postPickupLocation: string;
+  setPostPickupLocation: (v: string) => void;
+  onBack: () => void;
+  onPost: () => void;
+  isAuthenticated: boolean;
+  availableCommunities: CommunityOption[];
+  selectedCommunityIds: number[];
+  onToggleCommunity: (id: number) => void;
+  userNeighborhood: string | null;
+  instructionExiting: boolean;
+}
+
+function SinglePickupStep({
+  postPickupLocation, setPostPickupLocation, onBack, onPost, isAuthenticated,
+  availableCommunities, selectedCommunityIds, onToggleCommunity, userNeighborhood,
+  instructionExiting,
+}: SinglePickupStepProps) {
+  return (
+    <>
+      <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted uppercase tracking-wider">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          className="size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          <ChevronRight className="size-3.5 rotate-180" />
+        </button>
+        <span>Step 4 of 4 — Pickup Location</span>
+      </div>
+      <TypedInstruction bulkReviewPhase="pickup" exiting={instructionExiting} />
+      <div className="mt-8 space-y-5 max-w-md mx-auto">
+        <div>
+          <label htmlFor="single-pickup-location" className="text-xs text-muted uppercase tracking-wider">
+            Pickup location
+          </label>
+          <Input
+            id="single-pickup-location"
             value={postPickupLocation}
             onChange={(e) => setPostPickupLocation(e.target.value)}
-            placeholder="Enter pickup location"
-            className="flex-1 bg-canvas border border-border-strong rounded-md px-3 py-2 text-sm text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary"
+            placeholder="e.g. Lower East Side, NYC"
+            maxLength={200}
+            className="mt-1"
           />
+          <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
+            Your address will not be shared until pickup is confirmed.
+          </p>
         </div>
-        <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
-          Your address will not be shared until pickup is confirmed.
-        </p>
-      </div>
-
-      <div className="mt-3">
         <CommunityPicker
           availableCommunities={availableCommunities}
           selectedCommunityIds={selectedCommunityIds}
           onToggleCommunity={onToggleCommunity}
           userNeighborhood={userNeighborhood}
         />
+        <Button
+          onClick={onPost}
+          className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          {isAuthenticated ? "Post listing" : "Sign in to Post"}
+        </Button>
       </div>
-
-      <Button
-        onClick={onPost}
-        className="w-full mt-2"
-      >
-        {isAuthenticated ? "Post Listing" : "Sign in to Post"}
-      </Button>
-    </div>
+    </>
   );
 }
