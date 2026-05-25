@@ -436,6 +436,20 @@ def test_register_endpoint_rejects_off_list_neighborhood(
             pass
 
 
+def test_mine_with_neighborhood_endpoint_deleted(authed_client):
+    """PR 3 cutover: the /mine-with-neighborhood endpoint is gone.
+    Clients must use /mine and split client-side.
+
+    Note: FastAPI's /{community_id} catch-all route matches the path and
+    returns 422 (validation error — community_id is not an int) rather than
+    404.  Either status confirms the dedicated endpoint no longer exists.
+    """
+    resp = authed_client.get("/api/communities/mine-with-neighborhood")
+    assert resp.status_code in (404, 422), (
+        f"Expected 404 or 422 (endpoint gone), got {resp.status_code}"
+    )
+
+
 def test_update_profile_swaps_neighborhood_community(
     client, authed_user_factory, db_session
 ):

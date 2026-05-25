@@ -231,44 +231,6 @@ async def create_community(
     return _community_to_out(community, db, current_user.id)
 
 
-@router.get("/mine-with-neighborhood")
-async def my_communities_with_neighborhood(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    public_list: list[dict] = []
-    private_list: list[dict] = []
-
-    # Virtual "My Neighborhood" community (always public)
-    if current_user.neighborhood:
-        public_list.append({
-            "id": "neighborhood",
-            "name": "My Neighborhood",
-            "neighborhood": current_user.neighborhood,
-            "is_public": True,
-        })
-
-    # Real communities partitioned by is_public
-    memberships = (
-        db.query(CommunityMember)
-        .filter(CommunityMember.user_id == current_user.id)
-        .all()
-    )
-    for m in memberships:
-        community = db.query(Community).filter(Community.id == m.community_id).first()
-        if community:
-            entry = {
-                "id": community.id,
-                "name": community.name,
-                "neighborhood": community.neighborhood,
-                "is_public": community.is_public,
-            }
-            if community.is_public:
-                public_list.append(entry)
-            else:
-                private_list.append(entry)
-    return {"public": public_list, "private": private_list}
-
 
 @router.get("/mine", response_model=list[CommunityOut])
 async def my_communities(
