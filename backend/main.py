@@ -36,6 +36,7 @@ from services.google.vision import VisionResult
 from services.evidence import build_evidence_block, _format_single_image_evidence
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 from services import storage
+from services.neighborhood import get_neighborhood_community
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,11 @@ async def seed_listings(
             condition=item["condition"],
             location=current_user.neighborhood or random.choice(neighborhoods),
             tags=json.dumps(item["tags"]),
-            communities=json.dumps(["neighborhood"]),
+            communities=json.dumps(
+                [get_neighborhood_community(db, current_user.neighborhood).id]
+                if current_user.neighborhood
+                else []
+            ),
             visibility="public",
             image_url=image_urls[0],
             image_urls=json.dumps(image_urls),
@@ -1305,7 +1310,7 @@ async def get_listings(
             return "public"
         for c in lc:
             nc = _ncid(c)
-            if nc == "neighborhood" or (isinstance(nc, int) and nc in all_public_ids):
+            if isinstance(nc, int) and nc in all_public_ids:
                 return "public"
         return "private"
 
@@ -1334,11 +1339,7 @@ async def get_listings(
             return 3
         for c in listing.get("communities", []):
             nc = _ncid(c)
-            if nc == "neighborhood":
-                poster = poster_map.get(listing.get("userId"))
-                if poster and my_neighborhood and poster.neighborhood == my_neighborhood:
-                    return 2
-            elif isinstance(nc, int) and nc in my_community_ids:
+            if isinstance(nc, int) and nc in my_community_ids:
                 return 2
         return 3
 
@@ -1350,22 +1351,15 @@ async def get_listings(
             lc = listing.get("communities", [])
             norm_cids = [_ncid(c) for c in lc]
             for part in parts:
-                if part == "neighborhood":
-                    if "neighborhood" in lc and neighborhood:
-                        poster = poster_map.get(listing.get("userId"))
-                        if poster and poster.neighborhood == neighborhood:
-                            filtered.append(listing)
-                            break
-                else:
-                    try:
-                        cid = int(part)
-                    except ValueError:
-                        continue
-                    if cid not in norm_cids:
-                        continue
-                    if cid in my_community_ids or cid in all_public_ids:
-                        filtered.append(listing)
-                        break
+                try:
+                    cid = int(part)
+                except ValueError:
+                    continue
+                if cid not in norm_cids:
+                    continue
+                if cid in my_community_ids or cid in all_public_ids:
+                    filtered.append(listing)
+                    break
         results = filtered
     else:
         results = [l for l in results if _is_visible(l)]
@@ -1457,15 +1451,7 @@ async def get_listings(
         all_comms = []
         mutual = []
         for cid in l.get("communities", []):
-            if cid == "neighborhood":
-                poster = poster_map.get(l.get("userId"))
-                hood_name = poster.neighborhood if poster and poster.neighborhood else l.get("location", "Neighborhood")
-                is_same_hood = bool(poster and my_neighborhood and poster.neighborhood == my_neighborhood)
-                hood_entry = {"name": hood_name, "is_public": True, "is_mutual": is_same_hood, "is_neighborhood": True}
-                all_comms.append(hood_entry)
-                if is_same_hood:
-                    mutual.append(hood_entry)
-            elif isinstance(cid, int) and cid in community_info_map:
+            if isinstance(cid, int) and cid in community_info_map:
                 info = community_info_map[cid]
                 is_mutual = cid in my_community_ids
                 # Private communities only visible to members — skip for non-members
@@ -1517,7 +1503,7 @@ async def get_public_listings(
         return any(
             isinstance(_ncid(c), int) and _ncid(c) in all_public_ids
             for c in lc
-        ) or "neighborhood" in lc
+        )
 
     if community and community != "All":
         parts = [c.strip() for c in community.split(",") if c.strip()]
@@ -1590,11 +1576,7 @@ async def get_public_listings(
             listing_copy["location"] = poster.neighborhood
         all_comms = []
         for cid in l.get("communities", []):
-            if cid == "neighborhood":
-                poster = pub_poster_map.get(l.get("userId"))
-                hood_name = poster.neighborhood if poster and poster.neighborhood else l.get("location", "Neighborhood")
-                all_comms.append({"name": hood_name, "is_public": True, "is_mutual": False, "is_neighborhood": True})
-            elif isinstance(cid, int) and cid in pub_info:
+            if isinstance(cid, int) and cid in pub_info:
                 # Only show public communities on unauthenticated endpoint
                 if pub_info[cid].get("is_public", True):
                     all_comms.append({**pub_info[cid], "is_mutual": False})
