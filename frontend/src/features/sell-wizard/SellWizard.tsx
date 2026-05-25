@@ -43,6 +43,9 @@ export interface SellWizardProps {
   // no submit arrow, no downstream phases). Used by the #newlisting page where
   // the page owns the publish button.
   photosOnly?: boolean;
+  // The user's communities (from mine-with-neighborhood). Used to pre-select
+  // the neighborhood community in the community selector.
+  publicCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
@@ -66,6 +69,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   isActive,
   mode = "ai",
   photosOnly = false,
+  publicCommunities = [],
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
@@ -76,6 +80,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onCoverImageChange,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
+
+  // Resolve the user's neighborhood community from the publicCommunities list.
+  // This id is pre-attached to every listing submission as a non-removable
+  // community (mirrors the backend auto-attach in PR 1).
+  const userNeighborhoodCommunityId = publicCommunities.find(
+    (c) => c.neighborhood === user?.neighborhood
+  )?.id ?? null;
   const [state, actions] = useSellWizard();
 
   const {
@@ -511,7 +522,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       void _; void _rf;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
-      formData.append("communities", "");
+      // Include the user's neighborhood community id so it is explicitly
+      // attached. The backend also auto-attaches it (PR 1 defense-in-depth).
+      formData.append(
+        "communities",
+        userNeighborhoodCommunityId !== null ? String(userNeighborhoodCommunityId) : "",
+      );
       formData.append("visibility", "public");
       formData.append("pickup_location", pickup);
 
@@ -527,7 +543,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, actions, onPosted, onRequestSignIn]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, userNeighborhoodCommunityId, actions, onPosted, onRequestSignIn]);
 
   const resetForLogout = useCallback(() => {
     segmentationAbortRef.current?.abort();
@@ -603,7 +619,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           void _indices; void _conf; void _rf; void _itemPickup;
           const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
           formData.append("data", JSON.stringify(productData));
-          formData.append("communities", "");
+          // Include the user's neighborhood community id (same as single-post).
+          formData.append(
+            "communities",
+            userNeighborhoodCommunityId !== null ? String(userNeighborhoodCommunityId) : "",
+          );
           formData.append("visibility", "public");
           const itemPickup =
             item.pickupLocation && item.pickupLocation.trim() !== ""
@@ -966,6 +986,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onRequestSinglePostConfirm();
           }}
           isAuthenticated={isAuthenticated}
+          neighborhoodCommunityName={
+            publicCommunities.find((c) => c.neighborhood === user?.neighborhood)?.name ?? null
+          }
         />
       )}
 
@@ -1013,11 +1036,14 @@ interface SingleListingFormProps {
   setNewTag: (v: string) => void;
   onPost: () => void;
   isAuthenticated: boolean;
+  /** Name of the user's neighborhood community, pre-selected for the listing. */
+  neighborhoodCommunityName: string | null;
 }
 
 function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
+  neighborhoodCommunityName,
 }: SingleListingFormProps) {
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
@@ -1159,6 +1185,16 @@ function SingleListingForm({
           Your address will not be shared until pickup is confirmed.
         </p>
       </div>
+
+      {neighborhoodCommunityName && (
+        <div className="flex items-center gap-2 py-2 px-3 rounded-md bg-primary-soft border border-primary/20 text-xs text-body">
+          <MapPin className="size-3.5 text-primary shrink-0" />
+          <span>
+            Auto-tagged to <strong className="text-ink">{neighborhoodCommunityName}</strong>
+            <span className="text-muted ml-1">(default — your neighborhood)</span>
+          </span>
+        </div>
+      )}
 
       <Button
         onClick={onPost}

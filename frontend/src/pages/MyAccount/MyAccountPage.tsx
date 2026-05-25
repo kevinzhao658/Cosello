@@ -41,7 +41,7 @@ import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { ListingImage } from "../../components/ui/ListingImage";
-import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
+import { useNeighborhoods } from "../../lib/useNeighborhoods";
 import {
   getBuyerOrderViewState,
   getPickupCountdown,
@@ -156,6 +156,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting, resetSettings } = useSettings();
 
+  const { list: neighborhoodsList, isLoading: isLoadingNeighborhoodsList, error: neighborhoodsListError } = useNeighborhoods();
+  const neighborhoods = neighborhoodsList ?? [];
+
   // ── Tab state (persisted) ──────────────────────────────
   const [accountTab, setAccountTab] = useState<AccountTab>(() => {
     try {
@@ -228,6 +231,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [editShowSuggestions, setEditShowSuggestions] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [editProfileError, setEditProfileError] = useState("");
+  const [showNeighborhoodChangeConfirm, setShowNeighborhoodChangeConfirm] = useState(false);
   const editSuggestionsRef = useRef<HTMLDivElement>(null);
   const editNeighborhoodRef = useRef<HTMLInputElement>(null);
 
@@ -736,6 +740,18 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchWishlistFolders();
     fetchWishlistWithFolders();
   }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders]);
+
+  // Refetch local communities list whenever the user's neighborhood changes
+  // (set_user_neighborhood swap on the server adds/removes membership).
+  // Reactive — not called imperatively in doUpdateProfile — to avoid races
+  // with the AuthContext re-render triggered by updateUser(). App.tsx has its
+  // own neighborhood-watching effect for its publicCommunities state — keep
+  // those decoupled so the `onCommunitiesChanged` callback prop (which is
+  // recreated every App render) can't pull this effect into a render loop.
+  useEffect(() => {
+    if (!user?.neighborhood) return;
+    fetchCommunities();
+  }, [user?.neighborhood, fetchCommunities]);
 
   // Refetch when an OrderModalsProvider action settles (rating submit, slot
   // confirm, decline). The Supabase realtime channel below also catches the
@@ -1403,12 +1419,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setAddFriendsResults([]);
   };
 
-  const editIsValidNeighborhood = MANHATTAN_NEIGHBORHOODS.some(
+  const editIsValidNeighborhood = neighborhoods.some(
     (n) => n.toLowerCase() === editNeighborhood.trim().toLowerCase(),
   );
   const editFilteredNeighborhoods = editNeighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
-    : MANHATTAN_NEIGHBORHOODS;
+    ? neighborhoods.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
+    : neighborhoods;
 
   const openEditProfileModal = () => {
     const name = user?.display_name || "";
@@ -1423,15 +1439,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowEditProfileModal(true);
   };
 
-  const handleUpdateProfile = async () => {
-    if (!editFirstName.trim() || !editLastName.trim()) {
-      setEditProfileError("Please enter your first and last name");
-      return;
-    }
-    if (!editIsValidNeighborhood) {
-      setEditProfileError("Please select a valid Manhattan neighborhood");
-      return;
-    }
+  const isNeighborhoodChanging = editNeighborhood.trim() !== (user?.neighborhood ?? "");
+
+  const doUpdateProfile = async () => {
     setIsUpdatingProfile(true);
     setEditProfileError("");
     try {
@@ -1452,11 +1462,40 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const updatedUser = await res.json();
       updateUser(updatedUser);
       setShowEditProfileModal(false);
+      // Communities refetch fires reactively via the `user?.neighborhood`
+      // useEffect below — see comment there for why.
     } catch (err) {
       setEditProfileError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setIsUpdatingProfile(false);
     }
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!editFirstName.trim() || !editLastName.trim()) {
+      setEditProfileError("Please enter your first and last name");
+      return;
+    }
+    if (!editIsValidNeighborhood) {
+      setEditProfileError("Please select a valid Manhattan neighborhood");
+      return;
+    }
+    if (isNeighborhoodChanging) {
+      setShowEditProfileModal(false);
+      setShowNeighborhoodChangeConfirm(true);
+      return;
+    }
+    await doUpdateProfile();
+  };
+
+  const handleConfirmNeighborhoodChange = async () => {
+    setShowNeighborhoodChangeConfirm(false);
+    await doUpdateProfile();
+  };
+
+  const handleCancelNeighborhoodChange = () => {
+    setShowNeighborhoodChangeConfirm(false);
+    setShowEditProfileModal(true);
   };
 
   useClickOutside([createLocationRef, createLocationSuggestionsRef], () => setCreateShowLocationSuggestions(false), createShowLocationSuggestions);
@@ -1815,6 +1854,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         editIsValidNeighborhood={editIsValidNeighborhood}
         editProfileError={editProfileError}
         isUpdatingProfile={isUpdatingProfile}
+        isLoadingNeighborhoods={isLoadingNeighborhoodsList}
+        neighborhoodsError={neighborhoodsListError}
         editNeighborhoodRef={editNeighborhoodRef}
         editSuggestionsRef={editSuggestionsRef}
         setEditFirstName={setEditFirstName}
@@ -1826,6 +1867,36 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onClose={() => setShowEditProfileModal(false)}
         onSubmit={handleUpdateProfile}
       />
+
+      {showNeighborhoodChangeConfirm && (
+        <ModalShell open onClose={handleCancelNeighborhoodChange} z={60}>
+          <div className="bg-canvas border border-hairline rounded-md max-w-md w-full mx-4 p-6 shadow-overlay">
+            <h3 className="text-base font-semibold text-ink mb-2">Change neighborhood?</h3>
+            <p className="text-sm text-body leading-relaxed">
+              You'll leave the <strong>{user?.neighborhood ?? "—"}</strong> community
+              and join <strong>{editNeighborhood}</strong>. Your existing listings
+              stay tagged to {user?.neighborhood ?? "your previous neighborhood"}.
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={handleCancelNeighborhoodChange}
+                className={`h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold ${FOCUS_RING}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmNeighborhoodChange}
+                disabled={isUpdatingProfile}
+                className={`h-9 px-4 rounded-md bg-primary text-on-primary hover:bg-primary-hover text-sm font-semibold disabled:opacity-50 ${FOCUS_RING}`}
+              >
+                {isUpdatingProfile ? <Loader2 className="size-4 animate-spin" /> : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
 
       <AddFriendsModal
         open={showAddFriendsModal}

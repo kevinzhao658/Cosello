@@ -2,7 +2,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/communities", tags=["communities"])
 # ---------- Response schemas ----------
 
 class CommunityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: Optional[str] = None
@@ -31,22 +33,18 @@ class CommunityOut(BaseModel):
     member_count: int = 0
     role: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
 
 class JoinByCodeRequest(BaseModel):
     invite_code: str
 
 
 class UserSearchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     display_name: Optional[str] = None
     neighborhood: Optional[str] = None
     profile_picture: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class InviteRequest(BaseModel):
@@ -101,6 +99,18 @@ def _community_to_out(community: Community, db: Session, user_id: str) -> dict:
 
 
 # ---------- Endpoints ----------
+
+
+@router.get("/neighborhoods")
+async def list_neighborhoods():
+    """Return the curated list of canonical Manhattan neighborhood names.
+
+    Used by the FE onboarding picker. Single source of truth lives in
+    backend/constants/neighborhoods.py — extend that list to add new
+    neighborhoods. No auth required (the list is public).
+    """
+    from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
+    return sorted(MANHATTAN_NEIGHBORHOODS)
 
 
 @router.get("/search")

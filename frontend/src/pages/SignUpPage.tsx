@@ -3,7 +3,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
-import { MANHATTAN_NEIGHBORHOODS } from "../lib/neighborhoods";
+import { useNeighborhoods } from "../lib/useNeighborhoods";
 import { useClickOutside } from "../hooks/useClickOutside";
 
 interface SignUpPageProps {
@@ -13,6 +13,9 @@ interface SignUpPageProps {
 }
 
 export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignUpPageProps) {
+  const { list: neighborhoodsList, isLoading: isLoadingNeighborhoods, error: neighborhoodsError, retry: retryNeighborhoods } = useNeighborhoods();
+  const neighborhoods = neighborhoodsList ?? [];
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [pickupAddress, setPickupAddress] = useState("");
@@ -24,15 +27,15 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isValidNeighborhood = MANHATTAN_NEIGHBORHOODS.some(
+  const isValidNeighborhood = neighborhoods.some(
     (n) => n.toLowerCase() === neighborhood.trim().toLowerCase()
   );
 
   const filtered = neighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) =>
+    ? neighborhoods.filter((n) =>
         n.toLowerCase().includes(neighborhood.trim().toLowerCase())
       )
-    : MANHATTAN_NEIGHBORHOODS;
+    : neighborhoods;
 
   // Close suggestions on click outside
   useClickOutside(
@@ -142,50 +145,70 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
               <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
                 Neighborhood
               </label>
-              <Input
-                ref={inputRef}
-                type="text"
-                placeholder="e.g., Chelsea"
-                value={neighborhood}
-                onChange={(e) => {
-                  setNeighborhood(e.target.value);
-                  setShowSuggestions(true);
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && isValidNeighborhood) handleRegister();
-                }}
-              />
+              {isLoadingNeighborhoods ? (
+                <div className="text-sm text-muted py-3 flex items-center gap-2">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading neighborhoods…
+                </div>
+              ) : neighborhoodsError ? (
+                <div className="text-sm text-error py-3">
+                  Couldn't load neighborhoods: {neighborhoodsError}.{" "}
+                  <button
+                    type="button"
+                    onClick={retryNeighborhoods}
+                    className="underline text-primary hover:text-primary-hover"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    ref={inputRef}
+                    type="text"
+                    placeholder="e.g., Chelsea"
+                    value={neighborhood}
+                    onChange={(e) => {
+                      setNeighborhood(e.target.value);
+                      setShowSuggestions(true);
+                    }}
+                    onFocus={() => setShowSuggestions(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && isValidNeighborhood) handleRegister();
+                    }}
+                  />
 
-              {showSuggestions && filtered.length > 0 && (
-                <div
-                  ref={suggestionsRef}
-                  className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-border-strong bg-canvas shadow-overlay"
-                >
-                  {filtered.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => {
-                        setNeighborhood(n);
-                        setShowSuggestions(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
-                        n.toLowerCase() === neighborhood.trim().toLowerCase()
-                          ? "text-primary"
-                          : "text-ink"
-                      }`}
+                  {showSuggestions && filtered.length > 0 && (
+                    <div
+                      ref={suggestionsRef}
+                      className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-border-strong bg-canvas shadow-overlay"
                     >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              )}
+                      {filtered.map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => {
+                            setNeighborhood(n);
+                            setShowSuggestions(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
+                            n.toLowerCase() === neighborhood.trim().toLowerCase()
+                              ? "text-primary"
+                              : "text-ink"
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-              {showSuggestions && filtered.length === 0 && neighborhood.trim() && (
-                <div className="absolute z-50 mt-1 w-full rounded-md border border-border-strong bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
-                  No matching neighborhoods
-                </div>
+                  {showSuggestions && filtered.length === 0 && neighborhood.trim() && (
+                    <div className="absolute z-50 mt-1 w-full rounded-md border border-border-strong bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
+                      No matching neighborhoods
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -233,7 +256,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <Button
               onClick={handleRegister}
-              disabled={isLoading || !isValidNeighborhood || !firstName.trim() || !lastName.trim()}
+              disabled={isLoading || isLoadingNeighborhoods || !isValidNeighborhood || !firstName.trim() || !lastName.trim()}
               className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isLoading ? (

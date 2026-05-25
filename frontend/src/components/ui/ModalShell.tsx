@@ -45,7 +45,10 @@ export function ModalShell({
         className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
         onClick={dismissOnBackdrop ? onClose : undefined}
       />
-      {children}
+      {/* `relative isolate` forces the panel into its own stacking context +
+          compositing layer so iOS Safari doesn't rasterize it through the
+          sibling backdrop's backdrop-filter blur. */}
+      <div className="relative isolate">{children}</div>
     </div>
   );
 }

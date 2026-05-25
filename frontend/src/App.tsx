@@ -127,8 +127,8 @@ export default function App() {
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
   const [visibleCount, setVisibleCount] = useState<number>(24);
-  const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
-  const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [privateCommunities, setPrivateCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
@@ -624,7 +624,12 @@ export default function App() {
       const res = await apiFetch("/api/communities/mine-with-neighborhood");
       if (res.ok) {
         const data = await res.json();
-        setPublicCommunities(data.public || []);
+        // Drop the legacy "neighborhood" pseudo-id entry that mine-with-neighborhood
+        // still emits — PR 3 will delete the endpoint entirely.
+        const publicList: typeof data.public = (data.public || []).filter(
+          (c: { id: string | number }) => c.id !== "neighborhood"
+        );
+        setPublicCommunities(publicList);
         setPrivateCommunities(data.private || []);
       }
     } catch (err) {
@@ -634,7 +639,11 @@ export default function App() {
 
   useEffect(() => {
     if (isAuthenticated) fetchFilterCommunities();
-  }, [isAuthenticated, page]);
+    // user?.neighborhood is in deps so the marketplace filter sidebar refreshes
+    // after a neighborhood swap (set_user_neighborhood adds/removes membership)
+    // without needing an imperative callback from MyAccountPage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, page, user?.neighborhood]);
 
   useEffect(() => {
     apiFetch("/api/categories")
@@ -670,9 +679,6 @@ export default function App() {
     if (isAuthenticated && token) {
       if (selectedMarketCommunities.length > 0) {
         params.set("community", selectedMarketCommunities.join(","));
-        if (selectedMarketCommunities.includes("neighborhood") && user?.neighborhood) {
-          params.set("neighborhood", user.neighborhood);
-        }
       } else {
         // Default feed: no community filter → backend returns tier-ranked results
         if (user?.neighborhood) params.set("neighborhood", user.neighborhood);
@@ -1368,6 +1374,7 @@ export default function App() {
                     isActive={true}
                     mode={newListingMode}
                     photosOnly={newListingMode === "manual"}
+                    publicCommunities={publicCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={() => setPage("signin")}
                     onPosted={() => {
