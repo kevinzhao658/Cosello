@@ -3,13 +3,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
 import { Tooltip } from "./components/ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "./components/ui/dropdown-menu";
+
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import { useOrderModals } from "./contexts/OrderModalsContext";
@@ -21,6 +15,7 @@ const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { EditListingModal } from "./components/EditListingModal";
 import { ListingImage } from "./components/ui/ListingImage";
 import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
+import { MobileNavMenu } from "./components/MobileNavMenu";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
 import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
@@ -99,6 +94,7 @@ export default function App() {
     const validPages: Page[] = ["home", "market", "terms", "signin", "signup", "account", "help", "mission", "newlisting"];
     return validPages.includes(hash as Page) ? (hash as Page) : "home";
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   // Bumped each time a nav element wants to land on a specific MyAccount tab.
   // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
   // target (e.g. Settings → Settings) still re-applies the tab even when the
@@ -1152,110 +1148,27 @@ export default function App() {
                 </Button>
               )}
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="md:hidden"
-                    aria-label="Open menu"
-                  >
-                    <Menu className="size-5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  sideOffset={8}
-                  collisionPadding={8}
-                  className="w-56 bg-canvas border border-hairline shadow-overlay rounded-md p-1 z-[60]"
-                >
-                  <DropdownMenuItem
-                    onSelect={() => setPage("home")}
-                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                  >
-                    Home
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => setPage("market")}
-                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                  >
-                    Marketplace
-                  </DropdownMenuItem>
-                  {/* Not `disabled` — Radix DropdownMenuItem sets pointer-events:none
-                      when disabled, which suppresses the Tooltip trigger.
-                      Style as disabled, no-op the select, keep hover events. */}
-                  <Tooltip content="Coming soon" side="right">
-                    <DropdownMenuItem
-                      onSelect={(e) => e.preventDefault()}
-                      aria-disabled="true"
-                      className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink data-[highlighted]:bg-transparent"
-                    >
-                      Communities
-                    </DropdownMenuItem>
-                  </Tooltip>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      if (!isAuthenticated) { setPage("signin"); return; }
-                      setPage("account");
-                    }}
-                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                  >
-                    My account
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() => { setPage("newlisting"); }}
-                    className="text-primary font-semibold hover:bg-surface-soft focus:bg-surface-soft focus:text-primary"
-                  >
-                    Sell
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {isAuthenticated ? (
-                    <>
-                      <DropdownMenuItem
-                        onSelect={() => setPage("account")}
-                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                      >
-                        <User className="size-3.5" />
-                        Profile
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => goToAccountTab("settings")}
-                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                      >
-                        <Settings className="size-3.5" />
-                        Settings
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => setPage("help")}
-                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                      >
-                        <HelpCircle className="size-3.5" />
-                        Help & Support
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => { void handleLogout(); }}
-                        className="text-error hover:bg-surface-soft focus:bg-surface-soft focus:text-error"
-                      >
-                        <LogOut className="size-3.5" />
-                        Log Out
-                      </DropdownMenuItem>
-                    </>
-                  ) : (
-                    <DropdownMenuItem
-                      onSelect={() => setPage("signin")}
-                      className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                    >
-                      Sign in
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                aria-label="Open menu"
+                onClick={() => setMobileMenuOpen(true)}
+              >
+                <Menu className="size-5" />
+              </Button>
             </div>
           </div>
         </div>
       </nav>
+      <MobileNavMenu
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        isAuthenticated={isAuthenticated}
+        onNavigate={(target) => setPage(target)}
+        onGoToSettings={() => goToAccountTab("settings")}
+        onLogout={handleLogout}
+      />
 
       {/* Sign In Page */}
       {page === "signin" && (
