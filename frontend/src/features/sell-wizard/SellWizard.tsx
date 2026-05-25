@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, startTransition, forwardRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, startTransition, forwardRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
-import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
+import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight, ChevronRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
@@ -20,6 +20,7 @@ import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
+import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -43,9 +44,10 @@ export interface SellWizardProps {
   // no submit arrow, no downstream phases). Used by the #newlisting page where
   // the page owns the publish button.
   photosOnly?: boolean;
-  // The user's communities (from mine-with-neighborhood). Used to pre-select
-  // the neighborhood community in the community selector.
+  // The user's communities (from /mine). Used to pre-select the neighborhood
+  // community in the community selector and populate the picker.
   publicCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
+  privateCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
@@ -70,6 +72,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   mode = "ai",
   photosOnly = false,
   publicCommunities = [],
+  privateCommunities = [],
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
@@ -81,12 +84,31 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
 
-  // Resolve the user's neighborhood community from the publicCommunities list.
-  // This id is pre-attached to every listing submission as a non-removable
-  // community (mirrors the backend auto-attach in PR 1).
-  const userNeighborhoodCommunityId = publicCommunities.find(
-    (c) => c.neighborhood === user?.neighborhood
-  )?.id ?? null;
+  // PR 3: seller picks up to 3 communities per listing. We pre-select the
+  // user's neighborhood community as a default; the seller can deselect it.
+  // The picker lives in PickupStep — see Task 7.
+  const availableCommunities = useMemo(
+    () => [...publicCommunities, ...privateCommunities],
+    [publicCommunities, privateCommunities],
+  );
+  const userNeighborhoodCommunityId = useMemo(
+    () => publicCommunities.find((c) => c.neighborhood === user?.neighborhood)?.id ?? null,
+    [publicCommunities, user?.neighborhood],
+  );
+  const [selectedCommunityIds, setSelectedCommunityIds] = useState<number[]>([]);
+  // Initial pre-selection: when the user's neighborhood community resolves,
+  // seed the picker with it (only if the seller hasn't touched the picker yet).
+  const initializedFromNeighborhoodRef = useRef(false);
+  useEffect(() => {
+    if (initializedFromNeighborhoodRef.current) return;
+    if (userNeighborhoodCommunityId !== null) {
+      setSelectedCommunityIds([userNeighborhoodCommunityId]);
+      initializedFromNeighborhoodRef.current = true;
+    }
+  }, [userNeighborhoodCommunityId]);
+  // Single-listing wizard has its own two-phase split (review → pickup) to
+  // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
+  const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
   const [state, actions] = useSellWizard();
 
   const {
@@ -95,6 +117,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     isGenerating, isPostingBulk, segmentationError, dragImageState, dragOverGroup, dragOverGap,
     newTag, editingTitle, instructionExiting,
   } = state;
+
+  // Reset the single-listing two-phase split whenever a new productDetails
+  // cycle begins (i.e. productDetails clears between submissions).
+  useEffect(() => {
+    if (productDetails === null) {
+      setSinglePostPhase("review");
+    }
+  }, [productDetails]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wizardAnchorRef = useRef<HTMLDivElement>(null);
@@ -522,12 +552,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       void _; void _rf;
       const postData = { ...rest, priceCents };
       formData.append("data", JSON.stringify(postData));
-      // Include the user's neighborhood community id so it is explicitly
-      // attached. The backend also auto-attaches it (PR 1 defense-in-depth).
-      formData.append(
-        "communities",
-        userNeighborhoodCommunityId !== null ? String(userNeighborhoodCommunityId) : "",
-      );
+      // Seller's community picks from the PickupStep picker (PR 3). Capped to
+      // 3 client-side; backend re-validates cap + membership.
+      formData.append("communities", selectedCommunityIds.join(","));
       formData.append("visibility", "public");
       formData.append("pickup_location", pickup);
 
@@ -543,7 +570,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, userNeighborhoodCommunityId, actions, onPosted, onRequestSignIn]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onRequestSignIn]);
 
   const resetForLogout = useCallback(() => {
     segmentationAbortRef.current?.abort();
@@ -619,11 +646,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           void _indices; void _conf; void _rf; void _itemPickup;
           const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
           formData.append("data", JSON.stringify(productData));
-          // Include the user's neighborhood community id (same as single-post).
-          formData.append(
-            "communities",
-            userNeighborhoodCommunityId !== null ? String(userNeighborhoodCommunityId) : "",
-          );
+          // Bulk items share one community selection from PickupStep.
+          formData.append("communities", selectedCommunityIds.join(","));
           formData.append("visibility", "public");
           const itemPickup =
             item.pickupLocation && item.pickupLocation.trim() !== ""
@@ -967,28 +991,53 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               if (!isAuthenticated) { onRequestSignIn(); return; }
               handleBulkPostFromPickupStep();
             }}
+            availableCommunities={availableCommunities}
+            selectedCommunityIds={selectedCommunityIds}
+            onToggleCommunity={(id) => {
+              setSelectedCommunityIds((prev) =>
+                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+              );
+            }}
+            userNeighborhood={user?.neighborhood ?? null}
           />
         </div>
       )}
 
-      {productDetails && !isGenerating && !photosOnly && (
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "review" && (
         <SingleListingForm
           productDetails={productDetails}
           setProductDetails={actions.setProductDetails}
           categorySchemas={categorySchemas}
           setSingleCategory={setSingleCategory}
-          postPickupLocation={postPickupLocation}
-          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
           newTag={newTag}
           setNewTag={(v) => actions.setNewTag(v)}
+          onContinue={() => {
+            if (!isAuthenticated) { onRequestSignIn(); return; }
+            setSinglePostPhase("pickup");
+          }}
+          isAuthenticated={isAuthenticated}
+        />
+      )}
+
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && (
+        <SinglePickupStep
+          postPickupLocation={postPickupLocation}
+          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+          onBack={() => setSinglePostPhase("review")}
           onPost={() => {
             if (!isAuthenticated) { onRequestSignIn(); return; }
             onRequestSinglePostConfirm();
           }}
           isAuthenticated={isAuthenticated}
-          neighborhoodCommunityName={
-            publicCommunities.find((c) => c.neighborhood === user?.neighborhood)?.name ?? null
-          }
+          availableCommunities={availableCommunities}
+          selectedCommunityIds={selectedCommunityIds}
+          onToggleCommunity={(id) => {
+            setSelectedCommunityIds((prev) =>
+              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+            );
+          }}
+          userNeighborhood={user?.neighborhood ?? null}
+          instructionExiting={instructionExiting}
         />
       )}
 
@@ -1025,25 +1074,22 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 });
 
 // ─── Single Listing Form (extracted from inline JSX) ────────────────────────
+// Step 3 of the single-listing wizard: product details review only. Pickup +
+// community picker were moved to a dedicated step 4 (SinglePickupStep).
 interface SingleListingFormProps {
   productDetails: ProductDetails;
   setProductDetails: (details: ProductDetails | null) => void;
   categorySchemas: Record<string, CategorySchema>;
   setSingleCategory: (slug: CategorySlug) => void;
-  postPickupLocation: string;
-  setPostPickupLocation: (v: string) => void;
   newTag: string;
   setNewTag: (v: string) => void;
-  onPost: () => void;
+  onContinue: () => void;
   isAuthenticated: boolean;
-  /** Name of the user's neighborhood community, pre-selected for the listing. */
-  neighborhoodCommunityName: string | null;
 }
 
 function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
-  postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
-  neighborhoodCommunityName,
+  newTag, setNewTag, onContinue, isAuthenticated,
 }: SingleListingFormProps) {
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
@@ -1169,39 +1215,82 @@ function SingleListingForm({
           </form>
         </div>
       </div>
-      <div className="mt-3">
-        <label className="text-xs text-muted uppercase tracking-wider">Pickup Location</label>
-        <div className="mt-1.5 flex items-center gap-2">
-          <MapPin className="size-3.5 text-primary shrink-0" />
-          <input
-            type="text"
-            value={postPickupLocation}
-            onChange={(e) => setPostPickupLocation(e.target.value)}
-            placeholder="Enter pickup location"
-            className="flex-1 bg-canvas border border-border-strong rounded-md px-3 py-2 text-sm text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary"
-          />
-        </div>
-        <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
-          Your address will not be shared until pickup is confirmed.
-        </p>
-      </div>
-
-      {neighborhoodCommunityName && (
-        <div className="flex items-center gap-2 py-2 px-3 rounded-md bg-primary-soft border border-primary/20 text-xs text-body">
-          <MapPin className="size-3.5 text-primary shrink-0" />
-          <span>
-            Auto-tagged to <strong className="text-ink">{neighborhoodCommunityName}</strong>
-            <span className="text-muted ml-1">(default — your neighborhood)</span>
-          </span>
-        </div>
-      )}
-
       <Button
-        onClick={onPost}
-        className="w-full mt-2"
+        onClick={onContinue}
+        className="w-full mt-3"
       >
-        {isAuthenticated ? "Post Listing" : "Sign in to Post"}
+        {isAuthenticated ? "Continue →" : "Sign in to Continue"}
       </Button>
     </div>
+  );
+}
+
+// ─── Single-listing pickup step (mirrors PickupStep for bulk) ───────────────
+// Step 4 of the single-listing wizard. Owns the typed "Where are you
+// selling?" header, pickup input, community picker, back chevron, and the
+// final Post Listing button.
+interface SinglePickupStepProps {
+  postPickupLocation: string;
+  setPostPickupLocation: (v: string) => void;
+  onBack: () => void;
+  onPost: () => void;
+  isAuthenticated: boolean;
+  availableCommunities: CommunityOption[];
+  selectedCommunityIds: number[];
+  onToggleCommunity: (id: number) => void;
+  userNeighborhood: string | null;
+  instructionExiting: boolean;
+}
+
+function SinglePickupStep({
+  postPickupLocation, setPostPickupLocation, onBack, onPost, isAuthenticated,
+  availableCommunities, selectedCommunityIds, onToggleCommunity, userNeighborhood,
+  instructionExiting,
+}: SinglePickupStepProps) {
+  return (
+    <>
+      <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted uppercase tracking-wider">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          className="size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          <ChevronRight className="size-3.5 rotate-180" />
+        </button>
+        <span>Step 4 of 4 — Pickup Location</span>
+      </div>
+      <TypedInstruction bulkReviewPhase="pickup" exiting={instructionExiting} />
+      <div className="mt-8 space-y-5 max-w-md mx-auto">
+        <div>
+          <label htmlFor="single-pickup-location" className="text-xs text-muted uppercase tracking-wider">
+            Pickup location
+          </label>
+          <Input
+            id="single-pickup-location"
+            value={postPickupLocation}
+            onChange={(e) => setPostPickupLocation(e.target.value)}
+            placeholder="e.g. Lower East Side, NYC"
+            maxLength={200}
+            className="mt-1"
+          />
+          <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
+            Your address will not be shared until pickup is confirmed.
+          </p>
+        </div>
+        <CommunityPicker
+          availableCommunities={availableCommunities}
+          selectedCommunityIds={selectedCommunityIds}
+          onToggleCommunity={onToggleCommunity}
+          userNeighborhood={userNeighborhood}
+        />
+        <Button
+          onClick={onPost}
+          className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          {isAuthenticated ? "Post listing" : "Sign in to Post"}
+        </Button>
+      </div>
+    </>
   );
 }

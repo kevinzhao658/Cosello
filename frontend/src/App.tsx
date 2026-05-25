@@ -114,7 +114,7 @@ export default function App() {
   const [listingsLoaded, setListingsLoaded] = useState(false);
   const [marketSearch, setMarketSearch] = useState("");
   const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
-  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
+  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<number[]>([]);
   // R-3.1: new tri-mode sort. `recommended` and `trending` both fall through
   // to backend `sort=newest` (FYP path kicks in when no community is selected
   // and no search is active) until dedicated backend sort modes ship.
@@ -155,7 +155,7 @@ export default function App() {
     }
   }, [isDesktop]);
   const toggleMarketSidebar = useCallback(() => setMarketSidebarCollapsed((c) => !c), []);
-  const handleToggleMarketCommunity = useCallback((cid: string) => {
+  const handleToggleMarketCommunity = useCallback((cid: number) => {
     setSelectedMarketCommunities((prev) =>
       prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
     );
@@ -621,16 +621,12 @@ export default function App() {
   const fetchFilterCommunities = async () => {
     if (!token) return;
     try {
-      const res = await apiFetch("/api/communities/mine-with-neighborhood");
+      const res = await apiFetch("/api/communities/mine");
       if (res.ok) {
-        const data = await res.json();
-        // Drop the legacy "neighborhood" pseudo-id entry that mine-with-neighborhood
-        // still emits — PR 3 will delete the endpoint entirely.
-        const publicList: typeof data.public = (data.public || []).filter(
-          (c: { id: string | number }) => c.id !== "neighborhood"
-        );
-        setPublicCommunities(publicList);
-        setPrivateCommunities(data.private || []);
+        const all: { id: number; name: string; neighborhood?: string; is_public: boolean }[] =
+          await res.json();
+        setPublicCommunities(all.filter((c) => c.is_public));
+        setPrivateCommunities(all.filter((c) => !c.is_public));
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
@@ -1375,6 +1371,7 @@ export default function App() {
                     mode={newListingMode}
                     photosOnly={newListingMode === "manual"}
                     publicCommunities={publicCommunities}
+                    privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={() => setPage("signin")}
                     onPosted={() => {
