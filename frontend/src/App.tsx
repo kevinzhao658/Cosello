@@ -1013,8 +1013,11 @@ export default function App() {
               </button>
             </div>
 
-            {/* Right Side */}
-            <div className="flex items-center gap-2">
+            {/* Right Side — `justify-self-end` keeps the cluster pinned to
+                the right edge on mobile, where the hidden md-only center
+                col is removed from grid auto-placement and would otherwise
+                let the right cluster fall back into the 1fr middle cell. */}
+            <div className="flex items-center gap-2 justify-self-end">
               {isAuthenticated ? (
                 <>
                 {/* Message (placeholder — no route) */}
@@ -1152,10 +1155,11 @@ export default function App() {
                 variant="ghost"
                 size="icon"
                 className="md:hidden"
-                aria-label="Open menu"
-                onClick={() => setMobileMenuOpen(true)}
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+                aria-expanded={mobileMenuOpen}
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
               >
-                <Menu className="size-5" />
+                {mobileMenuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
               </Button>
             </div>
           </div>
@@ -1166,8 +1170,6 @@ export default function App() {
         onClose={() => setMobileMenuOpen(false)}
         isAuthenticated={isAuthenticated}
         onNavigate={(target) => setPage(target)}
-        onGoToSettings={() => goToAccountTab("settings")}
-        onLogout={handleLogout}
       />
 
       {/* Sign In Page */}
