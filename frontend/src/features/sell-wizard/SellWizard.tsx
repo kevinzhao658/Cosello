@@ -17,6 +17,7 @@ import {
   type BulkItemDetails,
   type ProductDetails,
   type SegmentationResult,
+  type SellWizardState,
 } from "./useSellWizard";
 import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
@@ -58,6 +59,10 @@ export interface SellWizardProps {
   onImagesChange?: (count: number) => void;
   onProductDetailsChange?: (details: ProductDetails | null) => void;
   onCoverImageChange?: (url: string | null) => void;
+  // Drafts. Parent sets pendingDraftId when the user taps a draft card; the
+  // wizard loads it on mount and clears the parent's state via onDraftLoaded.
+  pendingDraftId?: string | null;
+  onDraftLoaded?: () => void;
 }
 
 const DRAFT_SAVE_DEBOUNCE_MS = 500;
@@ -98,6 +103,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onImagesChange,
   onProductDetailsChange,
   onCoverImageChange,
+  pendingDraftId = null,
+  onDraftLoaded,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
 
@@ -120,6 +127,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     const id = setInterval(() => setSavedTick((n) => n + 1), 15000);
     return () => clearInterval(id);
   }, [saveStatus.kind]);
+
+  // When a draft resumes with community IDs the user is no longer a member
+  // of, we drop them and show a one-time banner. Cleared on dismiss.
+  const [prunedCommunityCount, setPrunedCommunityCount] = useState(0);
 
   // PR 3: seller picks up to 3 communities per listing. We pre-select the
   // user's neighborhood community as a default; the seller can deselect it.
@@ -269,6 +280,84 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     singlePostPhase,
     currentDraftId,
   ]);
+
+  // Hydrate from IndexedDB, reconstruct File objects from Blobs, auto-prune
+  // community IDs the user is no longer a member of, then swap reducer state
+  // in one LOAD_FROM_DRAFT dispatch.
+  const loadFromDraft = useCallback(async (id: string) => {
+    const draft = await draftStorage.loadDraft(id);
+    if (!draft) return;
+
+    // Reconstruct File + preview URL per persisted blob. Filter failures.
+    const rehydratedImages = draft.files
+      .map(({ name, type, blob }) => {
+        try {
+          const file = new File([blob], name, { type });
+          return { file, preview: URL.createObjectURL(file) };
+        } catch {
+          return null;
+        }
+      })
+      .filter((x): x is { file: File; preview: string } => x !== null);
+
+    // Build the SellWizardState the reducer expects. Transient fields
+    // default to initial values; uploadedImages = rehydratedImages;
+    // modifiedGroupIndices = Set(persisted array).
+    const hydratedState: SellWizardState = {
+      ...draft.state,
+      uploadedImages: rehydratedImages,
+      modifiedGroupIndices: new Set(draft.state.modifiedGroupIndices),
+      isGenerating: false,
+      isPostingBulk: false,
+      dragImageState: null,
+      dragOverGroup: null,
+      dragOverGap: null,
+      instructionExiting: false,
+      editingTitle: null,
+      segmentationError: draft.state.segmentationError ?? null,
+    };
+
+    // Auto-prune communities: intersect saved picks with current memberships.
+    const currentMemberIds = new Set([
+      ...publicCommunities.map((c) => c.id),
+      ...privateCommunities.map((c) => c.id),
+    ]);
+    const validIds = draft.selectedCommunityIds.filter((id) => currentMemberIds.has(id));
+    const prunedCount = draft.selectedCommunityIds.length - validIds.length;
+
+    // Apply state in one frame.
+    actions.loadFromDraft(hydratedState);
+    setSelectedCommunityIds(validIds);
+    setSinglePostPhase(draft.singlePostPhase);
+    setCurrentDraftId(draft.id);
+    if (prunedCount > 0) setPrunedCommunityCount(prunedCount);
+  }, [actions, publicCommunities, privateCommunities]);
+
+  // Reset everything for a brand-new draft. Called when the user taps
+  // "Start a new listing" from the gallery.
+  const clearForNewDraft = useCallback(() => {
+    actions.clearAll();
+    setSelectedCommunityIds([]);
+    setSinglePostPhase("review");
+    setCurrentDraftId(null);
+    setPrunedCommunityCount(0);
+    setSaveStatus({ kind: "idle" });
+    initializedFromNeighborhoodRef.current = false;
+  }, [actions]);
+
+  // Suppress unused warning — clearForNewDraft is called externally (Task 6).
+  void clearForNewDraft;
+
+  // When the parent (App.tsx) routes us to a specific draft, load it once.
+  const previousPendingDraftIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (pendingDraftId && pendingDraftId !== previousPendingDraftIdRef.current) {
+      previousPendingDraftIdRef.current = pendingDraftId;
+      void loadFromDraft(pendingDraftId).then(() => {
+        onDraftLoaded?.();
+      });
+    }
+  }, [pendingDraftId, loadFromDraft, onDraftLoaded]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wizardAnchorRef = useRef<HTMLDivElement>(null);
@@ -717,6 +806,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onRequestSignIn]);
 
   const resetForLogout = useCallback(() => {
+    setCurrentDraftId(null);
+    setSelectedCommunityIds([]);
+    setSinglePostPhase("review");
+    setPrunedCommunityCount(0);
+    setSaveStatus({ kind: "idle" });
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
     for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
@@ -905,6 +999,22 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               <span className="text-warning">Save failed — try again.</span>
             </>
           )}
+        </div>
+      )}
+      {prunedCommunityCount > 0 && (
+        <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
+          <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
+          <span className="flex-1">
+            We removed {prunedCommunityCount} communit{prunedCommunityCount === 1 ? "y" : "ies"} you're no longer a member of.
+          </span>
+          <button
+            type="button"
+            onClick={() => setPrunedCommunityCount(0)}
+            aria-label="Dismiss"
+            className="text-muted hover:text-ink shrink-0"
+          >
+            <X className="size-3.5" />
+          </button>
         </div>
       )}
       <UploadStep
