@@ -16,6 +16,8 @@ import { EditListingModal } from "./components/EditListingModal";
 import { ListingImage } from "./components/ui/ListingImage";
 import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
 import { MobileNavMenu } from "./components/MobileNavMenu";
+import { DraftsGallery } from "./components/DraftsGallery";
+import * as draftStorage from "./lib/draftStorage";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
 import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
@@ -95,6 +97,18 @@ export default function App() {
     return validPages.includes(hash as Page) ? (hash as Page) : "home";
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Drafts: the Sell page shows the gallery first, then mounts the wizard
+  // when the user starts new or taps an existing draft.
+  // `pendingDraftId` is non-null when we want the wizard to load a specific
+  // draft on mount; "new" means start fresh.
+  const [draftRouteState, setDraftRouteState] = useState<
+    | { kind: "gallery" }
+    | { kind: "new" }
+    | { kind: "load"; id: string }
+  >({ kind: "gallery" });
+  const [draftsRefreshNonce, setDraftsRefreshNonce] = useState(0);
+
   // Bumped each time a nav element wants to land on a specific MyAccount tab.
   // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
   // target (e.g. Settings → Settings) still re-applies the tab even when the
@@ -769,6 +783,14 @@ export default function App() {
     }
   }, [page]);
 
+  // When the user navigates away from /newlisting, snap back to the gallery
+  // view so re-entry shows drafts first (not the previously-loaded wizard).
+  useEffect(() => {
+    if (page !== "newlisting") {
+      setDraftRouteState({ kind: "gallery" });
+    }
+  }, [page]);
+
   useEffect(() => {
     if (token) fetchWishlist();
   }, [token]);
@@ -1219,6 +1241,14 @@ export default function App() {
       */}
       {page === "newlisting" && (
         <section className="min-h-[calc(100vh-64px)] bg-canvas">
+          {draftRouteState.kind === "gallery" ? (
+            <DraftsGallery
+              userId={user?.id ?? null}
+              onSelectDraft={(id) => setDraftRouteState({ kind: "load", id })}
+              onStartNew={() => setDraftRouteState({ kind: "new" })}
+              refreshNonce={draftsRefreshNonce}
+            />
+          ) : (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             {/* Breadcrumb + title + toolbar */}
             <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
@@ -1243,13 +1273,10 @@ export default function App() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => {
-                    // Drafts API isn't wired yet — flagged in backlog.md.
-                    alert("Drafts are coming soon. For now, finish the listing and publish it.");
-                  }}
+                  onClick={() => setDraftRouteState({ kind: "gallery" })}
                   className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
-                  Save draft
+                  Drafts
                 </button>
                 {newListingMode === "manual" && (
                   <button
@@ -1293,12 +1320,27 @@ export default function App() {
                       resetNewListingForm();
                       setPage("market");
                       fetchListings();
+                      setDraftsRefreshNonce((n) => n + 1);
                     }}
                     onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
                     onPhaseChange={setWizardPhase}
                     onImagesChange={setWizardImageCount}
                     onProductDetailsChange={setAiProductDetails}
                     onCoverImageChange={setAiCoverImageUrl}
+                    pendingDraftId={draftRouteState.kind === "load" ? draftRouteState.id : null}
+                    onDraftLoaded={() => {
+                      // Once the wizard loads the draft we don't want to keep
+                      // re-triggering it. Park the routing in "new" so the wizard
+                      // continues editing the loaded state without further loads.
+                      setDraftRouteState({ kind: "new" });
+                    }}
+                    onPublishedDraft={async (draftId) => {
+                      if (draftId) {
+                        await draftStorage.deleteDraft(draftId);
+                        setDraftsRefreshNonce((n) => n + 1);
+                      }
+                    }}
+                    onBackToDrafts={() => setDraftRouteState({ kind: "gallery" })}
                   />
                 </section>
 
@@ -1587,6 +1629,7 @@ export default function App() {
               </div>
             )}
           </div>
+          )}
         </section>
       )}
 

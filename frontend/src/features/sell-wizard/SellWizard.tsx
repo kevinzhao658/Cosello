@@ -63,6 +63,8 @@ export interface SellWizardProps {
   // wizard loads it on mount and clears the parent's state via onDraftLoaded.
   pendingDraftId?: string | null;
   onDraftLoaded?: () => void;
+  onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
+  onBackToDrafts?: () => void;
 }
 
 const DRAFT_SAVE_DEBOUNCE_MS = 500;
@@ -105,6 +107,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onCoverImageChange,
   pendingDraftId = null,
   onDraftLoaded,
+  onPublishedDraft,
+  onBackToDrafts,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
 
@@ -799,11 +803,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
       actions.postListingReset();
       onPosted();
+      onPublishedDraft?.(currentDraftId);
+      setCurrentDraftId(null);
     } catch (err) {
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onRequestSignIn]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn]);
 
   const resetForLogout = useCallback(() => {
     setCurrentDraftId(null);
@@ -909,6 +915,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
       actions.postListingReset();
       onPosted();
+      onPublishedDraft?.(currentDraftId);
+      setCurrentDraftId(null);
     } catch (err) {
       console.error("Bulk post failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -986,7 +994,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           {saveStatus.kind === "failed" && saveStatus.reason === "quota" && (
             <button
               type="button"
-              onClick={onSwitchToBuy}
+              onClick={() => onBackToDrafts?.()}
               className="inline-flex items-center gap-1.5 text-warning hover:underline"
             >
               <AlertTriangle className="size-3" aria-hidden />
