@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, CSSProperties } from "react";
 
 // Centered modal shell — owns the backdrop + outer wrapper but NOT the inner
 // frame. Children supply their own panel element (bg color, padding,
@@ -23,7 +23,12 @@ type ModalShellProps = {
   // When `align="start"`, the modal pins to the top of the viewport with
   // overflow-y-auto on the outer container — used for very tall content
   // (e.g. UserProfile overlay) that needs to scroll past the viewport.
-  align?: "center" | "start";
+  align?: "center" | "start" | "right";
+  // CSS top offset in px. When set, the outer container (incl. the backdrop)
+  // starts below the viewport top. Useful for letting a sticky nav stay
+  // visible above the modal/drawer — e.g. MobileNavMenu passes 64 so the
+  // backdrop doesn't cover the app's nav bar.
+  topOffset?: number;
 };
 
 export function ModalShell({
@@ -33,14 +38,22 @@ export function ModalShell({
   z = 50,
   dismissOnBackdrop = true,
   align = "center",
+  topOffset,
 }: ModalShellProps) {
   if (!open) return null;
   const alignment =
     align === "center"
       ? "flex items-center justify-center"
-      : "flex items-start justify-center overflow-y-auto";
+      : align === "start"
+        ? "flex items-start justify-center overflow-y-auto"
+        : "flex items-stretch justify-end";
+  // Default: full viewport. When topOffset is set, leave the area above it
+  // (the sticky nav) untouched.
+  const positioning = topOffset != null ? "fixed inset-x-0 bottom-0" : "fixed inset-0";
+  const style: CSSProperties = { zIndex: z };
+  if (topOffset != null) style.top = topOffset;
   return (
-    <div className={`fixed inset-0 ${alignment}`} style={{ zIndex: z }}>
+    <div className={`${positioning} ${alignment}`} style={style}>
       <div
         className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
         onClick={dismissOnBackdrop ? onClose : undefined}
