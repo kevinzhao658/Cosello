@@ -3,7 +3,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
-import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight, ChevronRight } from "lucide-react";
+import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import * as draftStorage from "../../lib/draftStorage";
 import type { Draft, PersistableState, PersistedFile } from "../../lib/draftStorage";
@@ -24,6 +24,7 @@ import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
+import { TypedInstruction } from "./TypedInstruction";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -67,7 +68,7 @@ export interface SellWizardProps {
   onBackToDrafts?: () => void;
 }
 
-const DRAFT_SAVE_DEBOUNCE_MS = 500;
+const DRAFT_SAVE_DEBOUNCE_MS = 250;
 
 // Returns a short relative-time string for the save-status indicator.
 // "just now" / "Ns ago" / "Nm ago" / "Nh ago".
@@ -178,6 +179,19 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     }
   }, [productDetails]);
 
+  // On phase transition (single-listing only), scroll to the top of the
+  // wizard area so the new step is visible. Otherwise iOS Safari preserves
+  // the scroll position of the previous step, which can leave the new
+  // (shorter) step off-screen — looking like a blank page to the user.
+  useEffect(() => {
+    if (!isActive) return;
+    if (!productDetails) return;
+    const id = requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [singlePostPhase, isActive, productDetails]);
+
   // Build a Draft payload from the current reducer state + component-level
   // state (selectedCommunityIds, singlePostPhase). Filters transient fields.
   const buildDraftPayload = useCallback((): Draft | null => {
@@ -216,7 +230,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
     const now = Date.now();
     return {
-      id: currentDraftId ?? crypto.randomUUID(),
+      id: currentDraftId ?? draftStorage.generateDraftId(),
       userId: user.id,
       createdAt: now, // will be overwritten if the draft already exists
       updatedAt: now,
@@ -229,27 +243,43 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     };
   }, [currentDraftId, selectedCommunityIds, singlePostPhase, state, user?.id]);
 
-  // Debounced auto-save. Fires whenever the persistable wizard state
-  // changes AND the user is authenticated AND at least one photo is
-  // uploaded. New drafts get a fresh UUID minted on first save.
+  // Cached createdAt for the current draft. Set on first save; reused on
+  // subsequent saves so we don't have to round-trip loadDraft just to
+  // preserve the timestamp. Cleared when a new/different draft starts.
+  const draftCreatedAtRef = useRef<number | null>(null);
+
+  // Debounced auto-save. Fires only after the user has committed to a
+  // listing — i.e. the wizard has run segmentation (bulk) or generated
+  // product details (single). Just selecting photos in the upload step
+  // doesn't create a draft.
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
-    if (state.uploadedImages.length === 0) {
-      // Pre-first-photo: indicator stays idle.
+    const hasPhotos = state.uploadedImages.length > 0;
+    const hasCommitted = state.segmentation !== null || state.productDetails !== null;
+    if (!hasPhotos || !hasCommitted) {
+      // Pre-commit (just photos selected, or no photos) — no draft, no save.
       setSaveStatus({ kind: "idle" });
       return;
     }
 
-    setSaveStatus({ kind: "saving" });
+    // Don't flip to "saving" yet — the debounce window is just a wait, not
+    // work. The status flip happens inside the timeout when the write
+    // actually starts. Indicator stays on its previous value ("saved" or
+    // "idle") until then.
     const timerId = setTimeout(async () => {
+      setSaveStatus({ kind: "saving" });
       const draft = buildDraftPayload();
       if (!draft) return;
 
-      // If a draft with this id already exists, preserve its createdAt.
-      try {
-        const existing = currentDraftId ? await draftStorage.loadDraft(currentDraftId) : null;
-        if (existing) draft.createdAt = existing.createdAt;
+      // Preserve createdAt across saves of the same draft via a ref —
+      // avoids a per-save loadDraft round-trip.
+      if (draftCreatedAtRef.current !== null) {
+        draft.createdAt = draftCreatedAtRef.current;
+      } else {
+        draftCreatedAtRef.current = draft.createdAt;
+      }
 
+      try {
         await draftStorage.saveDraft(draft);
 
         if (!currentDraftId) setCurrentDraftId(draft.id);
@@ -257,14 +287,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       } catch (err) {
         const name = (err as { name?: string } | null)?.name ?? "";
         if (name === "QuotaExceededError") {
-          // Best-effort: re-write the draft with lastSaveError set so the
-          // gallery banner appears. If that write fails too, swallow.
           try {
             await draftStorage.saveDraft({ ...draft, lastSaveError: "quota" });
           } catch { /* nothing more we can do */ }
           setSaveStatus({ kind: "failed", reason: "quota" });
         } else {
-          // Surface but don't crash. Console for diagnostics.
           console.error("Draft save failed:", err);
           setSaveStatus({ kind: "failed", reason: "unknown" });
         }
@@ -334,6 +361,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setSelectedCommunityIds(validIds);
     setSinglePostPhase(draft.singlePostPhase);
     setCurrentDraftId(draft.id);
+    draftCreatedAtRef.current = draft.createdAt;
     if (prunedCount > 0) setPrunedCommunityCount(prunedCount);
   }, [actions, publicCommunities, privateCommunities]);
 
@@ -344,6 +372,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setSelectedCommunityIds([]);
     setSinglePostPhase("review");
     setCurrentDraftId(null);
+    draftCreatedAtRef.current = null;
     setPrunedCommunityCount(0);
     setSaveStatus({ kind: "idle" });
     initializedFromNeighborhoodRef.current = false;
@@ -805,6 +834,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       onPosted();
       onPublishedDraft?.(currentDraftId);
       setCurrentDraftId(null);
+      draftCreatedAtRef.current = null;
     } catch (err) {
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -813,6 +843,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
   const resetForLogout = useCallback(() => {
     setCurrentDraftId(null);
+    draftCreatedAtRef.current = null;
     setSelectedCommunityIds([]);
     setSinglePostPhase("review");
     setPrunedCommunityCount(0);
@@ -917,6 +948,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       onPosted();
       onPublishedDraft?.(currentDraftId);
       setCurrentDraftId(null);
+      draftCreatedAtRef.current = null;
     } catch (err) {
       console.error("Bulk post failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -1172,6 +1204,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 </button>
               </div>
             </div>
+          ) : segmentation || productDetails ? (
+            // Post-segmentation / post-AI: the photos box was the upload-step
+            // UI. Once the wizard has moved past upload (segmentation ran or
+            // a single product was generated), hide it — the wizard's review
+            // and pickup steps own the surface from here.
+            null
           ) : (
             <div
               className="relative w-full bg-surface-card border border-hairline rounded-lg p-4 pb-14 mt-2 mb-2"
@@ -1230,7 +1268,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 <span>Or drop more photos here</span>
               </button>
 
-              {mode !== "manual" && (
+              {/* Continue arrow only shows BEFORE segmentation has run.
+                  Once the wizard has segmented (bulk path) or generated a
+                  single listing (productDetails set), this button is no
+                  longer the right action — the user advances via the
+                  SingleListingForm's "Continue →" button or the bulk wizard's
+                  step controls. Without this guard, tapping the arrow on
+                  mobile while on the review step re-triggers segmentation
+                  and the wizard appears to blank out. */}
+              {mode !== "manual" && !segmentation && !productDetails && (
                 <button
                   type="button"
                   aria-label="Continue"
@@ -1340,6 +1386,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           bulkItems={bulkItems}
           currentCardIndex={currentCardIndex}
           uploadedImages={uploadedImages}
+          imageUrls={segmentation?.image_urls}
           categorySchemas={categorySchemas}
           editingTitle={editingTitle}
           newTag={newTag}
@@ -1543,18 +1590,12 @@ function SinglePickupStep({
 }: SinglePickupStepProps) {
   return (
     <>
-      <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted uppercase tracking-wider">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back"
-          className="size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <ChevronRight className="size-3.5 rotate-180" />
-        </button>
-        <span>Step 4 of 4 — Pickup Location</span>
-      </div>
-      <TypedInstruction bulkReviewPhase="pickup" exiting={instructionExiting} />
+      <TypedInstruction
+        bulkReviewPhase="pickup"
+        exiting={instructionExiting}
+        stepLabel="Step 4 of 4"
+        onBack={onBack}
+      />
       <div className="mt-8 space-y-5 max-w-md mx-auto">
         <div>
           <label htmlFor="single-pickup-location" className="text-xs text-muted uppercase tracking-wider">

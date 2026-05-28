@@ -783,13 +783,32 @@ export default function App() {
     }
   }, [page]);
 
-  // When the user navigates away from /newlisting, snap back to the gallery
-  // view so re-entry shows drafts first (not the previously-loaded wizard).
+  // /newlisting routing:
+  //   - Leaving the page: reset to gallery so the next entry re-evaluates.
+  //   - Entering the page: if the user has zero drafts (or is logged out),
+  //     skip the gallery and drop them directly into the wizard. Otherwise
+  //     show the gallery first.
+  //   - Also re-evaluates after a draft is added/deleted (draftsRefreshNonce).
   useEffect(() => {
     if (page !== "newlisting") {
       setDraftRouteState({ kind: "gallery" });
+      return;
     }
-  }, [page]);
+    if (!user?.id) {
+      setDraftRouteState({ kind: "new" });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const list = await draftStorage.listDrafts(user.id);
+      if (cancelled) return;
+      // Only override "gallery" — don't yank the user out of an active edit.
+      setDraftRouteState((prev) =>
+        prev.kind === "gallery" && list.length === 0 ? { kind: "new" } : prev,
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [page, user?.id, draftsRefreshNonce]);
 
   useEffect(() => {
     if (token) fetchWishlist();
@@ -881,7 +900,12 @@ export default function App() {
       <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
       <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
         <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
+          <span
+            className="size-4 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[8px] font-bold"
+            aria-hidden="true"
+          >
+            {PLACEHOLDER_COMMUNITY.name.charAt(0).toUpperCase()}
+          </span>
           <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
         </div>
         <div className="relative aspect-square bg-surface-soft">
@@ -1253,19 +1277,6 @@ export default function App() {
             {/* Breadcrumb + title + toolbar */}
             <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
               <div className="min-w-0">
-                <nav aria-label="Breadcrumb" className="text-xs text-muted flex items-center gap-1.5 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => { if (!isAuthenticated) { setPage("signin"); return; } setPage("account"); }}
-                    className="hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
-                  >
-                    My account
-                  </button>
-                  <span aria-hidden="true">·</span>
-                  <span>Drafts</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-ink font-medium">New listing</span>
-                </nav>
                 <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
                   New listing
                 </h1>
@@ -1299,9 +1310,6 @@ export default function App() {
                 <section>
                   <header className="flex items-baseline justify-between mb-3">
                     <h2 className="text-sm font-semibold text-ink uppercase tracking-wider">Photos</h2>
-                    <span className={`text-xs ${wizardImageCount > 0 ? "text-primary" : "text-muted"}`}>
-                      {wizardImageCount}/20 — first photo becomes the cover
-                    </span>
                   </header>
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
@@ -1634,7 +1642,7 @@ export default function App() {
       )}
 
       {page === "home" && (
-        <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-16">
+        <section className="min-h-[calc(100vh-64px)] flex items-start justify-center px-4 sm:px-6 lg:px-8 pt-8 pb-16 sm:pt-12 sm:pb-16">
           <div className="w-full max-w-[760px]">
             <div className="mb-8">
               <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
@@ -1691,21 +1699,23 @@ export default function App() {
                         logSearch({ query, filters });
                       }
                     }}
-                    className="flex items-center gap-2 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card"
+                    className="flex items-center gap-2 h-12 sm:h-16 bg-canvas border border-hairline rounded-full pl-4 sm:pl-6 pr-1.5 sm:pr-2 shadow-card"
                   >
                     <Search className="size-[18px] text-muted shrink-0" />
                     <input
                       type="text"
                       value={homeSearch}
                       onChange={(e) => setHomeSearch(e.target.value)}
-                      placeholder="Search for vintage furniture, books, anything..."
+                      placeholder="Search anything…"
                       className="flex-1 bg-transparent border-0 outline-none text-base text-ink placeholder:text-muted-soft min-w-0"
                     />
                     <button
                       type="submit"
-                      className="h-12 px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      aria-label="Search"
+                      className="h-9 sm:h-12 px-3 sm:px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0 inline-flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
-                      Search
+                      <Search className="size-4 sm:hidden" aria-hidden />
+                      <span className="hidden sm:inline">Search</span>
                     </button>
                   </form>
 
@@ -1724,24 +1734,23 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                // R-4.1: Home Sell composer is a thin entry point — photos
-                // drop only on the dedicated #newlisting surface to keep the
-                // wizard state plumbing simple (Option B). Click submit →
-                // navigate to the New Listing page.
-                <button
-                  type="button"
-                  onClick={() => setPage("newlisting")}
-                  className="group w-full flex items-center gap-3 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                >
-                  <ImagePlus className="size-[18px] text-primary shrink-0" />
-                  <span className="flex-1 text-base text-muted">Tell us what you're selling…</span>
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-on-primary group-hover:bg-primary-hover transition-colors shrink-0"
-                  >
-                    <ArrowRight className="size-[18px]" />
-                  </span>
-                </button>
+                // Homepage Sell tab embeds the drafts gallery so users can
+                // resume an in-progress draft directly from home — or start
+                // fresh. Both paths route into /newlisting with the
+                // appropriate draftRouteState pre-set; the page-change
+                // effect respects "load"/"new" kinds and won't override.
+                <DraftsGallery
+                  userId={user?.id ?? null}
+                  onSelectDraft={(id) => {
+                    setDraftRouteState({ kind: "load", id });
+                    setPage("newlisting");
+                  }}
+                  onStartNew={() => {
+                    setDraftRouteState({ kind: "new" });
+                    setPage("newlisting");
+                  }}
+                  refreshNonce={draftsRefreshNonce}
+                />
               )}
             </div>
           </div>
@@ -1855,14 +1864,22 @@ export default function App() {
                             Falls back to PLACEHOLDER_COMMUNITY until the
                             sell-flow community selector lands (backlog.md). */}
                         <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                          <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
-                          {listing.seller_name && (
-                            <>
-                              <span className="text-muted">·</span>
-                              <span className="text-muted truncate">@{listing.seller_name}</span>
-                            </>
+                          {heroCommunity.image ? (
+                            <img
+                              src={heroCommunity.image}
+                              alt=""
+                              className="size-4 rounded-full object-cover shrink-0"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <span
+                              className="size-4 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[8px] font-bold"
+                              aria-hidden="true"
+                            >
+                              {heroCommunity.name.charAt(0).toUpperCase()}
+                            </span>
                           )}
+                          <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
                         </div>
 
                         {/* Photo */}

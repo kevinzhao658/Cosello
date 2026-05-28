@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { THUMB_PRESETS, thumbUrl, type ThumbPresetName } from "../../lib/imageTransforms";
+import { Skeleton } from "./Skeleton";
 
 const ERROR_IMG_SRC =
   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODgiIGhlaWdodD0iODgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgc3Ryb2tlPSIjMDAwIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBvcGFjaXR5PSIuMyIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIzLjciPjxyZWN0IHg9IjE2IiB5PSIxNiIgd2lkdGg9IjU2IiBoZWlnaHQ9IjU2IiByeD0iNiIvPjxwYXRoIGQ9Im0xNiA1OCAxNi0xOCAzMiAzMiIvPjxjaXJjbGUgY3g9IjUzIiBjeT0iMzUiIHI9IjciLz48L3N2Zz4KCg==";
@@ -15,6 +16,7 @@ type Props = {
 
 export function ListingImage({ src, alt, size, priority, className, style }: Props) {
   const [didError, setDidError] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   if (didError || !src) {
     return (
@@ -36,16 +38,20 @@ export function ListingImage({ src, alt, size, priority, className, style }: Pro
   const srcSet = src1x === src ? undefined : `${src1x} 1x, ${src2x} 2x`;
 
   return (
-    <img
-      src={src1x}
-      srcSet={srcSet}
-      alt={alt}
-      className={className}
-      style={style}
-      decoding="async"
-      loading={priority ? "eager" : "lazy"}
-      fetchPriority={priority ? "high" : "auto"}
-      onError={() => setDidError(true)}
-    />
+    <>
+      {!loaded && <Skeleton className={className} />}
+      <img
+        src={src1x}
+        srcSet={srcSet}
+        alt={alt}
+        className={`${className ?? ""} transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+        style={style}
+        decoding="async"
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "auto"}
+        onLoad={() => setLoaded(true)}
+        onError={() => setDidError(true)}
+      />
+    </>
   );
 }

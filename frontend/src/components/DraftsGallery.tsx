@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
-import { Button } from "./ui/button";
 import { ModalShell } from "./ui/ModalShell";
+import { SkeletonImage } from "./ui/SkeletonImage";
 import * as draftStorage from "../lib/draftStorage";
 import type { Draft } from "../lib/draftStorage";
 
@@ -59,9 +59,16 @@ export function DraftsGallery({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Generate preview URLs for the first file of each draft. Revoke on unmount.
+  // Prefer the persistent Supabase URL (from state.segmentation.image_urls) —
+  // iOS Safari can have trouble rendering blob URLs from IDB-stored blobs.
   const previewUrls = useMemo(() => {
     const map = new Map<string, string>();
     for (const draft of drafts) {
+      const serverUrl = draft.state.segmentation?.image_urls?.[0];
+      if (serverUrl) {
+        map.set(draft.id, serverUrl);
+        continue;
+      }
       const first = draft.files[0];
       if (first) {
         try {
@@ -112,6 +119,7 @@ export function DraftsGallery({
   const hasQuotaError = drafts.some((d) => d.lastSaveError === "quota");
   const visibleDrafts = expanded ? drafts : drafts.slice(0, DEFAULT_VISIBLE_COUNT);
   const overflow = drafts.length - DEFAULT_VISIBLE_COUNT;
+  const hasDrafts = drafts.length > 0;
 
   return (
     <div className="max-w-3xl mx-auto space-y-4 px-4 py-6">
@@ -135,31 +143,17 @@ export function DraftsGallery({
         </div>
       )}
 
-      {/* Header */}
-      {drafts.length > 0 && (
+      {/* Drafts header (only when drafts exist) */}
+      {hasDrafts && (
         <div className="flex items-baseline justify-between">
-          <h1 className="text-xl font-extrabold tracking-tight text-ink">Drafts</h1>
-          <span className="text-xs text-muted">{drafts.length} in progress</span>
+          <h2 className="text-[10px] font-bold tracking-[0.18em] uppercase text-muted">Drafts</h2>
+          <span className="text-[10px] uppercase tracking-wider text-muted-soft">
+            {drafts.length} in progress
+          </span>
         </div>
       )}
 
-      {/* Start new listing CTA */}
-      <Button
-        onClick={onStartNew}
-        className={`w-full justify-center ${FOCUS_RING}`}
-      >
-        <Plus className="size-4" aria-hidden />
-        Start a new listing
-      </Button>
-
-      {/* Empty-state hint */}
-      {drafts.length === 0 && !loading && available !== false && userId && (
-        <p className="text-xs text-muted-soft text-center">
-          Drafts save automatically as you work.
-        </p>
-      )}
-
-      {/* Draft cards */}
+      {/* Draft cards (top section) */}
       {visibleDrafts.map((draft) => (
         <div
           key={draft.id}
@@ -170,14 +164,8 @@ export function DraftsGallery({
             onClick={() => onSelectDraft(draft.id)}
             className={`flex flex-1 items-center gap-3 p-3 text-left min-w-0 ${FOCUS_RING}`}
           >
-            <div className="size-16 shrink-0 rounded-md bg-surface-soft border border-hairline overflow-hidden">
-              {previewUrls.get(draft.id) ? (
-                <img
-                  src={previewUrls.get(draft.id)}
-                  alt=""
-                  className="size-full object-cover"
-                />
-              ) : null}
+            <div className="relative size-16 shrink-0 rounded-md border border-hairline overflow-hidden">
+              <SkeletonImage src={previewUrls.get(draft.id) ?? null} alt="" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-bold text-ink truncate">{draftTitle(draft)}</div>
@@ -216,6 +204,33 @@ export function DraftsGallery({
             </>
           )}
         </button>
+      )}
+
+      {/* Divider between drafts and the "Start new" CTA */}
+      {hasDrafts && <hr className="border-t border-hairline my-2" />}
+
+      {/* Start-new-listing CTA — card style, always at the bottom */}
+      <button
+        type="button"
+        onClick={onStartNew}
+        className={`w-full flex items-center gap-3 rounded-md border border-hairline bg-surface-soft hover:bg-canvas hover:border-ink transition-colors p-4 text-left ${FOCUS_RING}`}
+      >
+        <div className="size-10 shrink-0 rounded-full bg-ink text-on-primary flex items-center justify-center">
+          <Plus className="size-4" strokeWidth={2.5} aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-ink">Start a new listing</div>
+          <div className="text-[11.5px] text-muted truncate">
+            Upload photos to begin a draft
+          </div>
+        </div>
+      </button>
+
+      {/* Empty-state hint (only when truly empty + available) */}
+      {!hasDrafts && !loading && available !== false && userId && (
+        <p className="text-xs text-muted-soft text-center">
+          Drafts save automatically as you work.
+        </p>
       )}
 
       {/* Delete-confirm modal */}

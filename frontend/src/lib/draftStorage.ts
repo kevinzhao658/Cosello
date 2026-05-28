@@ -73,6 +73,29 @@ function getDb(): Promise<IDBPDatabase> {
 }
 
 /**
+ * RFC4122 v4 UUID — works in any browser context (no secure-context
+ * requirement). `crypto.randomUUID()` would be cleaner but it throws in
+ * non-HTTPS contexts on iOS Safari (e.g. when the dev server is hit via a
+ * LAN IP from a phone). Client-side draft IDs don't need crypto strength,
+ * so this is the safer default.
+ */
+export function generateDraftId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+  }
+  // Last-resort fallback (Math.random) — same shape, never throws.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+/**
  * Returns true iff IndexedDB is usable in the current browser context.
  * False in Safari Private Browsing and some content-blocker setups.
  * Result is cached after the first call.
