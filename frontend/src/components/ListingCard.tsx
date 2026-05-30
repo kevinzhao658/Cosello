@@ -63,7 +63,7 @@ export function ListingCard({
           priority={priority}
           className="absolute inset-0 size-full object-cover"
         />
-        {!isOwn && isAuthenticated && (
+        {!isOwn && isAuthenticated && listing.status !== "sold" && (
           <button
             type="button"
             onClick={(e) => {
@@ -90,19 +90,22 @@ export function ListingCard({
           </button>
         )}
         {listing.status === "sold" && (
-          <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
-            Sold
-          </span>
+          <>
+            <span className="absolute inset-0 bg-canvas/75" aria-hidden="true" />
+            <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-bold text-ink bg-canvas/95 border border-hairline px-2 py-1 rounded-full">
+              Sold
+            </span>
+          </>
         )}
       </div>
 
       {/* Body */}
       <div className="pt-2 space-y-0.5">
-        <p className="text-sm font-medium text-ink line-clamp-1">
+        <p className={`text-sm font-medium line-clamp-1 ${listing.status === "sold" ? "text-muted" : "text-ink"}`}>
           {formatTitle(listing.brand, listing.name)}
         </p>
         <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
-        <p className="text-base font-semibold text-ink leading-none pt-0.5">
+        <p className={`text-base font-semibold leading-none pt-0.5 ${listing.status === "sold" ? "text-muted" : "text-ink"}`}>
           ${listing.price}
         </p>
       </div>
