@@ -11,6 +11,7 @@ export interface ListingCommunity {
   is_public: boolean;
   is_mutual: boolean;
   is_neighborhood?: boolean;
+  image?: string | null;
 }
 
 export interface MutualCommunity {

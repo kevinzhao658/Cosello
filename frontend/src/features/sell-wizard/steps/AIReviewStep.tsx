@@ -5,6 +5,7 @@ import { PriceInput } from "../../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../../components/CategoryFields";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { Tooltip } from "../../../components/ui/tooltip";
+import { SkeletonImage } from "../../../components/ui/SkeletonImage";
 import { formatTitle } from "../../../lib/format";
 import { CONDITIONS } from "../../../lib/listings";
 import type { CategorySchema } from "../../../lib/types";
@@ -14,6 +15,9 @@ export interface AIReviewStepProps {
   bulkItems: BulkItemDetails[];
   currentCardIndex: number;
   uploadedImages: UploadedImage[];
+  // Persistent Supabase URLs from segmentation. Prefer over local blob URLs
+  // for thumbnails — iOS Safari invalidates blob URLs after backgrounding.
+  imageUrls?: string[];
   categorySchemas: Record<string, CategorySchema>;
   editingTitle: string | null;
   newTag: string;
@@ -30,7 +34,7 @@ export interface AIReviewStepProps {
 }
 
 export function AIReviewStep({
-  bulkItems, currentCardIndex, uploadedImages, categorySchemas, editingTitle, newTag,
+  bulkItems, currentCardIndex, uploadedImages, imageUrls, categorySchemas, editingTitle, newTag,
   isGenerating, setEditingTitle, setNewTag, setCurrentCardIndex, deleteBulkItem,
   updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onAdvance,
 }: AIReviewStepProps) {
@@ -64,15 +68,16 @@ export function AIReviewStep({
 
       <div className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left">
         <div className="flex items-center gap-2 mb-1">
-          {currentItem.imageIndices.map((imgIdx) => (
-            <div key={imgIdx} className="relative">
-              <img
-                src={uploadedImages[imgIdx]?.preview}
-                alt="Item"
-                className="size-16 object-cover rounded-md border border-hairline"
-              />
-            </div>
-          ))}
+          {currentItem.imageIndices.map((imgIdx) => {
+            // Prefer persistent server URL over local blob URL (iOS Safari
+            // can drop blob URLs after backgrounding).
+            const src = imageUrls?.[imgIdx] ?? uploadedImages[imgIdx]?.preview ?? null;
+            return (
+              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline overflow-hidden">
+                <SkeletonImage src={src} alt="Item" />
+              </div>
+            );
+          })}
           <input
             ref={bulkPhotoInputRef}
             type="file"

@@ -3,8 +3,10 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
-import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight, ChevronRight } from "lucide-react";
+import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import * as draftStorage from "../../lib/draftStorage";
+import type { Draft, PersistableState, PersistedFile } from "../../lib/draftStorage";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
 import { formatTitle } from "../../lib/format";
@@ -15,12 +17,14 @@ import {
   type BulkItemDetails,
   type ProductDetails,
   type SegmentationResult,
+  type SellWizardState,
 } from "./useSellWizard";
 import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
+import { TypedInstruction } from "./TypedInstruction";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -56,6 +60,27 @@ export interface SellWizardProps {
   onImagesChange?: (count: number) => void;
   onProductDetailsChange?: (details: ProductDetails | null) => void;
   onCoverImageChange?: (url: string | null) => void;
+  // Drafts. Parent sets pendingDraftId when the user taps a draft card; the
+  // wizard loads it on mount and clears the parent's state via onDraftLoaded.
+  pendingDraftId?: string | null;
+  onDraftLoaded?: () => void;
+  onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
+  onBackToDrafts?: () => void;
+}
+
+const DRAFT_SAVE_DEBOUNCE_MS = 250;
+
+// Returns a short relative-time string for the save-status indicator.
+// "just now" / "Ns ago" / "Nm ago" / "Nh ago".
+function relativeTime(ms: number): string {
+  const diff = Math.max(0, Date.now() - ms);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
 }
 
 const priceStringToCents = (raw: string): number | null => {
@@ -81,8 +106,36 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onImagesChange,
   onProductDetailsChange,
   onCoverImageChange,
+  pendingDraftId = null,
+  onDraftLoaded,
+  onPublishedDraft,
+  onBackToDrafts,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
+
+  // Drafts: identify which draft this wizard instance is editing.
+  // null = no draft yet (pre-first-photo).
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+
+  type SaveStatus =
+    | { kind: "idle" }
+    | { kind: "saving" }
+    | { kind: "saved"; at: number }
+    | { kind: "failed"; reason: "quota" | "unknown" };
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
+
+  // Auto-ticking "Saved · Xs ago" — bump every 15s while the indicator shows
+  // a `saved` state so the relative timestamp stays fresh.
+  const [, setSavedTick] = useState(0);
+  useEffect(() => {
+    if (saveStatus.kind !== "saved") return;
+    const id = setInterval(() => setSavedTick((n) => n + 1), 15000);
+    return () => clearInterval(id);
+  }, [saveStatus.kind]);
+
+  // When a draft resumes with community IDs the user is no longer a member
+  // of, we drop them and show a one-time banner. Cleared on dismiss.
+  const [prunedCommunityCount, setPrunedCommunityCount] = useState(0);
 
   // PR 3: seller picks up to 3 communities per listing. We pre-select the
   // user's neighborhood community as a default; the seller can deselect it.
@@ -125,6 +178,219 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       setSinglePostPhase("review");
     }
   }, [productDetails]);
+
+  // On phase transition (single-listing only), scroll to the top of the
+  // wizard area so the new step is visible. Otherwise iOS Safari preserves
+  // the scroll position of the previous step, which can leave the new
+  // (shorter) step off-screen — looking like a blank page to the user.
+  useEffect(() => {
+    if (!isActive) return;
+    if (!productDetails) return;
+    const id = requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [singlePostPhase, isActive, productDetails]);
+
+  // Build a Draft payload from the current reducer state + component-level
+  // state (selectedCommunityIds, singlePostPhase). Filters transient fields.
+  const buildDraftPayload = useCallback((): Draft | null => {
+    if (!user?.id) return null;
+    if (state.uploadedImages.length === 0) return null;
+
+    const files: PersistedFile[] = state.uploadedImages.map((img) => ({
+      name: img.file.name,
+      type: img.file.type,
+      blob: img.file,
+    }));
+
+    // Build PersistableState by stripping transient fields and serializing
+    // the Set as a number[]. Avoid passing through uploadedImages —
+    // those live in `files`.
+    const persistable: PersistableState = {
+      bulkReviewPhase: state.bulkReviewPhase,
+      segmentation: state.segmentation,
+      brandHints: state.brandHints,
+      names: state.names,
+      rationale: state.rationale,
+      rationaleOther: state.rationaleOther,
+      productDetails: state.productDetails,
+      bulkItems: state.bulkItems,
+      currentCardIndex: state.currentCardIndex,
+      bulkPickupLocation: state.bulkPickupLocation,
+      postPickupLocation: state.postPickupLocation,
+      segmentationError: state.segmentationError,
+      groupingsModified: state.groupingsModified,
+      modifiedGroupIndices: Array.from(state.modifiedGroupIndices),
+      newTag: state.newTag,
+    };
+
+    const mode: "single" | "bulk" =
+      state.bulkItems.length > 0 || state.segmentation !== null ? "bulk" : "single";
+
+    const now = Date.now();
+    return {
+      id: currentDraftId ?? draftStorage.generateDraftId(),
+      userId: user.id,
+      createdAt: now, // will be overwritten if the draft already exists
+      updatedAt: now,
+      mode,
+      selectedCommunityIds,
+      singlePostPhase,
+      state: persistable,
+      files,
+      lastSaveError: null,
+    };
+  }, [currentDraftId, selectedCommunityIds, singlePostPhase, state, user?.id]);
+
+  // Cached createdAt for the current draft. Set on first save; reused on
+  // subsequent saves so we don't have to round-trip loadDraft just to
+  // preserve the timestamp. Cleared when a new/different draft starts.
+  const draftCreatedAtRef = useRef<number | null>(null);
+
+  // Debounced auto-save. Fires only after the user has committed to a
+  // listing — i.e. the wizard has run segmentation (bulk) or generated
+  // product details (single). Just selecting photos in the upload step
+  // doesn't create a draft.
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    const hasPhotos = state.uploadedImages.length > 0;
+    const hasCommitted = state.segmentation !== null || state.productDetails !== null;
+    if (!hasPhotos || !hasCommitted) {
+      // Pre-commit (just photos selected, or no photos) — no draft, no save.
+      setSaveStatus({ kind: "idle" });
+      return;
+    }
+
+    // Don't flip to "saving" yet — the debounce window is just a wait, not
+    // work. The status flip happens inside the timeout when the write
+    // actually starts. Indicator stays on its previous value ("saved" or
+    // "idle") until then.
+    const timerId = setTimeout(async () => {
+      setSaveStatus({ kind: "saving" });
+      const draft = buildDraftPayload();
+      if (!draft) return;
+
+      // Preserve createdAt across saves of the same draft via a ref —
+      // avoids a per-save loadDraft round-trip.
+      if (draftCreatedAtRef.current !== null) {
+        draft.createdAt = draftCreatedAtRef.current;
+      } else {
+        draftCreatedAtRef.current = draft.createdAt;
+      }
+
+      try {
+        await draftStorage.saveDraft(draft);
+
+        if (!currentDraftId) setCurrentDraftId(draft.id);
+        setSaveStatus({ kind: "saved", at: Date.now() });
+      } catch (err) {
+        const name = (err as { name?: string } | null)?.name ?? "";
+        if (name === "QuotaExceededError") {
+          try {
+            await draftStorage.saveDraft({ ...draft, lastSaveError: "quota" });
+          } catch { /* nothing more we can do */ }
+          setSaveStatus({ kind: "failed", reason: "quota" });
+        } else {
+          console.error("Draft save failed:", err);
+          setSaveStatus({ kind: "failed", reason: "unknown" });
+        }
+      }
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+
+    return () => clearTimeout(timerId);
+    // We intentionally do NOT include buildDraftPayload — its identity
+    // changes every render (depends on state). The deps below cover the
+    // input space that affects the payload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isAuthenticated,
+    user?.id,
+    state,
+    selectedCommunityIds,
+    singlePostPhase,
+    currentDraftId,
+  ]);
+
+  // Hydrate from IndexedDB, reconstruct File objects from Blobs, auto-prune
+  // community IDs the user is no longer a member of, then swap reducer state
+  // in one LOAD_FROM_DRAFT dispatch.
+  const loadFromDraft = useCallback(async (id: string) => {
+    const draft = await draftStorage.loadDraft(id);
+    if (!draft) return;
+
+    // Reconstruct File + preview URL per persisted blob. Filter failures.
+    const rehydratedImages = draft.files
+      .map(({ name, type, blob }) => {
+        try {
+          const file = new File([blob], name, { type });
+          return { file, preview: URL.createObjectURL(file) };
+        } catch {
+          return null;
+        }
+      })
+      .filter((x): x is { file: File; preview: string } => x !== null);
+
+    // Build the SellWizardState the reducer expects. Transient fields
+    // default to initial values; uploadedImages = rehydratedImages;
+    // modifiedGroupIndices = Set(persisted array).
+    const hydratedState: SellWizardState = {
+      ...draft.state,
+      uploadedImages: rehydratedImages,
+      modifiedGroupIndices: new Set(draft.state.modifiedGroupIndices),
+      isGenerating: false,
+      isPostingBulk: false,
+      dragImageState: null,
+      dragOverGroup: null,
+      dragOverGap: null,
+      instructionExiting: false,
+      editingTitle: null,
+      segmentationError: draft.state.segmentationError ?? null,
+    };
+
+    // Auto-prune communities: intersect saved picks with current memberships.
+    const currentMemberIds = new Set([
+      ...publicCommunities.map((c) => c.id),
+      ...privateCommunities.map((c) => c.id),
+    ]);
+    const validIds = draft.selectedCommunityIds.filter((id) => currentMemberIds.has(id));
+    const prunedCount = draft.selectedCommunityIds.length - validIds.length;
+
+    // Apply state in one frame.
+    actions.loadFromDraft(hydratedState);
+    setSelectedCommunityIds(validIds);
+    setSinglePostPhase(draft.singlePostPhase);
+    setCurrentDraftId(draft.id);
+    draftCreatedAtRef.current = draft.createdAt;
+    if (prunedCount > 0) setPrunedCommunityCount(prunedCount);
+  }, [actions, publicCommunities, privateCommunities]);
+
+  // Reset everything for a brand-new draft. Called when the user taps
+  // "Start a new listing" from the gallery.
+  const clearForNewDraft = useCallback(() => {
+    actions.clearAll();
+    setSelectedCommunityIds([]);
+    setSinglePostPhase("review");
+    setCurrentDraftId(null);
+    draftCreatedAtRef.current = null;
+    setPrunedCommunityCount(0);
+    setSaveStatus({ kind: "idle" });
+    initializedFromNeighborhoodRef.current = false;
+  }, [actions]);
+
+  // Suppress unused warning — clearForNewDraft is called externally (Task 6).
+  void clearForNewDraft;
+
+  // When the parent (App.tsx) routes us to a specific draft, load it once.
+  const previousPendingDraftIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (pendingDraftId && pendingDraftId !== previousPendingDraftIdRef.current) {
+      previousPendingDraftIdRef.current = pendingDraftId;
+      void loadFromDraft(pendingDraftId).then(() => {
+        onDraftLoaded?.();
+      });
+    }
+  }, [pendingDraftId, loadFromDraft, onDraftLoaded]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wizardAnchorRef = useRef<HTMLDivElement>(null);
@@ -566,13 +832,22 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
       actions.postListingReset();
       onPosted();
+      onPublishedDraft?.(currentDraftId);
+      setCurrentDraftId(null);
+      draftCreatedAtRef.current = null;
     } catch (err) {
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onRequestSignIn]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn]);
 
   const resetForLogout = useCallback(() => {
+    setCurrentDraftId(null);
+    draftCreatedAtRef.current = null;
+    setSelectedCommunityIds([]);
+    setSinglePostPhase("review");
+    setPrunedCommunityCount(0);
+    setSaveStatus({ kind: "idle" });
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
     for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
@@ -671,6 +946,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
       actions.postListingReset();
       onPosted();
+      onPublishedDraft?.(currentDraftId);
+      setCurrentDraftId(null);
+      draftCreatedAtRef.current = null;
     } catch (err) {
       console.error("Bulk post failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -731,6 +1009,54 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
   return (
     <>
+      {saveStatus.kind !== "idle" && (
+        <div className="flex justify-end items-center gap-1.5 px-4 pt-2 text-[11px] font-medium">
+          {saveStatus.kind === "saving" && (
+            <>
+              <Loader2 className="size-3 animate-spin text-muted" aria-hidden />
+              <span className="text-muted">Saving…</span>
+            </>
+          )}
+          {saveStatus.kind === "saved" && (
+            <>
+              <span className="size-1.5 rounded-full bg-primary shrink-0" aria-hidden />
+              <span className="text-muted">Saved · {relativeTime(saveStatus.at)}</span>
+            </>
+          )}
+          {saveStatus.kind === "failed" && saveStatus.reason === "quota" && (
+            <button
+              type="button"
+              onClick={() => onBackToDrafts?.()}
+              className="inline-flex items-center gap-1.5 text-warning hover:underline"
+            >
+              <AlertTriangle className="size-3" aria-hidden />
+              <span>Save failed — storage full. Tap to manage drafts.</span>
+            </button>
+          )}
+          {saveStatus.kind === "failed" && saveStatus.reason === "unknown" && (
+            <>
+              <AlertTriangle className="size-3 text-warning" aria-hidden />
+              <span className="text-warning">Save failed — try again.</span>
+            </>
+          )}
+        </div>
+      )}
+      {prunedCommunityCount > 0 && (
+        <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
+          <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
+          <span className="flex-1">
+            We removed {prunedCommunityCount} communit{prunedCommunityCount === 1 ? "y" : "ies"} you're no longer a member of.
+          </span>
+          <button
+            type="button"
+            onClick={() => setPrunedCommunityCount(0)}
+            aria-label="Dismiss"
+            className="text-muted hover:text-ink shrink-0"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
       <UploadStep
         uploadedImagesCount={uploadedImages.length}
         isGenerating={isGenerating}
@@ -878,6 +1204,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 </button>
               </div>
             </div>
+          ) : segmentation || productDetails ? (
+            // Post-segmentation / post-AI: the photos box was the upload-step
+            // UI. Once the wizard has moved past upload (segmentation ran or
+            // a single product was generated), hide it — the wizard's review
+            // and pickup steps own the surface from here.
+            null
           ) : (
             <div
               className="relative w-full bg-surface-card border border-hairline rounded-lg p-4 pb-14 mt-2 mb-2"
@@ -936,7 +1268,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 <span>Or drop more photos here</span>
               </button>
 
-              {mode !== "manual" && (
+              {/* Continue arrow only shows BEFORE segmentation has run.
+                  Once the wizard has segmented (bulk path) or generated a
+                  single listing (productDetails set), this button is no
+                  longer the right action — the user advances via the
+                  SingleListingForm's "Continue →" button or the bulk wizard's
+                  step controls. Without this guard, tapping the arrow on
+                  mobile while on the review step re-triggers segmentation
+                  and the wizard appears to blank out. */}
+              {mode !== "manual" && !segmentation && !productDetails && (
                 <button
                   type="button"
                   aria-label="Continue"
@@ -1046,6 +1386,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           bulkItems={bulkItems}
           currentCardIndex={currentCardIndex}
           uploadedImages={uploadedImages}
+          imageUrls={segmentation?.image_urls}
           categorySchemas={categorySchemas}
           editingTitle={editingTitle}
           newTag={newTag}
@@ -1249,18 +1590,12 @@ function SinglePickupStep({
 }: SinglePickupStepProps) {
   return (
     <>
-      <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted uppercase tracking-wider">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back"
-          className="size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <ChevronRight className="size-3.5 rotate-180" />
-        </button>
-        <span>Step 4 of 4 — Pickup Location</span>
-      </div>
-      <TypedInstruction bulkReviewPhase="pickup" exiting={instructionExiting} />
+      <TypedInstruction
+        bulkReviewPhase="pickup"
+        exiting={instructionExiting}
+        stepLabel="Step 4 of 4"
+        onBack={onBack}
+      />
       <div className="mt-8 space-y-5 max-w-md mx-auto">
         <div>
           <label htmlFor="single-pickup-location" className="text-xs text-muted uppercase tracking-wider">

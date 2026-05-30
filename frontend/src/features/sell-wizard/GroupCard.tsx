@@ -1,5 +1,6 @@
 import React, { memo } from "react";
 import { X } from "lucide-react";
+import { SkeletonImage } from "../../components/ui/SkeletonImage";
 
 function wrapAt(text: string, maxLen = 20): string {
   const words = text.split(" ");
@@ -67,7 +68,11 @@ export const GroupCard = memo(function GroupCard({
       <div className="flex flex-nowrap items-center gap-1">
         {group.map((imgIdx) => {
           const img = uploadedImages[imgIdx];
-          const previewSrc = img?.preview || imageUrls[imgIdx];
+          // Prefer the persistent Supabase URL over the local blob URL —
+          // iOS Safari can invalidate blob URLs after backgrounding or state
+          // transitions, which made the thumbnail go blank intermittently.
+          // Server URL is cached after first load, so the perf cost is moot.
+          const previewSrc = imageUrls[imgIdx] || img?.preview;
           if (!previewSrc) return null;
           const isDragging = dragImageState?.imageIndex === imgIdx;
           return (
@@ -76,11 +81,11 @@ export const GroupCard = memo(function GroupCard({
               draggable={bulkReviewPhase === "review"}
               onDragStart={bulkReviewPhase === "review" ? () => onDragStart(imgIdx, groupIdx) : undefined}
               onDragEnd={bulkReviewPhase === "review" ? onDragEnd : undefined}
-              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 ${
+              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 overflow-hidden ${
                 bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
               } ${isDragging ? "opacity-40" : "opacity-100"}`}
             >
-              <img src={previewSrc} alt={`Photo ${imgIdx + 1}`} className="size-full object-cover rounded-md" draggable={false} />
+              <SkeletonImage src={previewSrc} alt={`Photo ${imgIdx + 1}`} />
               {bulkReviewPhase === "review" && (
                 <button
                   type="button"

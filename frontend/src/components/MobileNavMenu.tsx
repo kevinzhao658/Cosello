@@ -49,9 +49,9 @@ export function MobileNavMenu({
   };
 
   return (
-    <ModalShell open={open} onClose={onClose} align="right" z={40} topOffset={NAV_HEIGHT}>
+    <ModalShell open={open} onClose={onClose} align="right" z={60} topOffset={NAV_HEIGHT}>
       <div
-        className={`h-full w-[min(85vw,360px)] bg-canvas border-l border-ink flex flex-col shadow-overlay transition-transform duration-[250ms] ease-out ${
+        className={`h-full w-[min(85vw,360px)] bg-canvas flex flex-col shadow-overlay transition-transform duration-[250ms] ease-out ${
           slidIn ? "translate-x-0" : "translate-x-full"
         }`}
       >

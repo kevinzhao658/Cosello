@@ -346,11 +346,15 @@ def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[Vis
     content.append({"type": "text", "text": _build_segmentation_prompt(n)})
 
     try:
+        # Haiku 4.5 is plenty for a "which photos belong together" classification
+        # task. Typically 3-5x faster than Sonnet for vision payloads, with
+        # accuracy that holds for this segmentation prompt (validated in
+        # listing_eval canary). Tight 25s timeout to fail fast.
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=256,
             messages=[{"role": "user", "content": content}],
-            timeout=45.0,
+            timeout=25.0,
         )
         raw = _strip_fences(response.content[0].text)
         parsed = json.loads(raw)
@@ -930,7 +934,14 @@ async def segment_photos(
             # (Tier 3 swap removed the pre-upload Pillow pass). Preprocess on
             # the way in so Vision + Claude see resized bytes under their
             # respective per-image size limits (Claude rejects >5 MB).
-            bytes_list = [_preprocess_image_bytes(storage.download_image(u)) for u in parsed_image_urls]
+            # Run the download + Pillow work in parallel — both are blocking
+            # I/O + CPU work, and serial execution was the dominant pre-Claude
+            # latency for bulk uploads (5-10 photos = 2-5s wasted).
+            def _download_and_preprocess(u: str) -> bytes:
+                return _preprocess_image_bytes(storage.download_image(u))
+            bytes_list = list(await asyncio.gather(*(
+                asyncio.to_thread(_download_and_preprocess, u) for u in parsed_image_urls
+            )))
             out_image_urls = parsed_image_urls
         else:
             bytes_list, out_image_urls = await _save_uploaded_images(images)
@@ -1436,7 +1447,7 @@ async def get_listings(
     community_info_map: dict[int, dict] = {}
     if all_community_ids_set:
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
-            community_info_map[c.id] = {"name": c.name, "is_public": c.is_public}
+            community_info_map[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
 
     enriched = []
     for l in results:
@@ -1558,7 +1569,7 @@ async def get_public_listings(
     pub_info: dict[int, dict] = {}
     if all_community_ids_set:
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
-            pub_info[c.id] = {"name": c.name, "is_public": c.is_public}
+            pub_info[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
 
     pub_poster_ids = {l.get("userId") for l in results if l.get("userId")}
     pub_poster_map: dict[str, User] = {}
@@ -1613,6 +1624,23 @@ async def get_my_listings(
         if o.listing_id not in latest_order_at or ts > latest_order_at[o.listing_id]:
             latest_order_at[o.listing_id] = ts
 
+    # Enrich each listing with `allCommunities` so the trust band on the
+    # MyAccount Listings cards can display the same community chip the
+    # marketplace feed does. Mirrors the enrichment in /api/listings.
+    all_community_ids_set: set[int] = set()
+    for l in my_listings:
+        for cid in l.get("communities", []):
+            if isinstance(cid, int):
+                all_community_ids_set.add(cid)
+    community_info_map: dict[int, dict] = {}
+    if all_community_ids_set:
+        for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
+            community_info_map[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
+    my_community_ids: set[int] = {
+        m.community_id
+        for m in db.query(CommunityMember).filter(CommunityMember.user_id == current_user.id).all()
+    }
+
     enriched = []
     for l in my_listings:
         listing_copy = dict(l)
@@ -1621,6 +1649,19 @@ async def get_my_listings(
             l["location"] = current_user.neighborhood
         listing_copy["pendingOrderCount"] = order_counts.get(l["id"], 0)
         listing_copy["latestOrderAt"] = latest_order_at.get(l["id"])
+
+        # Build allCommunities (same shape as /api/listings).
+        all_comms = []
+        for cid in l.get("communities", []):
+            if isinstance(cid, int) and cid in community_info_map:
+                info = community_info_map[cid]
+                is_mutual = cid in my_community_ids
+                if not info.get("is_public", True) and not is_mutual:
+                    continue
+                all_comms.append({**info, "is_mutual": is_mutual})
+        all_comms.sort(key=lambda c: (not c["is_mutual"], c["name"]))
+        listing_copy["allCommunities"] = all_comms
+
         enriched.append(listing_copy)
     return enriched
 

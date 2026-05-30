@@ -138,7 +138,8 @@ export type SellWizardAction =
   | { type: "SET_SEGMENTATION_ERROR"; value: string | null }
   | { type: "BACK_FROM_REVIEW" }
   | { type: "RESET_FROM_LOGOUT" }
-  | { type: "PARTIAL_RESET_FROM_BUY_SWITCH" };
+  | { type: "PARTIAL_RESET_FROM_BUY_SWITCH" }
+  | { type: "LOAD_FROM_DRAFT"; state: SellWizardState };
 
 function emptyWizardState(): SellWizardState {
   return {
@@ -564,6 +565,11 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
         bulkReviewPhase: null,
         currentCardIndex: 0,
       };
+    case "LOAD_FROM_DRAFT":
+      // Replace the entire reducer state with the hydrated payload.
+      // Caller is responsible for filtering transient fields out before save
+      // (draftStorage.ts) and defaulting them back in on load (SellWizard.tsx).
+      return action.state;
     default:
       return state;
   }
@@ -616,6 +622,7 @@ export interface SellWizardActions {
   setSegmentationError: (value: string | null) => void;
   backFromReview: () => void;
   partialResetFromBuySwitch: () => void;
+  loadFromDraft: (state: SellWizardState) => void;
 }
 
 export function useSellWizard(): [SellWizardState, SellWizardActions] {
@@ -677,6 +684,7 @@ export function useSellWizard(): [SellWizardState, SellWizardActions] {
     setSegmentationError: (value) => dispatch({ type: "SET_SEGMENTATION_ERROR", value }),
     backFromReview: () => dispatch({ type: "BACK_FROM_REVIEW" }),
     partialResetFromBuySwitch: () => dispatch({ type: "PARTIAL_RESET_FROM_BUY_SWITCH" }),
+    loadFromDraft: (state) => dispatch({ type: "LOAD_FROM_DRAFT", state }),
   }), []);
 
   return [state, actions];
