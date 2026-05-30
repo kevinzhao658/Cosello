@@ -40,7 +40,7 @@ const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
-  const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
+  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser } = useAuth();
   const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
@@ -234,6 +234,48 @@ export default function App() {
   // Edit listing modal trigger. All field state lives inside EditListingModal;
   // App.tsx only owns the open flag and the save handler.
   const [showEditListingModal, setShowEditListingModal] = useState(false);
+
+  // Quick-change location modal — opened from the Settings icon next to the
+  // marketplace location header. Edits zip + neighborhood only; full profile
+  // edits still go through MyAccount → Edit Profile.
+  const [changeLocationOpen, setChangeLocationOpen] = useState(false);
+  const [changeLocationZip, setChangeLocationZip] = useState("");
+  const [changeLocationNeighborhood, setChangeLocationNeighborhood] = useState("");
+  const [changeLocationError, setChangeLocationError] = useState("");
+  const [isChangingLocation, setIsChangingLocation] = useState(false);
+
+  const openChangeLocation = useCallback(() => {
+    setChangeLocationZip(user?.zip_code ?? "");
+    setChangeLocationNeighborhood(user?.neighborhood ?? "");
+    setChangeLocationError("");
+    setChangeLocationOpen(true);
+  }, [user?.zip_code, user?.neighborhood]);
+
+  const submitChangeLocation = useCallback(async () => {
+    setIsChangingLocation(true);
+    setChangeLocationError("");
+    try {
+      const res = await apiFetch("/api/auth/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          neighborhood: changeLocationNeighborhood.trim(),
+          zip_code: changeLocationZip.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ detail: "Update failed" }));
+        throw new Error(data.detail || "Update failed");
+      }
+      const updated = await res.json();
+      updateUser(updated);
+      setChangeLocationOpen(false);
+    } catch (err) {
+      setChangeLocationError(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setIsChangingLocation(false);
+    }
+  }, [changeLocationNeighborhood, changeLocationZip, updateUser]);
 
   // Reset the New Listing form back to defaults — called after a successful
   // publish so a follow-up listing starts blank.
@@ -1778,7 +1820,7 @@ export default function App() {
             showMyListings={showMyListings}
             onToggleMyListings={handleToggleMyListings}
           />
-          <main className="flex-1 min-w-0 px-6 lg:px-8 pt-8 pb-20">
+          <main className="flex-1 min-w-0 px-6 lg:px-8 pt-14 lg:pt-8 pb-20">
             {/* Header: neighborhood + sort */}
             <header className="flex flex-wrap items-end justify-between gap-4 mb-2">
               <div className="min-w-0">
@@ -1790,6 +1832,7 @@ export default function App() {
                     <button
                       type="button"
                       aria-label="Change location"
+                      onClick={openChangeLocation}
                       className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
                       <Settings className="size-4" />
@@ -2418,6 +2461,78 @@ export default function App() {
             openListingDetail={openListingDetail}
           />
         </Suspense>
+      )}
+
+      {/* Quick change-location modal — opened from the Settings icon next
+          to the marketplace location header. Edits neighborhood + zip only;
+          full profile edits live in MyAccount → Edit Profile. */}
+      {changeLocationOpen && (
+        <ModalShell open onClose={() => setChangeLocationOpen(false)} z={210}>
+          <div className="relative bg-canvas border border-hairline rounded-md w-full max-w-sm mx-4 p-6 shadow-overlay">
+            <button
+              type="button"
+              onClick={() => setChangeLocationOpen(false)}
+              aria-label="Close"
+              className="absolute top-3 right-3 size-8 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <X className="size-4" />
+            </button>
+            <h2 className="text-lg font-extrabold text-ink mb-1">Change location</h2>
+            <p className="text-sm text-muted mb-4">
+              Updates what you see in the marketplace.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                  Neighborhood
+                </label>
+                <input
+                  id="cl-neighborhood"
+                  type="text"
+                  value={changeLocationNeighborhood}
+                  onChange={(e) => setChangeLocationNeighborhood(e.target.value)}
+                  placeholder="e.g. Chinatown"
+                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <div>
+                <label htmlFor="cl-zip" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                  Zip code
+                </label>
+                <input
+                  id="cl-zip"
+                  type="text"
+                  inputMode="numeric"
+                  value={changeLocationZip}
+                  onChange={(e) => setChangeLocationZip(e.target.value)}
+                  placeholder="10013"
+                  maxLength={10}
+                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              {changeLocationError && (
+                <p className="text-sm text-error">{changeLocationError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setChangeLocationOpen(false)}
+                className="h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitChangeLocation}
+                disabled={isChangingLocation || !changeLocationNeighborhood.trim()}
+                className="h-9 px-4 rounded-md bg-primary hover:bg-primary-hover text-on-primary text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                {isChangingLocation ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, MapPin, User, Loader2, Pencil, Check, ChevronRight } from "lucide-react";
+import { X, MapPin, User, Loader2, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { formatTitle } from "../../lib/format";
@@ -144,7 +144,7 @@ function PrimaryActionBlock({
     <>
       <Button
         onClick={onOpenBuy}
-        className="w-full h-12 rounded-md bg-primary hover:bg-primary-hover text-on-primary"
+        className="w-full h-10 rounded-md bg-primary hover:bg-primary-hover text-on-primary"
       >
         Buy now
       </Button>
@@ -156,13 +156,13 @@ function PrimaryActionBlock({
               disabled
               placeholder="Make an offer"
               aria-label="Make an offer (coming soon)"
-              className="flex-1 h-10 px-3 rounded-md border border-hairline bg-surface-soft text-muted text-sm placeholder:text-muted-soft cursor-not-allowed"
+              className="flex-1 h-9 px-3 rounded-md border border-hairline bg-surface-soft text-muted text-sm placeholder:text-muted-soft cursor-not-allowed"
             />
             <button
               type="button"
               disabled
               aria-label="Send offer (coming soon)"
-              className="h-10 px-4 rounded-md bg-primary/40 text-on-primary text-sm font-semibold cursor-not-allowed"
+              className="h-9 px-4 rounded-md bg-primary/40 text-on-primary text-sm font-semibold cursor-not-allowed"
             >
               Send
             </button>
@@ -192,23 +192,28 @@ export function ListingDetailModal({
   const [imageIndex, setImageIndex] = useState(0);
   const [tab, setTab] = useState<DetailTab>("details");
   const [locationDrawerOpen, setLocationDrawerOpen] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const listingId = listing?.id;
 
   useEffect(() => {
     setImageIndex(0);
     setTab("details");
     setLocationDrawerOpen(false);
+    setLightboxOpen(false);
   }, [listingId]);
 
-  /* Close location drawer on Escape */
+  /* Close location drawer or lightbox on Escape */
   useEffect(() => {
-    if (!locationDrawerOpen) return;
+    if (!locationDrawerOpen && !lightboxOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLocationDrawerOpen(false);
+      if (e.key === "Escape") {
+        if (lightboxOpen) setLightboxOpen(false);
+        else if (locationDrawerOpen) setLocationDrawerOpen(false);
+      }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [locationDrawerOpen]);
+  }, [locationDrawerOpen, lightboxOpen]);
 
   if (!open || !listing) return null;
 
@@ -251,16 +256,23 @@ export function ListingDetailModal({
           <X className="size-4" />
         </button>
 
-        {/* Left: photos column */}
-        <div className="p-3 md:p-6 bg-surface-soft border-b md:border-b-0 md:border-r border-hairline">
-          <div className="relative aspect-[4/5] bg-surface-strong rounded-md overflow-hidden">
+        {/* Left: photos column — desktop only. On mobile the photo block is
+            rendered inside the scroll region below so it scrolls away with
+            the rest of the content (rather than locking at the top). */}
+        <div className="hidden md:block p-3 md:p-6 bg-surface-soft border-b md:border-b-0 md:border-r border-hairline shrink-0">
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            aria-label="Expand image"
+            className="relative aspect-[4/5] w-full bg-surface-strong rounded-md overflow-hidden block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          >
             <img
               src={images[safeIndex]}
               alt={formatTitle(listing.brand, listing.name)}
               className="absolute inset-0 size-full object-cover"
               decoding="async"
             />
-          </div>
+          </button>
           {thumbs.length > 1 && (
             <div className="grid grid-cols-5 gap-2 mt-3">
               {thumbs.map((url, i) => (
@@ -286,7 +298,48 @@ export function ListingDetailModal({
             to plain block on desktop preserving the 2-col grid layout. */}
         <div className="relative flex-1 min-h-0 flex flex-col md:block md:flex-none">
           {/* Scrollable region */}
-          <div className="p-4 md:p-6 overflow-y-auto flex-1 min-h-0 md:max-h-[90vh] md:flex-none pb-[160px] md:pb-6">
+          <div className="overflow-y-auto flex-1 min-h-0 md:max-h-[90vh] md:flex-none pb-[160px] md:pb-6">
+            {/* Mobile photo block — fixed-height frame (~42vh) so the title
+                and price are visible from the initial open. Photo is fitted
+                with `object-contain` (letterboxed on bg-surface-strong) so it
+                never crops the item. Tap the photo to open the lightbox. */}
+            <div className="md:hidden p-3 bg-surface-soft border-b border-hairline">
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                aria-label="Expand image"
+                className="relative w-full h-[42vh] bg-surface-strong rounded-md overflow-hidden block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                <img
+                  src={images[safeIndex]}
+                  alt={formatTitle(listing.brand, listing.name)}
+                  className="absolute inset-0 size-full object-contain"
+                  decoding="async"
+                />
+              </button>
+              {thumbs.length > 1 && (
+                <div className="grid grid-cols-5 gap-2 mt-3">
+                  {thumbs.map((url, i) => (
+                    <button
+                      key={`m-${url}-${i}`}
+                      type="button"
+                      onClick={() => setImageIndex(i)}
+                      aria-label={`Show image ${i + 1} of ${thumbs.length}`}
+                      aria-current={i === safeIndex ? "true" : undefined}
+                      className={`aspect-square rounded-md overflow-hidden border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                        i === safeIndex ? "border-primary ring-2 ring-primary-soft" : "border-hairline hover:border-border-strong"
+                      }`}
+                    >
+                      <img src={url} alt="" className="size-full object-cover" decoding="async" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Wrap the rest of the content so mobile padding only applies
+                below the photo block (which has its own p-3). */}
+            <div className="p-4 md:p-6 md:pt-6">
             {/* Trust strip — community always renders via PLACEHOLDER_COMMUNITY
                 fallback until the sell-flow community selector ships. */}
             <div className="flex items-center gap-2 text-xs text-muted mb-3">
@@ -500,6 +553,7 @@ export function ListingDetailModal({
                 </dl>
               </div>
             )}
+            </div>
           </div>
 
           {/* Mobile sticky CTA pane — positioned against the column's bottom.
@@ -570,6 +624,58 @@ export function ListingDetailModal({
           </div>
         )}
       </div>
+
+      {/* Image lightbox — full-screen photo viewer, opened by tapping the
+          photo on either viewport. Renders as a separate ModalShell at z=350
+          so it overlays the listing detail modal (z=200) and the location
+          drawer. Prev/next arrows + a counter let the user step through
+          multiple photos without leaving the lightbox. */}
+      {lightboxOpen && (
+        <ModalShell open onClose={() => setLightboxOpen(false)} z={350}>
+          <div className="relative w-screen h-screen flex items-center justify-center p-4">
+            <img
+              src={images[safeIndex]}
+              alt={formatTitle(listing.brand, listing.name)}
+              className="max-w-full max-h-full object-contain"
+              decoding="async"
+            />
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(false)}
+              aria-label="Close image"
+              className="absolute top-4 right-4 size-10 rounded-full bg-canvas/90 backdrop-blur-sm border border-hairline inline-flex items-center justify-center text-ink shadow-card hover:bg-canvas transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <X className="size-5" />
+            </button>
+
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setImageIndex((i) => Math.max(0, i - 1))}
+                  disabled={safeIndex === 0}
+                  aria-label="Previous image"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 size-10 rounded-full bg-canvas/90 backdrop-blur-sm border border-hairline inline-flex items-center justify-center text-ink shadow-card hover:bg-canvas transition-colors disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  <ChevronLeft className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageIndex((i) => Math.min(images.length - 1, i + 1))}
+                  disabled={safeIndex === images.length - 1}
+                  aria-label="Next image"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 size-10 rounded-full bg-canvas/90 backdrop-blur-sm border border-hairline inline-flex items-center justify-center text-ink shadow-card hover:bg-canvas transition-colors disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >
+                  <ChevronRight className="size-5" />
+                </button>
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-canvas/90 backdrop-blur-sm border border-hairline text-xs font-semibold text-ink shadow-card">
+                  {safeIndex + 1} / {images.length}
+                </div>
+              </>
+            )}
+          </div>
+        </ModalShell>
+      )}
     </ModalShell>
   );
 }
