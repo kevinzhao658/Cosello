@@ -298,7 +298,7 @@ export function ListingDetailModal({
             to plain block on desktop preserving the 2-col grid layout. */}
         <div className="relative flex-1 min-h-0 flex flex-col md:block md:flex-none">
           {/* Scrollable region */}
-          <div className="overflow-y-auto flex-1 min-h-0 md:max-h-[90vh] md:flex-none pb-[160px] md:pb-6">
+          <div className="overflow-y-auto flex-1 min-h-0 md:max-h-[90vh] md:flex-none md:pb-6">
             {/* Mobile photo block — fixed-height frame (~42vh) so the title
                 and price are visible from the initial open. Photo is fitted
                 with `object-contain` (letterboxed on bg-surface-strong) so it
@@ -426,7 +426,7 @@ export function ListingDetailModal({
               <div className="space-y-5">
                 {/* Primary action — inline, desktop only. On mobile, the sticky
                     pane below renders instead. */}
-                <div className="hidden md:block">
+                <div className="hidden md:flex md:flex-col gap-2">
                   <PrimaryActionBlock {...actionProps} offerRow />
                 </div>
 
@@ -554,13 +554,14 @@ export function ListingDetailModal({
               </div>
             )}
             </div>
-          </div>
 
-          {/* Mobile sticky CTA pane — positioned against the column's bottom.
-              Renders all primary-action states; offer row included only for
-              the active-buyer (Buy-now) state. */}
-          <div className="md:hidden absolute inset-x-0 bottom-0 bg-canvas border-t border-hairline px-4 pt-3 pb-[calc(14px+env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] flex flex-col gap-2">
-            <PrimaryActionBlock {...actionProps} offerRow />
+            {/* Mobile sticky CTA pane — lives inside the scroll container as a
+                sticky footer so touch gestures that start on the pane can still
+                scroll the content above. The scroller has no horizontal padding,
+                so no negative-margin bleed-out is required. */}
+            <div className="md:hidden sticky bottom-0 bg-canvas border-t border-hairline px-4 pt-3 pb-[calc(14px+env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)] flex flex-col gap-2">
+              <PrimaryActionBlock {...actionProps} offerRow />
+            </div>
           </div>
         </div>
 
