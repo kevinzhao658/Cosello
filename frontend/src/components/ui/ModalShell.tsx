@@ -1,4 +1,37 @@
+import { useEffect } from "react";
 import type { ReactNode, CSSProperties } from "react";
+
+// Ref-counted scroll lock — incremented for each open ModalShell, decremented
+// on close. Body scroll is only restored once ALL modals have unmounted, which
+// is correct for stacked modals (listing z=200 → buy z=250 → edit z=260).
+let lockCount = 0;
+let savedOverflow = "";
+let savedPaddingRight = "";
+
+function useScrollLock(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const body = document.body;
+    if (lockCount === 0) {
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      savedOverflow = body.style.overflow;
+      savedPaddingRight = body.style.paddingRight;
+      body.style.overflow = "hidden";
+      if (scrollbarWidth > 0) {
+        const currentPr = parseInt(window.getComputedStyle(body).paddingRight, 10) || 0;
+        body.style.paddingRight = `${currentPr + scrollbarWidth}px`;
+      }
+    }
+    lockCount += 1;
+    return () => {
+      lockCount -= 1;
+      if (lockCount === 0) {
+        body.style.overflow = savedOverflow;
+        body.style.paddingRight = savedPaddingRight;
+      }
+    };
+  }, [active]);
+}
 
 // Centered modal shell — owns the backdrop + outer wrapper but NOT the inner
 // frame. Children supply their own panel element (bg color, padding,
@@ -40,6 +73,8 @@ export function ModalShell({
   align = "center",
   topOffset,
 }: ModalShellProps) {
+  // Must be called unconditionally (Rules of Hooks); self-gates on `active`.
+  useScrollLock(open);
   if (!open) return null;
   const alignment =
     align === "center"
