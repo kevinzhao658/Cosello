@@ -39,33 +39,23 @@ export function ListingCard({
   return (
     <article
       onClick={onOpen}
-      className="group bg-canvas border border-hairline rounded-md overflow-hidden cursor-pointer hover:shadow-hover transition-shadow motion-safe:animate-mkt-card-in"
+      className="group cursor-pointer motion-safe:animate-mkt-card-in"
       style={{ animationDelay: `${animationDelayMs}ms` }}
     >
-      {/* Trust band — always renders community shape.
-          Falls back to PLACEHOLDER_COMMUNITY until the
-          sell-flow community selector lands (backlog.md). */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+      {/* Community byline — above the photo */}
+      <div className="flex items-center gap-1.5 mb-1.5">
         {heroCommunity.image ? (
-          <img
-            src={heroCommunity.image}
-            alt=""
-            className="size-4 rounded-full object-cover shrink-0"
-            aria-hidden="true"
-          />
+          <img src={heroCommunity.image} alt="" aria-hidden="true" className="size-5 rounded-full object-cover shrink-0" />
         ) : (
-          <span
-            className="size-4 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[8px] font-bold"
-            aria-hidden="true"
-          >
+          <span aria-hidden="true" className="size-5 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[9px] font-bold">
             {heroCommunity.name.charAt(0).toUpperCase()}
           </span>
         )}
-        <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
+        <span className="text-xs font-medium text-body line-clamp-1">{heroCommunity.name}</span>
       </div>
 
       {/* Photo */}
-      <div className="relative aspect-square bg-surface-soft">
+      <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
         <ListingImage
           src={images[0]}
           alt={formatTitle(listing.brand, listing.name)}
@@ -107,12 +97,12 @@ export function ListingCard({
       </div>
 
       {/* Body */}
-      <div className="p-3 space-y-1">
+      <div className="pt-2 space-y-0.5">
         <p className="text-sm font-medium text-ink line-clamp-1">
           {formatTitle(listing.brand, listing.name)}
         </p>
         <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
-        <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
+        <p className="text-base font-semibold text-ink leading-none pt-0.5">
           ${listing.price}
         </p>
       </div>
