@@ -941,17 +941,18 @@ export default function App() {
   const newListingPreviewContent = (
     <>
       <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
-      <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
+      <article>
+        {/* Community byline — above the photo */}
+        <div className="flex items-center gap-1.5 mb-1.5">
           <span
-            className="size-4 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[8px] font-bold"
             aria-hidden="true"
+            className="size-5 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[9px] font-bold"
           >
             {PLACEHOLDER_COMMUNITY.name.charAt(0).toUpperCase()}
           </span>
-          <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
+          <span className="text-xs font-medium text-body line-clamp-1">{PLACEHOLDER_COMMUNITY.name}</span>
         </div>
-        <div className="relative aspect-square bg-surface-soft">
+        <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
           {aiCoverImageUrl ? (
             <img
               src={aiCoverImageUrl}
@@ -965,7 +966,7 @@ export default function App() {
             </div>
           )}
         </div>
-        <div className="p-3 space-y-1">
+        <div className="pt-2 space-y-0.5">
           <p className="text-sm font-medium text-ink line-clamp-1">
             {(() => {
               if (newListingMode === "manual") {
@@ -991,7 +992,7 @@ export default function App() {
               return condition ? `${location} · ${condition}` : location;
             })()}
           </p>
-          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
+          <p className="text-base font-semibold text-ink leading-none pt-0.5">
             {(() => {
               if (newListingMode === "manual") {
                 return manualPrice ? `$${manualPrice}` : "$—";
