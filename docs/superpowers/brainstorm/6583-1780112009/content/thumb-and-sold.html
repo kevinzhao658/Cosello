@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Community thumbnail size + sold state</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#FFFFFF;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:36px 24px 80px}
+  h2{font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0 0 6px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 4px;max-width:720px}
+  .label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;font-weight:600;margin:34px 0 4px}
+  .deck{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+  .pick{cursor:pointer;border-radius:12px;padding:12px;transition:all .15s ease;border:2px solid transparent}
+  .pick:hover{background:#FAFAFA}
+  .pick.selected{border-color:#00824C;background:#F4FBF7}
+  .tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#888;text-align:center;margin-bottom:10px;font-weight:600}
+  .heart{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.9);border:1px solid #E5E5E5;display:inline-flex;align-items:center;justify-content:center;color:#888;font-size:14px}
+  .photo{position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;background:#F5F5F5}
+  .photo img.main{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .chip{position:absolute;left:8px;top:8px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.92);backdrop-filter:blur(4px);padding:3px 9px 3px 3px;border-radius:999px;font-size:11px;color:#000;font-weight:500}
+  .chip img{border-radius:50%;object-fit:cover;flex:none}
+  .title{margin:10px 0 3px;font-size:14px;font-weight:500;color:#000}
+  .loc{margin:0 0 3px;font-size:12px;color:#555}
+  .price{margin:0;font-size:16px;font-weight:600;color:#000}
+  .cap{max-width:220px;margin:12px auto 0;font-size:12px;color:#555;line-height:1.5;text-align:center}
+  .cap b{color:#000}
+  /* sold */
+  .scrim{position:absolute;inset:0;background:rgba(255,255,255,0.55)}
+  .sold-pill-solid{position:absolute;left:8px;top:38px;background:#000;color:#fff;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:3px 8px;border-radius:4px}
+  .sold-pill-frost{position:absolute;left:8px;top:38px;background:rgba(255,255,255,.92);color:#000;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid #E5E5E5}
+  .IMG{}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Community thumbnail size + sold state</h2>
+  <p class="subtitle">Two explorations on top of A3. First: how big the community thumbnail should be. Second: the sold look — dimmed photo with a SOLD tag tucked right under the community chip. Pick one in each row.</p>
+
+  <p class="label">1 · Community thumbnail size</p>
+  <div class="deck">
+    <div class="pick" data-choice="T-16" onclick="toggleSelect(this)">
+      <div class="tag">16px (current)</div>
+      <div style="width:230px">
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=460&amp;h=460&amp;fit=crop" alt="">
+          <span class="chip"><img src="https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=60&amp;h=60&amp;fit=crop" width="16" height="16" alt="">West Village</span>
+          <span class="heart">&#9825;</span>
+        </div>
+        <p class="title">Acne Studios Wool Coat</p>
+        <p class="loc">SoHo</p><p class="price">$185</p>
+      </div>
+      <p class="cap">Subtle. Reads as metadata.</p>
+    </div>
+
+    <div class="pick" data-choice="T-22" onclick="toggleSelect(this)">
+      <div class="tag">22px</div>
+      <div style="width:230px">
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=460&amp;h=460&amp;fit=crop" alt="">
+          <span class="chip" style="gap:7px;font-size:11px"><img src="https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=80&amp;h=80&amp;fit=crop" width="22" height="22" alt="">West Village</span>
+          <span class="heart">&#9825;</span>
+        </div>
+        <p class="title">Acne Studios Wool Coat</p>
+        <p class="loc">SoHo</p><p class="price">$185</p>
+      </div>
+      <p class="cap"><b>Balanced.</b> Community is clearly a face/place, still calm.</p>
+    </div>
+
+    <div class="pick" data-choice="T-28" onclick="toggleSelect(this)">
+      <div class="tag">28px</div>
+      <div style="width:230px">
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=460&amp;h=460&amp;fit=crop" alt="">
+          <span class="chip" style="gap:8px;font-size:12px;padding:3px 11px 3px 3px"><img src="https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=100&amp;h=100&amp;fit=crop" width="28" height="28" alt="">West Village</span>
+          <span class="heart">&#9825;</span>
+        </div>
+        <p class="title">Acne Studios Wool Coat</p>
+        <p class="loc">SoHo</p><p class="price">$185</p>
+      </div>
+      <p class="cap"><b>Prominent.</b> Leans hardest into the trust signal; biggest footprint on the photo.</p>
+    </div>
+  </div>
+
+  <p class="label">2 · Sold state — dim + SOLD under the chip</p>
+  <div class="deck">
+    <div class="pick" data-choice="S-solid" onclick="toggleSelect(this)">
+      <div class="tag">Solid black tag</div>
+      <div style="width:230px">
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=460&amp;h=460&amp;fit=crop" alt="">
+          <span class="scrim"></span>
+          <span class="chip" style="gap:7px"><img src="https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=80&amp;h=80&amp;fit=crop" width="22" height="22" alt="">West Village</span>
+          <span class="sold-pill-solid">Sold</span>
+          <span class="heart">&#9825;</span>
+        </div>
+        <p class="title" style="color:#555">Acne Studios Wool Coat</p>
+        <p class="loc">SoHo</p><p class="price" style="color:#555">$185</p>
+      </div>
+      <p class="cap"><b>Solid black pill</b> under the chip. High contrast against the dimmed photo.</p>
+    </div>
+
+    <div class="pick" data-choice="S-frost" onclick="toggleSelect(this)">
+      <div class="tag">Frosted tag (matches chip)</div>
+      <div style="width:230px">
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=460&amp;h=460&amp;fit=crop" alt="">
+          <span class="scrim"></span>
+          <span class="chip" style="gap:7px"><img src="https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=80&amp;h=80&amp;fit=crop" width="22" height="22" alt="">West Village</span>
+          <span class="sold-pill-frost">Sold</span>
+          <span class="heart">&#9825;</span>
+        </div>
+        <p class="title" style="color:#555">Acne Studios Wool Coat</p>
+        <p class="loc">SoHo</p><p class="price" style="color:#555">$185</p>
+      </div>
+      <p class="cap"><b>Frosted pill</b> matching the community chip's material. Quieter, more cohesive.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

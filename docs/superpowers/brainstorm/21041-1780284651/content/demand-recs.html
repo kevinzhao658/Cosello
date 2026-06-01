@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>In-demand recommendations</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:30px 24px 90px}
+  h2{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 22px;max-width:780px}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#888;font-weight:600;margin:0 0 10px}
+  /* in-context */
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:24px;align-items:start;margin-bottom:40px}
+  .dropzone{border:2px dashed #D8D8D8;border-radius:12px;min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#aaa;background:#FCFCFC}
+  .dropzone .ic{font-size:30px}
+  .dz-btn{margin-top:4px;background:#00824C;color:#fff;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px}
+  /* aside shell */
+  .aside{border:1px solid #E5E5E5;border-radius:10px;padding:14px;background:#fff}
+  .ahead{font-size:13px;font-weight:700;color:#000;margin:0 0 2px;display:flex;align-items:center;gap:6px}
+  .asub{font-size:11px;color:#888;margin:0 0 12px;line-height:1.4}
+  /* list variant */
+  .drow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #F0F0F0}
+  .drow:first-of-type{border-top:none}
+  .dthumb{width:42px;height:42px;border-radius:8px;background:#EEE;background-size:cover;background-position:center;flex:none}
+  .dmeta{flex:1;min-width:0}
+  .dtitle{font-size:12px;font-weight:600;color:#000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+  .dsig{font-size:11px;color:#00824C;font-weight:600;margin:1px 0 0}
+  .rank{font-size:11px;color:#bbb;font-weight:700;width:14px;flex:none;text-align:center}
+  /* grid variant */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .gcard{border:1px solid #EEE;border-radius:8px;overflow:hidden}
+  .gimg{aspect-ratio:1/1;background:#EEE;background-size:cover;background-position:center;position:relative}
+  .gbadge{position:absolute;left:5px;bottom:5px;background:rgba(255,255,255,.92);border-radius:999px;font-size:9px;font-weight:700;color:#00824C;padding:2px 6px}
+  .gcap{font-size:10px;color:#333;padding:5px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* picks */
+  .deck{display:flex;gap:28px;justify-content:center;flex-wrap:wrap}
+  .pick{cursor:pointer;border-radius:12px;padding:14px;transition:.15s;border:2px solid transparent;width:300px}
+  .pick:hover{background:#FAFAFA}.pick.selected{border-color:#00824C;background:#F4FBF7}
+  .tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#888;text-align:center;margin-bottom:10px;font-weight:600}
+  .cap{font-size:12px;color:#555;line-height:1.5;text-align:center;margin-top:12px}.cap b{color:#000}
+</style></head>
+<body><div class="wrap">
+  <h2>No photos yet → show what's in demand</h2>
+  <p class="subtitle">When the seller hasn't uploaded any photos, the right aside has nothing to preview — so instead it surfaces the most-saved / most-searched items nearby, to spark "oh, I have one of those." Two layouts for the aside content below.</p>
+
+  <div class="lbl">In context — New Listing, empty state</div>
+  <div class="layout">
+    <div class="dropzone">
+      <div class="ic">⬆️</div>
+      <div style="font-size:14px;color:#777;font-weight:500">Add photos to start your listing</div>
+      <div style="font-size:12px">AI will separate multiple items automatically</div>
+      <span class="dz-btn">Upload photos</span>
+    </div>
+    <div class="aside">
+      <p class="ahead">🔥 In demand near you</p>
+      <p class="asub">Most saved &amp; searched in West Village this week</p>
+      <div class="drow"><span class="rank">1</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=90')"></span><div class="dmeta"><p class="dtitle">Wool & quilted coats</p><p class="dsig">238 saves · 1.2k searches</p></div></div>
+      <div class="drow"><span class="rank">2</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1542272604-787c3835535d?w=90')"></span><div class="dmeta"><p class="dtitle">Vintage denim</p><p class="dsig">191 saves · 980 searches</p></div></div>
+      <div class="drow"><span class="rank">3</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=90')"></span><div class="dmeta"><p class="dtitle">Leather boots</p><p class="dsig">164 saves · 870 searches</p></div></div>
+      <div class="drow"><span class="rank">4</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=90')"></span><div class="dmeta"><p class="dtitle">Knit sweaters</p><p class="dsig">142 saves · 760 searches</p></div></div>
+    </div>
+  </div>
+
+  <div class="lbl">Pick the aside layout</div>
+  <div class="deck">
+    <div class="pick" data-choice="list" onclick="toggleSelect(this)">
+      <div class="tag">A · Ranked list</div>
+      <div class="aside">
+        <p class="ahead">🔥 In demand near you</p>
+        <p class="asub">Most saved &amp; searched in West Village this week</p>
+        <div class="drow"><span class="rank">1</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=90')"></span><div class="dmeta"><p class="dtitle">Wool & quilted coats</p><p class="dsig">238 saves · 1.2k searches</p></div></div>
+        <div class="drow"><span class="rank">2</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1542272604-787c3835535d?w=90')"></span><div class="dmeta"><p class="dtitle">Vintage denim</p><p class="dsig">191 saves · 980 searches</p></div></div>
+        <div class="drow"><span class="rank">3</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=90')"></span><div class="dmeta"><p class="dtitle">Leather boots</p><p class="dsig">164 saves · 870 searches</p></div></div>
+      </div>
+      <p class="cap"><b>Ranked rows w/ demand metrics.</b> Reads as a leaderboard; metrics make the "in demand" claim concrete.</p>
+    </div>
+
+    <div class="pick" data-choice="grid" onclick="toggleSelect(this)">
+      <div class="tag">B · Mini grid</div>
+      <div class="aside">
+        <p class="ahead">🔥 In demand near you</p>
+        <p class="asub">Most-saved items in West Village</p>
+        <div class="grid2">
+          <div class="gcard"><div class="gimg" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=160')"><span class="gbadge">238 ♥</span></div><div class="gcap">Wool coats</div></div>
+          <div class="gcard"><div class="gimg" style="background-image:url('https://images.unsplash.com/photo-1542272604-787c3835535d?w=160')"><span class="gbadge">191 ♥</span></div><div class="gcap">Vintage denim</div></div>
+          <div class="gcard"><div class="gimg" style="background-image:url('https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=160')"><span class="gbadge">164 ♥</span></div><div class="gcap">Leather boots</div></div>
+          <div class="gcard"><div class="gimg" style="background-image:url('https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=160')"><span class="gbadge">142 ♥</span></div><div class="gcap">Knit sweaters</div></div>
+        </div>
+      </div>
+      <p class="cap"><b>Visual 2-col grid.</b> More image-forward, matches the marketplace card vibe; less room for dual metrics.</p>
+    </div>
+  </div>
+</div></body></html>

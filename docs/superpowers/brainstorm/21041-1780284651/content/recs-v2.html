@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>In-demand recs — saved vs searched treatments</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:30px 24px 90px}
+  h2{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 24px;max-width:780px}
+  .deck{display:flex;gap:34px;justify-content:center;flex-wrap:wrap}
+  .col{width:320px}
+  .tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#888;text-align:center;margin-bottom:10px;font-weight:600}
+  .badge{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px}
+  .now{background:#E8F3EC;color:#00824C}.later{background:#FBEEDC;color:#9A6400}
+  .aside{border:1px solid #E5E5E5;border-radius:10px;padding:14px;background:#fff}
+  .ahead{font-size:13px;font-weight:700;color:#000;margin:0 0 2px}
+  .asub{font-size:11px;color:#888;margin:0 0 12px;line-height:1.4}
+  /* saved (image) */
+  .drow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #F0F0F0}.drow:first-of-type{border-top:none}
+  .rank{font-size:11px;color:#bbb;font-weight:700;width:12px;flex:none;text-align:center}
+  .dthumb{width:42px;height:42px;border-radius:8px;background:#EEE;background-size:cover;background-position:center;flex:none}
+  .dmeta{flex:1;min-width:0}
+  .dtitle{font-size:12px;font-weight:600;color:#000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+  .dsig{font-size:11px;color:#00824C;font-weight:600;margin:1px 0 0}
+  /* searched (text) */
+  .srow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #F0F0F0}.srow:first-of-type{border-top:none}
+  .sterm{font-size:13px;color:#000;font-weight:500}
+  .sterm .gap{font-size:10px;color:#9A6400;background:#FBEEDC;border-radius:999px;padding:1px 6px;margin-left:6px;font-weight:700}
+  .scount{font-size:11px;color:#888;font-weight:600;white-space:nowrap}
+  .cap{font-size:12px;color:#555;line-height:1.55;margin-top:12px}.cap b{color:#000}
+  .note{font-size:12px;color:#555;line-height:1.6;margin-top:26px;max-width:820px}.note b{color:#000}
+</style></head>
+<body><div class="wrap">
+  <h2>Two data sources, two honest treatments</h2>
+  <p class="subtitle">Different data wants different UI. Left = what ships now; right = the fast-follow once search logging exists. No fabricated metrics.</p>
+  <div class="deck">
+
+    <div class="col">
+      <div class="tag">v1 · Most saved <span class="badge now">ships now</span></div>
+      <div class="aside">
+        <p class="ahead">🔥 Most saved near you</p>
+        <p class="asub">Items buyers are saving in West Village this week</p>
+        <div class="drow"><span class="rank">1</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=90')"></span><div class="dmeta"><p class="dtitle">Wool & quilted coats</p><p class="dsig">238 saves</p></div></div>
+        <div class="drow"><span class="rank">2</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1542272604-787c3835535d?w=90')"></span><div class="dmeta"><p class="dtitle">Vintage Levi's denim</p><p class="dsig">191 saves</p></div></div>
+        <div class="drow"><span class="rank">3</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=90')"></span><div class="dmeta"><p class="dtitle">Leather boots</p><p class="dsig">164 saves</p></div></div>
+        <div class="drow"><span class="rank">4</span><span class="dthumb" style="background-image:url('https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=90')"></span><div class="dmeta"><p class="dtitle">Knit sweaters</p><p class="dsig">142 saves</p></div></div>
+      </div>
+      <p class="cap"><b>Real listing thumbnails</b> from existing saves data. Concrete, image-rich, zero new backend.</p>
+    </div>
+
+    <div class="col">
+      <div class="tag">fast-follow · Trending searches <span class="badge later">needs logging</span></div>
+      <div class="aside">
+        <p class="ahead">🔎 People are searching for</p>
+        <p class="asub">Top searches in West Village · ⚡ = few listings match</p>
+        <div class="srow"><span class="sterm">carhartt jacket <span class="gap">⚡ supply gap</span></span><span class="scount">1.2k</span></div>
+        <div class="srow"><span class="sterm">doc martens</span><span class="scount">980</span></div>
+        <div class="srow"><span class="sterm">y2k jeans <span class="gap">⚡ supply gap</span></span><span class="scount">870</span></div>
+        <div class="srow"><span class="sterm">north face puffer</span><span class="scount">760</span></div>
+        <div class="srow"><span class="sterm">corduroy pants</span><span class="scount">540</span></div>
+      </div>
+      <p class="cap"><b>Text terms, no thumbnails</b> (searches are phrases). The ⚡ flag marks high-demand / low-supply gaps — the strongest "list this" signal.</p>
+    </div>
+
+  </div>
+  <p class="note"><b>Recommendation:</b> ship the left (most-saved) for the no-photo empty state now; add the right (trending searches, weighted to surface supply gaps) as a fast-follow once a search-logging table exists. The empty state can later stack both sections.</p>
+</div></body></html>

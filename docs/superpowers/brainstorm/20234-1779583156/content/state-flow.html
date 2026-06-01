@@ -1,0 +1,241 @@
+<h2>Status pill state machine — current (as-shipped)</h2>
+<p class="subtitle">Two parallel flows (Selling and Buying) with branches, terminal states, and inconsistencies. Below the flows, I pitch four consolidation options.</p>
+
+<style>
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+
+  .flow { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 8px; padding: 20px; margin-top: 14px; }
+  .flow-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; margin-bottom: 14px; font-weight: 600; }
+
+  .nodes { display: flex; flex-direction: column; gap: 12px; }
+  .node { display: flex; align-items: center; gap: 16px; }
+  .node-label { font-size: 11px; color: #555; min-width: 200px; }
+  .arrow { color: #888; margin: 0 4px; }
+
+  /* Pill colors (matching real palette) */
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .p-primary { background: #DCEEE4; color: #00824C; }
+  .p-jade { background: #00824C; color: #ffffff; }
+  .p-amber { background: rgba(217, 154, 60, 0.18); color: #b8782e; }
+  .p-muted { background: #EAEAEA; color: #555555; }
+
+  .branch { display: flex; gap: 14px; align-items: flex-start; padding-left: 24px; border-left: 2px solid #E5E5E5; margin-left: 12px; }
+  .branch-col { display: flex; flex-direction: column; gap: 8px; }
+
+  .terminal-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+  .terminal-label { font-size: 10px; color: #888; }
+
+  .note { font-size: 11px; color: #555; padding: 8px 12px; background: #FAFAFA; border-left: 3px solid #888; border-radius: 4px; margin-top: 14px; }
+  .note strong { color: #b84a3b; }
+
+  .pitch { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 14px; margin-top: 10px; }
+  .pitch-title { font-size: 12px; font-weight: 700; color: #000; margin-bottom: 6px; }
+  .pitch-body { font-size: 12px; color: #333; line-height: 1.5; }
+  .pitch-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #888; }
+</style>
+
+<!-- Selling flow -->
+<div class="flow">
+  <div class="flow-title">Selling — state machine (8 labels)</div>
+  <div class="nodes">
+
+    <div class="node">
+      <div class="node-label">User creates listing, saves as draft</div>
+      <span class="pill p-amber"><span class="dot"></span>Draft</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">User publishes; no orders yet</div>
+      <span class="pill p-primary"><span class="dot"></span>Live</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Buyer(s) place orders → seller has offers waiting</div>
+      <span class="pill p-primary"><span class="dot"></span>3 pending</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Seller accepts an order → pickup time scheduled</div>
+      <span class="pill p-primary">Pickup in 2h 14m</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Pickup time passes → seller has not yet confirmed</div>
+      <span class="pill p-primary"><span class="dot"></span>Pickup ready</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Seller confirms pickup happened (rated buyer); waiting for buyer</div>
+      <span class="pill p-primary"><span class="dot"></span>Awaiting buyer</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Both parties confirmed pickup → terminal positive</div>
+      <span class="pill p-muted"><span class="dot"></span>Completed</span>
+    </div>
+
+    <div class="branch">
+      <div class="branch-col">
+        <div class="terminal-label">Alternative terminals from Live:</div>
+        <div class="terminal-row">
+          <span class="pill p-muted"><span class="dot"></span>Sold</span>
+          <span class="terminal-label">— listing manually marked sold</span>
+        </div>
+        <div class="terminal-row">
+          <span class="pill p-muted"><span class="dot"></span>Expired</span>
+          <span class="terminal-label">— listing time ran out, no pickup</span>
+        </div>
+        <div class="terminal-row">
+          <span class="pill p-primary"><span class="dot"></span>Confirmed</span>
+          <span class="terminal-label">— likely DEAD CODE post-PR #12 ("Pickup in {label}" replaced this)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Buying flow -->
+<div class="flow">
+  <div class="flow-title">Buying — state machine (9 labels)</div>
+  <div class="nodes">
+
+    <div class="node">
+      <div class="node-label">Buyer places order on a Live listing</div>
+      <span class="pill p-primary"><span class="dot"></span>Pending</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Seller accepts → pickup time scheduled</div>
+      <span class="pill p-primary">Pickup in 2h 14m</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Pickup time passes → buyer has not yet confirmed</div>
+      <span class="pill p-primary"><span class="dot"></span>Pickup ready</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Buyer confirms pickup happened (rated seller); waiting for seller</div>
+      <span class="pill p-amber"><span class="dot"></span>Awaiting seller</span>
+    </div>
+
+    <div class="node">
+      <div class="node-label">Both parties confirmed → terminal positive</div>
+      <span class="pill p-muted"><span class="dot"></span>Completed</span>
+    </div>
+
+    <div class="branch">
+      <div class="branch-col">
+        <div class="terminal-label">Alternative terminals (each ends the flow):</div>
+        <div class="terminal-row">
+          <span class="pill p-muted"><span class="dot"></span>Declined</span>
+          <span class="terminal-label">— seller declined</span>
+        </div>
+        <div class="terminal-row">
+          <span class="pill p-muted"><span class="dot"></span>Withdrawn</span>
+          <span class="terminal-label">— buyer withdrew</span>
+        </div>
+        <div class="terminal-row">
+          <span class="pill p-muted"><span class="dot"></span>Expired</span>
+          <span class="terminal-label">— seller didn't respond in time</span>
+        </div>
+        <div class="terminal-row">
+          <span class="pill p-amber"><span class="dot"></span>Cancelled by seller</span>
+          <span class="terminal-label">— seller cancelled post-confirmation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <strong>Inconsistency:</strong> Selling <em>compact table</em> uses 8 labels; the Selling <em>Listings tab card grid</em> uses only 5 (Live / Sold / Draft / Expired / Completed) and pushes order state into inner buttons. <em>Same listing renders different status text on the two surfaces.</em> Worth flattening or aligning.
+</div>
+
+<div class="note" style="border-left-color: #b8782e;">
+  <strong>Color mismatch:</strong> "Awaiting buyer" (Selling) uses jade (<code>bg-primary</code>); "Awaiting seller" (Buying) uses amber (<code>bg-warning/10</code>). These are symmetric mirror states — same wait pattern, different colors. Either both should be amber (action needed by the other party = mildly tense) or both jade (still in happy path).
+</div>
+
+<h3 style="margin-top: 26px;">Consolidation pitches</h3>
+<p class="subtitle">Pick whichever combination resonates — or describe a different direction.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Minimal cleanup — fix inconsistencies, drop dead code (Recommended)</h3>
+      <div class="pitch">
+        <div class="pitch-tag">What changes</div>
+        <ul style="padding-left: 18px; font-size: 12px; color: #333; line-height: 1.5;">
+          <li>Remove the dead "Confirmed" branch from Selling (PR #12 made it unreachable).</li>
+          <li>Align Selling card-grid statusLabel with the compact-table version — same listing, same pill on both surfaces.</li>
+          <li>Recolor "Awaiting buyer" and "Awaiting seller" consistently — both amber (waiting on the other party, mild urgency).</li>
+        </ul>
+        <div class="pitch-tag" style="margin-top: 10px;">Pitch</div>
+        <div class="pitch-body">Keeps all current labels; just fixes inconsistencies and dead code. Lowest risk, highest "bang per buck." No user-facing copy changes — purely tightening.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Merge mirror "Awaiting" states + simplify terminal failures</h3>
+      <div class="pitch">
+        <div class="pitch-tag">What changes</div>
+        <ul style="padding-left: 18px; font-size: 12px; color: #333; line-height: 1.5;">
+          <li>Replace "Awaiting buyer" and "Awaiting seller" with a single "Awaiting confirmation" label (amber). Reduces vocabulary by 1, generic enough for both sides.</li>
+          <li>Replace "Declined" / "Withdrawn" / "Expired" / "Cancelled by seller" with a single "Cancelled" label (muted grey) — collapse 4 terminal-failure states into one. The detail (who cancelled / why) moves into the order summary modal, not the pill.</li>
+          <li>Plus everything in A.</li>
+        </ul>
+        <div class="pitch-tag" style="margin-top: 10px;">Pitch</div>
+        <div class="pitch-body">Trades off granularity for clarity. Some users might want to know "did the seller decline or did I withdraw?" — but that's typically apparent from context (was there a seller response?) and the order summary modal shows the full story.</div>
+        <div class="pitch-tag" style="margin-top: 10px;">Final pill count</div>
+        <div class="pitch-body">Selling: 7 (was 8). Buying: 6 (was 9). Total unique labels: ~10 (was ~15).</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Three-color system: in-progress / action-needed / done</h3>
+      <div class="pitch">
+        <div class="pitch-tag">What changes</div>
+        <ul style="padding-left: 18px; font-size: 12px; color: #333; line-height: 1.5;">
+          <li>Strict color semantics: <span class="pill p-primary"><span class="dot"></span>jade</span> = "in motion, no action needed from you"; <span class="pill p-amber"><span class="dot"></span>amber</span> = "you have an action to take"; <span class="pill p-muted"><span class="dot"></span>muted</span> = "done / cancelled / inactive".</li>
+          <li>Recolor: "Pickup ready" → amber (you need to confirm). "{N} pending" → amber (you need to review). "Pickup in {label}" → jade (in motion, no action). Other labels stay where they semantically belong.</li>
+          <li>Plus everything in A + B.</li>
+        </ul>
+        <div class="pitch-tag" style="margin-top: 10px;">Pitch</div>
+        <div class="pitch-body">User can scan vertically and immediately see "what needs my attention" (amber) vs "what's progressing" (jade) vs "what's done" (muted). Strongest information design.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Radical — collapse to 5 universal labels, role-disambiguated by table</h3>
+      <div class="pitch">
+        <div class="pitch-tag">What changes</div>
+        <ul style="padding-left: 18px; font-size: 12px; color: #333; line-height: 1.5;">
+          <li>Single shared vocabulary across Selling + Buying: <strong>Active · Pending · Scheduled · Action needed · Closed</strong>.</li>
+          <li>"Active" = Live / Draft (with subtle visual variants for draft).</li>
+          <li>"Pending" = unresolved offer (Selling: {N} pending; Buying: your placed order is pending).</li>
+          <li>"Scheduled" = confirmed time + countdown (Selling + Buying).</li>
+          <li>"Action needed" = pickup ready or awaiting your review.</li>
+          <li>"Closed" = completed / declined / withdrawn / expired / cancelled / sold.</li>
+          <li>Detail accessible via row click → order/listing summary modal.</li>
+        </ul>
+        <div class="pitch-tag" style="margin-top: 10px;">Pitch</div>
+        <div class="pitch-body">Maximum simplification. Trades label specificity for table-level scannability. Risky — power users (heavy sellers) may want the granularity back. Best if Cosello explicitly wants "Slack-tier simple" status display.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 18px;">Pick A / B / C / D — multi-select is fine if pieces of different pitches resonate.</p>

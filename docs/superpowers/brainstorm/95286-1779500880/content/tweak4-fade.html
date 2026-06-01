@@ -1,0 +1,158 @@
+<h2>Read notification fade — stronger options</h2>
+<p class="subtitle">Each panel shows an unread (top) and read (bottom) row of the same notification, so you can feel the contrast difference.</p>
+
+<style>
+  .notif { display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); position: relative; }
+  .notif-unread { background: rgba(20,30,25,0.4); }
+  .notif-read { background: rgba(15,18,16,0.55); }
+  .dot { position: absolute; top: 12px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: #6ee7a8; }
+  .icon-tile { width: 36px; height: 36px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; font-weight: 600; }
+  .notif-body { flex: 1; min-width: 0; padding-right: 16px; }
+  .notif-title { font-size: 13px; font-weight: 600; margin: 0; }
+  .notif-text { font-size: 12px; margin-top: 2px; line-height: 1.4; }
+  .notif-time { font-size: 10px; opacity: 0.55; margin-top: 4px; }
+
+  /* INK colors (unread baseline) */
+  .ink-title { color: #f4f4f5; }
+  .ink-body { color: rgba(244, 244, 245, 0.88); }
+
+  /* Variant A: text-muted (current) */
+  .a-title { color: rgba(244, 244, 245, 0.6); }
+  .a-body { color: rgba(244, 244, 245, 0.55); }
+
+  /* Variant B: text-muted-soft (lighter / lower contrast) */
+  .b-title { color: rgba(244, 244, 245, 0.42); }
+  .b-body { color: rgba(244, 244, 245, 0.38); }
+
+  /* Variant C: opacity 50% on the body wrapper */
+  .c-body-wrap { opacity: 0.5; }
+
+  /* Variant D: muted color + reduced font weight + smaller emphasis */
+  .d-title { color: rgba(244, 244, 245, 0.55); font-weight: 400; }
+  .d-body { color: rgba(244, 244, 245, 0.5); }
+
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.5; margin-top: 8px; margin-bottom: 4px; }
+  .panel { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Current — text-muted (#555 ~= 60% gray)</h3>
+      <p>Drop in standard muted color on title and body. Already in production. Some find it too subtle on a light surface.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title a-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text a-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Lighter — text-muted-soft (~40% contrast) (Recommended)</h3>
+      <p>Pushes title and body further toward the background. Reads as clearly inactive without being illegible. Mirrors how Slack and Linear treat read notifications.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title b-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text b-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>50% opacity on the content block</h3>
+      <p>Apply <code>opacity-50</code> to the title/body wrapper. Affects the WHOLE content (including timestamp). Icon stays full-color so the notification type is still scannable.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="notif-body c-body-wrap">
+            <p class="notif-title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Muted color + drop font-semibold to regular</h3>
+      <p>Title loses its bold weight when read (drops from font-semibold to font-normal). Combined with muted color, reads as "deprioritized." Strongest hierarchical shift.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="notif-body">
+            <p class="notif-title d-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="notif-text d-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="notif-time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click A / B / C / D.</p>

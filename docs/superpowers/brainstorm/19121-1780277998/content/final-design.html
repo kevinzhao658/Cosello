@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bulk carousel — final design</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:30px 24px 90px}
+  h2{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 22px;max-width:780px}
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:24px;align-items:start}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#888;font-weight:600;margin:0 0 8px}
+  /* editor (A) */
+  .arrowbtn{width:26px;height:26px;border-radius:50%;border:1px solid #E5E5E5;display:inline-flex;align-items:center;justify-content:center;color:#555;font-size:13px;background:#fff;flex:none}
+  .strip{display:flex;gap:8px;align-items:center;padding:4px;overflow-x:auto;flex:1}
+  .thumb{width:28px;height:28px;border-radius:6px;background:#EDEDED;flex:none;background-size:cover;background-position:center}
+  .thumb.cur{box-shadow:0 0 0 2px #00824C}
+  .navrow{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .counter{font-size:11px;color:#888;text-align:center;margin:0 0 12px}
+  .card{background:#FAFAFA;border:1px solid #E5E5E5;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.05);padding:16px;text-align:left}
+  .smallphotos{display:flex;gap:6px;margin-bottom:10px}
+  .sp{width:42px;height:42px;border-radius:6px;background:#EAEAEA;background-size:cover;flex:none}
+  .sp.add{background:#F0F0F0;display:inline-flex;align-items:center;justify-content:center;color:#bbb;font-size:16px}
+  .lblmini{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#aaa;margin:10px 0 3px}
+  .fld{border:1px solid #E5E5E5;border-radius:6px;padding:7px 9px;font-size:12px;color:#000;background:#fff}
+  .row{display:flex;gap:8px}.row>div{flex:1}
+  .footer{display:flex;gap:8px;margin-top:14px}
+  .btn{height:38px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:600}
+  .btn.out{flex:1;border:1px solid #E5E5E5;color:#333;background:#fff}
+  .btn.primary{flex:1;background:#00824C;color:#fff}
+  .btn.del{flex:none;width:40px;border:1px solid rgba(176,0,0,.4);color:#b00;background:#fff}
+  /* aside (B) */
+  .aside{border:1px solid #E5E5E5;border-radius:10px;padding:14px;background:#fff}
+  .asidehead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .bigphoto{aspect-ratio:1/1;border-radius:8px;background:#EAEAEA;background-size:cover;background-position:center;margin-bottom:10px;position:relative}
+  .crow{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#333;font-weight:500;margin-bottom:6px}
+  .crow .av{width:18px;height:18px;border-radius:50%;background:#00824C;color:#fff;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+  .ptitle{font-size:14px;font-weight:500;color:#000;margin:0 0 2px}
+  .ploc{font-size:12px;color:#555;margin:0 0 3px}
+  .pprice{font-size:16px;font-weight:600;color:#000;margin:0}
+  .check{margin-top:16px;border-top:1px solid #E5E5E5;padding-top:12px}
+  .ci{display:flex;align-items:center;gap:8px;font-size:12px;color:#333;margin-bottom:7px}
+  .tick{width:15px;height:15px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:9px}
+  .tick.on{background:#00824C;color:#fff}.tick.off{border:1px solid #ccc;color:#ccc}
+  .live{display:inline-block;font-size:10px;color:#00824C;font-weight:700;background:#E8F3EC;padding:1px 6px;border-radius:999px;margin-left:6px}
+  .ann{font-size:12px;color:#555;line-height:1.6;margin-top:22px;max-width:820px}
+  .ann b{color:#000}
+</style></head>
+<body><div class="wrap">
+  <h2>Bulk review — final design (both surfaces, synced)</h2>
+  <p class="subtitle">One shared "current item" index drives both. Flip in the editor strip/arrows OR the aside arrows — they move together. Edits in the editor update the aside preview <b>live</b>, and the checklist re-evaluates for the focused item.</p>
+
+  <div class="layout">
+
+    <!-- LEFT: editor (A) -->
+    <div>
+      <div class="lbl">Editor — “cards” step (A)</div>
+      <div class="navrow">
+        <span class="arrowbtn">&#8249;</span>
+        <div class="strip">
+          <span class="thumb" style="background-image:url('https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=80')"></span>
+          <span class="thumb cur" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=80')"></span>
+          <span class="thumb" style="background-image:url('https://images.unsplash.com/photo-1485462537746-965f33f7f6a7?w=80')"></span>
+          <span class="thumb" style="background-image:url('https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=80')"></span>
+          <span class="thumb" style="background-image:url('https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=80')"></span>
+          <span class="thumb" style="background-image:url('https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=80')"></span>
+        </div>
+        <span class="arrowbtn">&#8250;</span>
+      </div>
+      <p class="counter">Item 2 of 8 · swipe anywhere to flip</p>
+      <div class="card">
+        <div class="smallphotos">
+          <span class="sp" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=100')"></span>
+          <span class="sp add">+</span>
+        </div>
+        <div class="lblmini" style="margin-top:0">Title</div><div class="fld">Patagonia — Better Sweater</div>
+        <div class="lblmini">Description</div><div class="fld" style="height:42px">Lightly worn fleece, no pilling…</div>
+        <div class="row"><div><div class="lblmini">Price ($)</div><div class="fld">68</div></div><div><div class="lblmini">Condition</div><div class="fld">Very good</div></div></div>
+        <div class="lblmini">Tags</div><div class="fld" style="border:none;padding-left:0">fleece · outdoor · +</div>
+      </div>
+      <div class="footer">
+        <span class="btn out">Previous</span>
+        <span class="btn del">&#10005;</span>
+        <span class="btn primary">Next Item</span>
+      </div>
+      <p style="font-size:11px;color:#888;margin-top:8px">Photo stays thumbnail-size here — the full image lives in the preview →. Footer keeps Previous / Next Item (Continue on the last item).</p>
+    </div>
+
+    <!-- RIGHT: aside (B) -->
+    <div>
+      <div class="lbl">Listing preview (B)</div>
+      <div class="aside">
+        <div class="asidehead">
+          <span class="arrowbtn">&#8249;</span>
+          <span style="font-size:11px;color:#888;font-weight:600">Preview 2 of 8</span>
+          <span class="arrowbtn">&#8250;</span>
+        </div>
+        <div class="bigphoto" style="background-image:url('https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=320')"></div>
+        <span class="crow"><span class="av">W</span>West Village</span>
+        <p class="ptitle">Patagonia — Better Sweater <span class="live">live</span></p>
+        <p class="ploc">SoHo</p>
+        <p class="pprice">$68</p>
+        <div class="check">
+          <div class="lbl" style="margin-bottom:8px">Before you publish</div>
+          <div class="ci"><span class="tick on">&#10003;</span> Title &amp; brand</div>
+          <div class="ci"><span class="tick on">&#10003;</span> Price set</div>
+          <div class="ci"><span class="tick on">&#10003;</span> At least one photo</div>
+          <div class="ci"><span class="tick off">&#9675;</span> Description ≥ 20 chars</div>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#888;margin-top:8px">Full-size preview of the focused item, with its own ‹ › arrows. Updates live as you type; checklist re-checks per item.</p>
+    </div>
+
+  </div>
+
+  <p class="ann"><b>Architecture note:</b> the bulk state (<code>bulkItems</code>, <code>currentCardIndex</code>) lives inside <code>SellWizard</code>, while the preview aside is rendered in <code>App.tsx</code>. To sync them + drive live updates, we'll surface the current item + index + a setter across that boundary (extend the existing <code>SellWizardHandle</code>/callbacks). Single source of truth = <code>currentCardIndex</code>.</p>
+</div></body></html>

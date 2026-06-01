@@ -1,0 +1,119 @@
+<h2>How should "Buying" mirror "Selling"?</h2>
+<p class="subtitle">Today: Selling has 4 columns, Buying has 6. Pick the shape you want.</p>
+
+<style>
+  .row { display: grid; gap: 12px; align-items: center; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; border-bottom-color: rgba(255,255,255,0.18); }
+  .thumb { width: 28px; height: 28px; background: rgba(255,255,255,0.12); border-radius: 4px; flex-shrink: 0; }
+  .item { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { display: inline-block; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .price { font-weight: 700; }
+  .dim { opacity: 0.6; }
+  .label-now { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.5; margin: 14px 0 6px; }
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">Reference: today's tables</div>
+  <div class="mockup-body" style="display: grid; gap: 14px;">
+
+    <div>
+      <div class="label-now">Selling — 4 columns (current)</div>
+      <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto auto;">
+        <span>Item</span><span>Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+      </div>
+      <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto auto;">
+        <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+        <span class="dim">• West Village</span>
+        <span class="price">$48</span>
+        <span class="pill">Live</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="label-now">Buying — 6 columns (current)</div>
+      <div class="row row-head" style="grid-template-columns: minmax(0,2fr) auto minmax(0,1fr) minmax(0,1fr) auto auto;">
+        <span>Item</span><span style="text-align:right">Price</span><span>Community</span><span>Seller</span><span style="text-align:right">Last updated</span><span style="text-align:right">Status</span>
+      </div>
+      <div class="row" style="grid-template-columns: minmax(0,2fr) auto minmax(0,1fr) minmax(0,1fr) auto auto;">
+        <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+        <span class="price">$48</span>
+        <span class="dim">• West Village</span>
+        <span class="dim">@maria</span>
+        <span class="dim">May 19</span>
+        <span class="pill">Confirmed</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top: 22px;">Which shape should Buying take?</h3>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Exact mirror — 4 columns</h3>
+      <p>Item / Community / Price / Status. Drop Seller and Last updated entirely. Cleanest parity with Selling, but the buyer loses at-a-glance "who am I buying from" + "when did this change." Both are still reachable by clicking into the order modal.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto auto;">
+            <span>Item</span><span>Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto auto;">
+            <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+            <span class="dim">• West Village</span>
+            <span class="price">$48</span>
+            <span class="pill">2h 14m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Mirror shape, keep Seller — 5 columns (Recommended)</h3>
+      <p>Item / Community / Seller / Price / Status. Same skeleton as Selling, with @seller added as the only Buying-specific column. Drops Last updated (low signal — uses confirmed_time fallback today). Preserves the "who am I buying from" trust signal.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto auto;">
+            <span>Item</span><span>Community</span><span>Seller</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto auto;">
+            <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+            <span class="dim">• West Village</span>
+            <span class="dim">@maria</span>
+            <span class="price">$48</span>
+            <span class="pill">2h 14m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Same column types, both tables get them — 5 cols on each side</h3>
+      <p>Add a Seller-equivalent to Selling too (e.g., "Buyer" — who placed the pending offer). Drop Last updated everywhere. Both tables get Item / Community / [Counterparty] / Price / Status. Most symmetric, but Selling rows often have multiple pending buyers — needs an answer for that.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto auto;">
+            <span>Item</span><span>Community</span><span>Buyer / Seller</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto auto;">
+            <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+            <span class="dim">• West Village</span>
+            <span class="dim">3 buyers</span>
+            <span class="price">$48</span>
+            <span class="pill">Pending</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click A / B / C to register your choice, then drop a comment in the terminal if you want to nuance anything.</p>

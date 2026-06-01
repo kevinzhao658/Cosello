@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bulk review — today</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:36px 24px 80px}
+  h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 24px;max-width:640px}
+  .panel{border:1px solid #E5E5E5;border-radius:10px;padding:18px;max-width:420px}
+  .counter{font-size:13px;font-weight:600;color:#000;margin:0 0 10px}
+  .dots{display:flex;gap:6px;margin-bottom:18px}
+  .dot{height:4px;flex:1;border-radius:2px;background:#E5E5E5}
+  .dot.done{background:#00824C}.dot.cur{background:#00824C}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#888;margin:14px 0 4px}
+  .fld{border:1px solid #E5E5E5;border-radius:6px;padding:9px 10px;font-size:13px;color:#000;background:#fff}
+  .ph{width:100%;height:120px;background:#F5F5F5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:12px;margin-bottom:6px}
+  .row{display:flex;gap:10px}.row>div{flex:1}
+  .ann{max-width:280px;font-size:13px;color:#333;line-height:1.6}
+  .ann b{color:#000}
+  .deck{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap;margin-top:8px}
+</style></head>
+<body><div class="wrap">
+  <h2>Bulk review today — sequential stepper</h2>
+  <p class="subtitle">This is the AI bulk-review step (<code>AIReviewStep.tsx</code>). Each separated item is reviewed/edited one at a time; the top shows a counter + progress segments. You're asking to make moving between these items feel like flipping a carousel.</p>
+  <div class="deck">
+    <div class="panel">
+      <p class="counter">Item 2 of 5</p>
+      <div class="dots"><span class="dot done"></span><span class="dot cur"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="ph">item photo</div>
+      <div class="lbl">Title</div>
+      <div class="fld">Patagonia — Better Sweater</div>
+      <div class="lbl">Description</div>
+      <div class="fld" style="height:54px">Lightly worn, no pilling…</div>
+      <div class="row">
+        <div><div class="lbl">Price ($)</div><div class="fld">68</div></div>
+        <div><div class="lbl">Condition</div><div class="fld">Very good</div></div>
+      </div>
+      <div class="lbl">Tags</div>
+      <div class="fld" style="border:none;padding-left:0">fleece · outdoor · +</div>
+    </div>
+    <div class="ann">
+      <div class="lbl" style="margin-top:0">What you have now</div>
+      <ul style="padding-left:18px;margin:0">
+        <li>One item visible at a time, with an inline <b>edit form</b> (title, price, condition, tags, photo).</li>
+        <li>Position shown via <b>"Item N of M" + segment bar</b>.</li>
+        <li>Moving between items is <b>step-style</b> — no swipe / free flipping between cards.</li>
+      </ul>
+    </div>
+  </div>
+</div></body></html>

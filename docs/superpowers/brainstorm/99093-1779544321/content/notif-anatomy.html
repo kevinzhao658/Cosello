@@ -1,0 +1,155 @@
+<h2>Notification anatomy — make price + product pop, show multiple windows</h2>
+<p class="subtitle">All three use the locked-in Tweak 4 contrast (bold title + medium body + 40% opacity on read). Difference is how price/product are emphasized and how multiple pickup windows render.</p>
+
+<style>
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+
+  .panel { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 0; overflow: hidden; margin-top: 10px; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; padding: 6px 14px; background: #FAFAFA; border-bottom: 1px solid #EFEFEF; }
+
+  .notif { display: flex; gap: 12px; padding: 14px 14px; border-bottom: 1px solid #E5E5E5; position: relative; }
+  .notif-unread { background: #FFFFFF; }
+  .notif:last-child { border-bottom: 0; }
+
+  .dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: #00824C; }
+  .icon-tile { width: 36px; height: 36px; background: #DCEEE4; color: #00824C; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; font-weight: 700; }
+  .body { flex: 1; min-width: 0; padding-right: 18px; }
+  .time { font-size: 10px; color: #888; margin-top: 6px; }
+
+  /* Variant A: inline emphasis — price + product styled within the title */
+  .a-title { font-size: 13px; font-weight: 700; color: #000; margin: 0; }
+  .a-title .price { color: #00824C; }
+  .a-title .product { text-decoration: underline; text-decoration-color: #DCEEE4; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+  .a-windows { font-size: 12px; color: #1a1a1a; font-weight: 500; margin-top: 4px; line-height: 1.4; }
+  .a-windows .label-inline { color: #555; font-weight: 400; }
+
+  /* Variant B: pull-out — buyer name on top, price+product as a callout chip row */
+  .b-meta { font-size: 11px; color: #555; margin: 0; }
+  .b-callout { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: #FAFAFA; border: 1px solid #EFEFEF; border-radius: 6px; margin-top: 6px; }
+  .b-callout .price { font-size: 16px; font-weight: 800; color: #00824C; letter-spacing: -0.01em; }
+  .b-callout .arrow { color: #888; font-size: 11px; }
+  .b-callout .product { font-size: 12px; font-weight: 600; color: #000; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-windows { font-size: 12px; color: #333; margin-top: 8px; }
+  .b-windows .label-inline { color: #555; font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 2px; }
+
+  /* Variant C: data-line — title is the action, price+product are stacked metadata */
+  .c-title { font-size: 12px; color: #555; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
+  .c-headline { font-size: 16px; font-weight: 700; color: #00824C; margin-top: 4px; line-height: 1.2; }
+  .c-product { font-size: 13px; font-weight: 600; color: #000; margin-top: 2px; }
+  .c-windows { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.4; }
+  .c-windows strong { color: #1a1a1a; font-weight: 500; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Inline emphasis — price in jade, product underlined (Recommended)</h3>
+      <p>Keeps the conversational title sentence intact but visually weights the two critical pieces. Price is jade-green, product gets a soft jade underline. Pickup windows render as a compact line below.</p>
+      <div class="panel">
+        <div class="label">Unread · single window</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="a-title">Maria offered <span class="price">$120</span> on your <span class="product">Filson Mile Marker tote</span></p>
+            <p class="a-windows"><span class="label-inline">Pickup:</span> Today 5–7pm</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Unread · three windows</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="a-title">Maria offered <span class="price">$120</span> on your <span class="product">Filson Mile Marker tote</span></p>
+            <p class="a-windows"><span class="label-inline">Pickup options:</span> Today 5–7pm · Tomorrow 12–2pm · Thu 3–5pm</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Pull-out callout — price + product in a chip below a short headline</h3>
+      <p>Two-line treatment: short "Maria offered" headline, then a callout chip with $price → product. Strongest visual hierarchy. Pickup windows labeled and listed below.</p>
+      <div class="panel">
+        <div class="label">Unread · single window</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="b-meta"><strong style="color:#000;font-weight:700">Maria</strong> sent you an offer</p>
+            <div class="b-callout">
+              <span class="price">$120</span>
+              <span class="arrow">→</span>
+              <span class="product">Filson Mile Marker tote</span>
+            </div>
+            <div class="b-windows">
+              <span class="label-inline">Pickup</span>Today 5–7pm
+            </div>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Unread · three windows</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="b-meta"><strong style="color:#000;font-weight:700">Maria</strong> sent you an offer</p>
+            <div class="b-callout">
+              <span class="price">$120</span>
+              <span class="arrow">→</span>
+              <span class="product">Filson Mile Marker tote</span>
+            </div>
+            <div class="b-windows">
+              <span class="label-inline">Pickup options</span>Today 5–7pm · Tomorrow 12–2pm · Thu 3–5pm
+            </div>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Stacked data line — price headline, product below</h3>
+      <p>Treats the notification like a transaction card. Tiny ALL-CAPS action label at top, $price as the headline (jade and big), product as subtitle, pickup windows as quiet trailing line.</p>
+      <div class="panel">
+        <div class="label">Unread · single window</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="c-title">New offer from Maria</p>
+            <p class="c-headline">$120</p>
+            <p class="c-product">Filson Mile Marker tote</p>
+            <p class="c-windows"><strong>Pickup:</strong> Today 5–7pm</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Unread · three windows</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="c-title">New offer from Maria</p>
+            <p class="c-headline">$120</p>
+            <p class="c-product">Filson Mile Marker tote</p>
+            <p class="c-windows"><strong>3 pickup windows:</strong> Today 5–7pm, Tomorrow 12–2pm, Thu 3–5pm</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">All three list ALL pickup windows when multiple exist (compact dot-separator in A/B, comma list in C). Pick A / B / C.</p>

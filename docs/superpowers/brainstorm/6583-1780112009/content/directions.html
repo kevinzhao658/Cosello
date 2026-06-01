@@ -1,0 +1,79 @@
+<h2>Three minimal directions</h2>
+<p class="subtitle">Same listing in all three, so only the treatment differs. Each quiets the price, lightens the frame, and turns the trust band from a full bar into something subtler. Click the one that feels right (or mix-and-match in the terminal).</p>
+
+<style>
+  .deck{display:flex;gap:36px;justify-content:center;flex-wrap:wrap;margin-top:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+  .pick{cursor:pointer;border-radius:12px;padding:14px;transition:all .15s ease;border:2px solid transparent}
+  .pick:hover{background:rgba(0,0,0,0.02)}
+  .pick.selected{border-color:#00824C;background:#F4FBF7}
+  .cap{max-width:240px;margin:14px auto 0;font-size:12px;color:#555;line-height:1.5;text-align:center}
+  .cap b{color:#000}
+  .tag{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;text-align:center;margin-bottom:10px;font-weight:600}
+  .heart{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.9);border:1px solid #E5E5E5;display:inline-flex;align-items:center;justify-content:center;color:#888;font-size:14px}
+  .av{width:15px;height:15px;border-radius:50%;background:#00824C;color:#fff;font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex:none}
+</style>
+
+<div class="deck">
+
+  <!-- A: Borderless, image-forward -->
+  <div class="pick" data-choice="A" onclick="toggleSelect(this)">
+    <div class="tag">A · Borderless</div>
+    <div style="width:240px">
+      <div style="position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;background:#F5F5F5">
+        <img src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=480&amp;h=480&amp;fit=crop" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" alt="">
+        <span class="heart">&#9825;</span>
+        <span style="position:absolute;left:8px;bottom:8px;display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.92);backdrop-filter:blur(4px);padding:3px 8px 3px 4px;border-radius:999px;font-size:11px;color:#000;font-weight:500">
+          <span class="av">W</span>West Village
+        </span>
+      </div>
+      <div style="padding:10px 2px 0">
+        <p style="margin:0 0 3px;font-size:14px;font-weight:500;color:#000">Acne Studios Wool Coat</p>
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-size:12px;color:#555">SoHo</span>
+          <span style="font-size:15px;font-weight:600;color:#000">$185</span>
+        </div>
+      </div>
+    </div>
+    <p class="cap"><b>No border, no shadow.</b> Trust = frosted chip on the photo. Price 15px semibold <b>black</b>.</p>
+  </div>
+
+  <!-- B: Quiet hairline frame -->
+  <div class="pick" data-choice="B" onclick="toggleSelect(this)">
+    <div class="tag">B · Quiet frame</div>
+    <div style="width:240px;background:#fff;border:1px solid #E5E5E5;border-radius:10px;overflow:hidden">
+      <div style="position:relative;aspect-ratio:1/1;background:#F5F5F5">
+        <img src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=480&amp;h=480&amp;fit=crop" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" alt="">
+        <span class="heart">&#9825;</span>
+      </div>
+      <div style="padding:10px 12px">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#555;margin-bottom:6px">
+          <span class="av">W</span>West Village
+        </span>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+          <p style="margin:0;font-size:14px;font-weight:500;color:#000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Acne Studios Wool Coat</p>
+          <span style="font-size:16px;font-weight:700;color:#000;flex:none">$185</span>
+        </div>
+        <p style="margin:2px 0 0;font-size:12px;color:#555">SoHo</p>
+      </div>
+    </div>
+    <p class="cap"><b>One hairline, no shadow.</b> Trust = muted inline chip. Price 16px bold black, <b>right-aligned</b> by the title.</p>
+  </div>
+
+  <!-- C: Editorial / ultra-quiet -->
+  <div class="pick" data-choice="C" onclick="toggleSelect(this)">
+    <div class="tag">C · Editorial</div>
+    <div style="width:240px">
+      <div style="position:relative;aspect-ratio:4/5;border-radius:10px;overflow:hidden;background:#F5F5F5">
+        <img src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=480&amp;h=600&amp;fit=crop" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" alt="">
+        <span class="heart">&#9825;</span>
+      </div>
+      <div style="padding:9px 2px 0">
+        <p style="margin:0 0 2px;font-size:13px;font-weight:500;color:#000">Acne Studios Wool Coat</p>
+        <p style="margin:0 0 4px;font-size:11px;color:#888;display:inline-flex;align-items:center;gap:4px"><span class="av" style="width:13px;height:13px;font-size:7px">W</span>West Village · SoHo</p>
+        <p style="margin:0;font-size:14px;font-weight:500;color:#333">$185</p>
+      </div>
+    </div>
+    <p class="cap"><b>Taller 4:5 photo, max whitespace.</b> Trust folded into one muted line. Price 14px medium <b>gray</b> — caption-quiet.</p>
+  </div>
+
+</div>
