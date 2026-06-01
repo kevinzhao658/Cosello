@@ -21,3 +21,7 @@ design_handoff_cosello/
 
 # Brainstorming companion artifacts (local-only)
 .superpowers/
+
+# Brainstorm server runtime state — ephemeral process artifacts, not durable docs.
+# The content/*.html files stay tracked; the per-session state/ dir does not.
+docs/superpowers/brainstorm/*/state/
