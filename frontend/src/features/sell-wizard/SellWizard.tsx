@@ -14,6 +14,8 @@ import { CONDITIONS } from "../../lib/listings";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import {
   useSellWizard,
+  selectBulkPreview,
+  type BulkPreview,
   type BulkItemDetails,
   type ProductDetails,
   type SegmentationResult,
@@ -35,6 +37,7 @@ export interface SellWizardHandle {
   getCoverImageUrl: () => string | null;
   setProductDetails: (details: ProductDetails) => void;
   setPostPickupLocation: (value: string) => void;
+  setBulkCardIndex: (index: number) => void;
 }
 
 export interface SellWizardProps {
@@ -57,6 +60,7 @@ export interface SellWizardProps {
   onRequestSinglePostConfirm: () => void;
   onSwitchToBuy: () => void;
   onPhaseChange?: (phase: "review" | "reason" | "cards" | "pickup" | null) => void;
+  onBulkPreviewChange?: (preview: BulkPreview | null) => void;
   onImagesChange?: (count: number) => void;
   onProductDetailsChange?: (details: ProductDetails | null) => void;
   onCoverImageChange?: (url: string | null) => void;
@@ -103,6 +107,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onRequestSinglePostConfirm,
   onSwitchToBuy,
   onPhaseChange,
+  onBulkPreviewChange,
   onImagesChange,
   onProductDetailsChange,
   onCoverImageChange,
@@ -439,6 +444,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   useEffect(() => {
     onPhaseChange?.(bulkReviewPhase);
   }, [bulkReviewPhase, onPhaseChange]);
+
+  // Emit bulk preview snapshot on every index/edit change so App.tsx can render
+  // the live aside. Fires on bulkItems (new array on every updateBulkItem*) and
+  // currentCardIndex, which covers index flips, edits, generates, and deletes.
+  useEffect(() => {
+    onBulkPreviewChange?.(
+      selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages),
+    );
+  }, [bulkItems, currentCardIndex, segmentation, uploadedImages, onBulkPreviewChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -881,6 +895,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     getCoverImageUrl: computeCoverImageUrl,
     setProductDetails: (details) => actions.setProductDetails(details),
     setPostPickupLocation: (value) => actions.setPostPickupLocation(value),
+    setBulkCardIndex: (index) => actions.setCurrentCardIndex(index),
   }), [handlePostListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
 
   const handleBulkPostListing = async () => {
