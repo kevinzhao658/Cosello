@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { PriceInput } from "../../../components/ui/price-input";
@@ -39,31 +39,61 @@ export function AIReviewStep({
   updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onAdvance,
 }: AIReviewStepProps) {
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
+  const activeThumbRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-scroll the active thumbnail into view when the index changes.
+  useEffect(() => {
+    activeThumbRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [currentCardIndex]);
+
   const currentItem = bulkItems[currentCardIndex];
   if (!currentItem) return null;
 
   return (
     <div className="mt-6 space-y-4">
-      <div className="flex items-center justify-between text-sm">
-        <div className="flex items-center gap-3">
-          <span className="text-muted">
-            Item {currentCardIndex + 1} of {bulkItems.length}
-          </span>
+      <div className="flex items-center justify-between text-sm mb-1">
+        <span className="text-muted shrink-0">
+          Item {currentCardIndex + 1} of {bulkItems.length}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Previous item"
+          disabled={currentCardIndex === 0}
+          onClick={() => setCurrentCardIndex(Math.max(0, currentCardIndex - 1))}
+          className="size-7 rounded-full border border-hairline flex items-center justify-center disabled:opacity-30 shrink-0 text-ink hover:bg-surface-soft transition-colors"
+        >
+          ‹
+        </button>
+        <div className="flex gap-2 overflow-x-auto p-1 flex-1">
+          {bulkItems.map((it, i) => {
+            const src = imageUrls?.[it.imageIndices[0]] ?? uploadedImages[it.imageIndices[0]]?.preview ?? "";
+            const isActive = i === currentCardIndex;
+            return (
+              <button
+                key={i}
+                ref={isActive ? activeThumbRef : undefined}
+                type="button"
+                aria-label={`Item ${i + 1}`}
+                aria-current={isActive ? "true" : undefined}
+                onClick={() => setCurrentCardIndex(i)}
+                className={`size-7 shrink-0 rounded-md overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isActive ? "ring-2 ring-primary" : ""}`}
+              >
+                <img src={src} alt="" className="size-full object-cover" />
+              </button>
+            );
+          })}
         </div>
-        <div className="flex gap-1">
-          {bulkItems.map((_, i) => (
-            <div
-              key={i}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i === currentCardIndex
-                  ? "bg-primary"
-                  : i < currentCardIndex
-                  ? "bg-primary-soft"
-                  : "bg-surface-strong"
-              }`}
-            />
-          ))}
-        </div>
+        <button
+          type="button"
+          aria-label="Next item"
+          disabled={currentCardIndex === bulkItems.length - 1}
+          onClick={() => setCurrentCardIndex(Math.min(bulkItems.length - 1, currentCardIndex + 1))}
+          className="size-7 rounded-full border border-hairline flex items-center justify-center disabled:opacity-30 shrink-0 text-ink hover:bg-surface-soft transition-colors"
+        >
+          ›
+        </button>
       </div>
 
       <div className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left">
