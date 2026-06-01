@@ -40,6 +40,7 @@ async def top_searches(
         db.query(norm.label("q"), func.count().label("c"))
         .filter(SearchQuery.ts >= cutoff, func.trim(SearchQuery.query_text) != "")
         .group_by(norm)
+        .having(func.count(func.distinct(SearchQuery.user_id)) >= 5)
         .order_by(func.count().desc())
         .limit(limit)
         .all()
