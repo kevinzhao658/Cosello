@@ -40,6 +40,7 @@ export function AIReviewStep({
 }: AIReviewStepProps) {
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const activeThumbRef = useRef<HTMLButtonElement>(null);
+  const swipeDown = useRef<{ x: number; y: number } | null>(null);
 
   // Auto-scroll the active thumbnail into view when the index changes.
   useEffect(() => {
@@ -96,7 +97,22 @@ export function AIReviewStep({
         </button>
       </div>
 
-      <div className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left">
+      <div
+        className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left"
+        onPointerDown={(e) => { swipeDown.current = { x: e.clientX, y: e.clientY }; }}
+        onPointerUp={(e) => {
+          const s = swipeDown.current;
+          swipeDown.current = null;
+          if (!s) return;
+          if ((e.target as HTMLElement).closest("input,textarea,select,button")) return;
+          const dx = e.clientX - s.x;
+          const dy = e.clientY - s.y;
+          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+            if (dx < 0) setCurrentCardIndex(Math.min(bulkItems.length - 1, currentCardIndex + 1));
+            else setCurrentCardIndex(Math.max(0, currentCardIndex - 1));
+          }
+        }}
+      >
         <div className="flex items-center gap-2 mb-1">
           {currentItem.imageIndices.map((imgIdx) => {
             // Prefer persistent server URL over local blob URL (iOS Safari
