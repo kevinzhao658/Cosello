@@ -625,6 +625,59 @@ export interface SellWizardActions {
   loadFromDraft: (state: SellWizardState) => void;
 }
 
+// ─── BulkPreview type + selector ───────────────────────────────────────────
+
+export interface BulkPreview {
+  index: number;
+  count: number;
+  item: {
+    brand: string;
+    name: string;
+    price: string;
+    condition: string;
+    description: string;
+    location: string;
+    tagsCount: number;
+    /** Resolved URL for the cover photo (first imageIndices entry). null when no photo yet. */
+    imageUrl: string | null;
+  };
+}
+
+/**
+ * Build a BulkPreview from wizard state. Returns null when there are no bulk items.
+ * Resolves the cover image URL inside the selector so callers (App.tsx) need no
+ * image-index knowledge.
+ */
+export function selectBulkPreview(
+  bulkItems: BulkItemDetails[],
+  currentCardIndex: number,
+  imageUrls: string[] | undefined,
+  uploadedImages: UploadedImage[],
+): BulkPreview | null {
+  if (bulkItems.length === 0) return null;
+  const i = Math.min(Math.max(currentCardIndex, 0), bulkItems.length - 1);
+  const it = bulkItems[i];
+  const firstIdx = it.imageIndices[0] ?? null;
+  const imageUrl: string | null =
+    firstIdx !== null
+      ? (imageUrls?.[firstIdx] ?? uploadedImages[firstIdx]?.preview ?? null)
+      : null;
+  return {
+    index: i,
+    count: bulkItems.length,
+    item: {
+      brand: it.brand,
+      name: it.name,
+      price: it.price,
+      condition: it.condition,
+      description: it.description,
+      location: it.location,
+      tagsCount: it.tags.length,
+      imageUrl,
+    },
+  };
+}
+
 export function useSellWizard(): [SellWizardState, SellWizardActions] {
   const [state, dispatch] = useReducer(sellWizardReducer, undefined, emptyWizardState);
 
