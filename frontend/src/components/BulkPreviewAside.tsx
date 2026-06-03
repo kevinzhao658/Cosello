@@ -10,9 +10,9 @@ interface BulkPreviewAsideProps {
 }
 
 export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsideProps) {
-  const { index, count, item, unit } = preview;
+  const { index, count, item, unit, step, communitySelected, pickupLocationSet } = preview;
 
-  // Checklist evaluation — mirrors App.tsx:1012-1028 logic, sourced from BulkPreview.item.
+  // Checklist evaluation — sourced from BulkPreview.item, defensive against null fields.
   const hasBrandOrName = Boolean(item.brand.trim() || item.name.trim());
   const hasPrice = (() => {
     if (item.price === null) return false;
@@ -23,12 +23,14 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
   const hasPhoto = item.imageUrl !== null;
   const hasDescription = item.description !== null && item.description.trim().length >= 20;
 
-  const checklistRows: ReadonlyArray<readonly [string, boolean]> = [
-    ["At least one photo", hasPhoto],
-    ["Brand or name", hasBrandOrName],
-    ["Price set", hasPrice],
-    ["Description 20+ chars", hasDescription],
-  ];
+  const checklistRows: ReadonlyArray<readonly [string, boolean]> = (() => {
+    switch (step) {
+      case "upload": return [["At least one photo", hasPhoto]];
+      case "groups": return [["Photo", hasPhoto], ["Brand or name", hasBrandOrName], ["Community", communitySelected]];
+      case "review": return [["Photo", hasPhoto], ["Brand or name", hasBrandOrName], ["Price", hasPrice], ["Description", hasDescription], ["Community", communitySelected]];
+      case "pickup": return [["Brand or name", hasBrandOrName], ["Price", hasPrice], ["Community", communitySelected], ["Pickup location", pickupLocationSet]];
+    }
+  })();
 
   const displayPrice = (() => {
     if (item.price === null) return "$—";
