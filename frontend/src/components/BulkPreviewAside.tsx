@@ -10,7 +10,7 @@ interface BulkPreviewAsideProps {
 }
 
 export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsideProps) {
-  const { index, count, item } = preview;
+  const { index, count, item, unit } = preview;
 
   // Checklist evaluation — mirrors App.tsx:1012-1028 logic, sourced from BulkPreview.item.
   const hasBrandOrName = Boolean(item.brand.trim() || item.name.trim());
@@ -54,7 +54,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
           ‹
         </button>
         <span className="text-xs font-semibold text-muted uppercase tracking-wider">
-          Preview {index + 1} of {count}
+          {unit} {index + 1} of {count}
         </span>
         <button
           type="button"

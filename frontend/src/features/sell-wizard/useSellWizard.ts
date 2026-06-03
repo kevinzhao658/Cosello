@@ -630,6 +630,7 @@ export interface SellWizardActions {
 export interface BulkPreview {
   index: number;
   count: number;
+  unit: "Photo" | "Preview";
   item: {
     brand: string;
     name: string;
@@ -669,6 +670,7 @@ export function selectBulkPreview(
   return {
     index: i,
     count: bulkItems.length,
+    unit: "Preview",
     item: {
       brand: it.brand,
       name: it.name,
@@ -706,6 +708,7 @@ export function selectGroupsPreview(
   return {
     index: i,
     count,
+    unit: "Preview",
     item: {
       brand: brandHints[i] ?? "",
       name: names[i] ?? "",
@@ -715,6 +718,35 @@ export function selectGroupsPreview(
       location: "",
       tagsCount: 0,
       photoCount: group.length,
+      imageUrl,
+    },
+  };
+}
+
+/**
+ * Build a BulkPreview from raw uploaded photos (Upload step, AI mode, pre-segmentation).
+ * One slide per photo; unit "Photo"; all listing fields pending. Returns null when no photos.
+ */
+export function selectUploadPreview(
+  uploadedImages: UploadedImage[],
+  currentCardIndex: number,
+): BulkPreview | null {
+  if (uploadedImages.length === 0) return null;
+  const count = uploadedImages.length;
+  const i = Math.min(Math.max(currentCardIndex, 0), count - 1);
+  const imageUrl = uploadedImages[i]?.preview ?? null;
+  return {
+    index: i,
+    count,
+    unit: "Photo",
+    item: {
+      brand: "",
+      name: "",
+      price: null,
+      condition: "",
+      description: null,
+      location: "",
+      tagsCount: 0,
       imageUrl,
     },
   };
