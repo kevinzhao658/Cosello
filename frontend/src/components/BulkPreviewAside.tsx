@@ -15,12 +15,13 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
   // Checklist evaluation — mirrors App.tsx:1012-1028 logic, sourced from BulkPreview.item.
   const hasBrandOrName = Boolean(item.brand.trim() || item.name.trim());
   const hasPrice = (() => {
+    if (item.price === null) return false;
     const raw = item.price.replace(/^\$/, "").trim();
     const num = Number.parseFloat(raw);
     return Number.isFinite(num) && num > 0;
   })();
   const hasPhoto = item.imageUrl !== null;
-  const hasDescription = item.description.trim().length >= 20;
+  const hasDescription = item.description !== null && item.description.trim().length >= 20;
 
   const checklistRows: ReadonlyArray<readonly [string, boolean]> = [
     ["At least one photo", hasPhoto],
@@ -30,6 +31,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
   ];
 
   const displayPrice = (() => {
+    if (item.price === null) return "$—";
     const raw = item.price.replace(/^\$/, "").trim();
     const num = Number.parseFloat(raw);
     return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
@@ -92,6 +94,11 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
               <span className="text-[11px]">Photo preview</span>
             </div>
           )}
+          {item.photoCount !== undefined && (
+            <span className="absolute left-2 bottom-2 bg-black/60 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm">
+              {item.photoCount} photos
+            </span>
+          )}
         </div>
 
         {/* Card details */}
@@ -102,10 +109,10 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
         </div>
       </article>
 
-      {/* Before you publish checklist */}
+      {/* Listing checklist */}
       <div className="bg-canvas border border-hairline rounded-md p-4">
         <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-          Before you publish
+          Listing checklist
         </p>
         <ul className="space-y-2">
           {checklistRows.map(([label, done]) => (
