@@ -18,6 +18,8 @@ import {
   selectGroupsPreview,
   selectUploadPreview,
   type BulkPreview,
+  type BulkPreviewBase,
+  type PreviewStep,
   type BulkItemDetails,
   type ProductDetails,
   type SegmentationResult,
@@ -451,19 +453,29 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // the live aside. Fires on bulkItems (new array on every updateBulkItem*) and
   // currentCardIndex, which covers index flips, edits, generates, and deletes.
   // Gated on mode === "ai" — manual mode is unaffected.
+  // Attaches step + communitySelected + pickupLocationSet so BulkPreviewAside
+  // can render step-aware checklist rows without needing wizard internals.
   useEffect(() => {
-    let preview: BulkPreview | null = null;
+    let base: BulkPreviewBase | null = null;
+    let step: PreviewStep | null = null;
     if (mode === "ai") {
       if (bulkItems.length > 0) {
-        preview = selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages);
+        base = selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages);
+        step = bulkReviewPhase === "pickup" ? "pickup" : "review";
       } else if (segmentation) {
-        preview = selectGroupsPreview(segmentation, brandHints, names, currentCardIndex, uploadedImages);
+        base = selectGroupsPreview(segmentation, brandHints, names, currentCardIndex, uploadedImages);
+        step = "groups";
       } else if (uploadedImages.length > 0) {
-        preview = selectUploadPreview(uploadedImages, currentCardIndex);
+        base = selectUploadPreview(uploadedImages, currentCardIndex);
+        step = "upload";
       }
     }
+    const communitySelected = selectedCommunityIds.length > 0;
+    const pickupLocationSet = bulkPickupLocation.trim() !== "";
+    const preview: BulkPreview | null =
+      base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
