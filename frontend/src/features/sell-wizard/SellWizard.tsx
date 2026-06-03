@@ -15,6 +15,7 @@ import type { CategorySchema, CategorySlug } from "../../lib/types";
 import {
   useSellWizard,
   selectBulkPreview,
+  selectGroupsPreview,
   type BulkPreview,
   type BulkItemDetails,
   type ProductDetails,
@@ -449,10 +450,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // the live aside. Fires on bulkItems (new array on every updateBulkItem*) and
   // currentCardIndex, which covers index flips, edits, generates, and deletes.
   useEffect(() => {
-    onBulkPreviewChange?.(
-      selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages),
-    );
-  }, [bulkItems, currentCardIndex, segmentation, uploadedImages, onBulkPreviewChange]);
+    // Review/Pickup: bulkItems exist → full listing preview.
+    // Groups: bulkItems empty but segmentation present → group preview (pending details).
+    // Upload / pre-segmentation: both null → no carousel (App falls back to single / Top Searches).
+    const preview =
+      bulkItems.length > 0
+        ? selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages)
+        : selectGroupsPreview(segmentation, brandHints, names, currentCardIndex, uploadedImages);
+    onBulkPreviewChange?.(preview);
+  }, [bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, onBulkPreviewChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
