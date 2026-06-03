@@ -633,12 +633,16 @@ export interface BulkPreview {
   item: {
     brand: string;
     name: string;
-    price: string;
+    /** null = not generated yet (Groups phase). */
+    price: string | null;
     condition: string;
-    description: string;
+    /** null = not generated yet (Groups phase). */
+    description: string | null;
     location: string;
     tagsCount: number;
-    /** Resolved URL for the cover photo (first imageIndices entry). null when no photo yet. */
+    /** Photo count for the focused group. Present at Groups; omitted at Review/Pickup. */
+    photoCount?: number;
+    /** Resolved URL for the cover photo. null when no photo yet. */
     imageUrl: string | null;
   };
 }
@@ -673,6 +677,44 @@ export function selectBulkPreview(
       description: it.description,
       location: it.location,
       tagsCount: it.tags.length,
+      imageUrl,
+    },
+  };
+}
+
+/**
+ * Build a BulkPreview from a photo group (Groups phase, before details exist).
+ * Returns null when there is no segmentation / no groups. price & description are
+ * null (pending); photoCount carries the group size for the "{n} photos" pill.
+ */
+export function selectGroupsPreview(
+  segmentation: SegmentationResult | null,
+  brandHints: string[],
+  names: string[],
+  currentCardIndex: number,
+  uploadedImages: UploadedImage[],
+): BulkPreview | null {
+  if (!segmentation || segmentation.groupings.length === 0) return null;
+  const count = segmentation.groupings.length;
+  const i = Math.min(Math.max(currentCardIndex, 0), count - 1);
+  const group = segmentation.groupings[i];
+  const firstIdx = group[0] ?? null;
+  const imageUrl: string | null =
+    firstIdx !== null
+      ? (segmentation.image_urls[firstIdx] ?? uploadedImages[firstIdx]?.preview ?? null)
+      : null;
+  return {
+    index: i,
+    count,
+    item: {
+      brand: brandHints[i] ?? "",
+      name: names[i] ?? "",
+      price: null,
+      condition: "",
+      description: null,
+      location: "",
+      tagsCount: 0,
+      photoCount: group.length,
       imageUrl,
     },
   };
