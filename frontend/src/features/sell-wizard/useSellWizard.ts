@@ -627,7 +627,9 @@ export interface SellWizardActions {
 
 // ─── BulkPreview type + selector ───────────────────────────────────────────
 
-export interface BulkPreview {
+export type PreviewStep = "upload" | "groups" | "review" | "pickup";
+
+export interface BulkPreviewBase {
   index: number;
   count: number;
   unit: "Photo" | "Preview";
@@ -648,17 +650,23 @@ export interface BulkPreview {
   };
 }
 
+export interface BulkPreview extends BulkPreviewBase {
+  step: PreviewStep;
+  communitySelected: boolean;
+  pickupLocationSet: boolean;
+}
+
 /**
- * Build a BulkPreview from wizard state. Returns null when there are no bulk items.
- * Resolves the cover image URL inside the selector so callers (App.tsx) need no
- * image-index knowledge.
+ * Build a BulkPreviewBase from wizard state. Returns null when there are no bulk items.
+ * Resolves the cover image URL inside the selector so callers (SellWizard.tsx) need no
+ * image-index knowledge. The emit effect in SellWizard.tsx attaches step + signals.
  */
 export function selectBulkPreview(
   bulkItems: BulkItemDetails[],
   currentCardIndex: number,
   imageUrls: string[] | undefined,
   uploadedImages: UploadedImage[],
-): BulkPreview | null {
+): BulkPreviewBase | null {
   if (bulkItems.length === 0) return null;
   const i = Math.min(Math.max(currentCardIndex, 0), bulkItems.length - 1);
   const it = bulkItems[i];
@@ -685,9 +693,10 @@ export function selectBulkPreview(
 }
 
 /**
- * Build a BulkPreview from a photo group (Groups phase, before details exist).
+ * Build a BulkPreviewBase from a photo group (Groups phase, before details exist).
  * Returns null when there is no segmentation / no groups. price & description are
  * null (pending); photoCount carries the group size for the "{n} photos" pill.
+ * The emit effect in SellWizard.tsx attaches step + signals.
  */
 export function selectGroupsPreview(
   segmentation: SegmentationResult | null,
@@ -695,7 +704,7 @@ export function selectGroupsPreview(
   names: string[],
   currentCardIndex: number,
   uploadedImages: UploadedImage[],
-): BulkPreview | null {
+): BulkPreviewBase | null {
   if (!segmentation || segmentation.groupings.length === 0) return null;
   const count = segmentation.groupings.length;
   const i = Math.min(Math.max(currentCardIndex, 0), count - 1);
@@ -724,13 +733,14 @@ export function selectGroupsPreview(
 }
 
 /**
- * Build a BulkPreview from raw uploaded photos (Upload step, AI mode, pre-segmentation).
+ * Build a BulkPreviewBase from raw uploaded photos (Upload step, AI mode, pre-segmentation).
  * One slide per photo; unit "Photo"; all listing fields pending. Returns null when no photos.
+ * The emit effect in SellWizard.tsx attaches step + signals.
  */
 export function selectUploadPreview(
   uploadedImages: UploadedImage[],
   currentCardIndex: number,
-): BulkPreview | null {
+): BulkPreviewBase | null {
   if (uploadedImages.length === 0) return null;
   const count = uploadedImages.length;
   const i = Math.min(Math.max(currentCardIndex, 0), count - 1);
