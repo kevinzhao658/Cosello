@@ -57,12 +57,35 @@ Single component, renders pending states from the data:
   `photoCount` is undefined.
 - **Price:** when `item.price` is `null`, render the pending treatment
   (`$—`, muted) instead of a parsed price.
-- **Checklist:** evaluate each row defensively against nullable fields:
-  - "At least one photo" — `imageUrl !== null`
-  - "Brand or name" — `brand`/`name` hint present
-  - "Price set" — `price` non-null AND parses to a number > 0 (null → unchecked)
-  - "Description 20+ chars" — `description` non-null AND length ≥ 20 (null → unchecked)
 - **Checklist heading renamed:** "Before you publish" → **"Listing checklist"**.
+- **Step-aware rows (2026-06-03 revision):** the checklist is now minimal and
+  tailored per step (driven by `preview.step`), and adds a **Community** row.
+  Each row evaluates defensively against nullable fields:
+
+  | Step | Rows (in order) |
+  |---|---|
+  | `upload` | At least one photo |
+  | `groups` | Photo · Brand or name · Community |
+  | `review` | Photo · Brand or name · Price · Description · Community |
+  | `pickup` | Brand or name · Price · Community · Pickup location |
+
+  Row evaluation: **Photo** = `imageUrl !== null`; **Brand or name** =
+  `brand.trim() || name.trim()`; **Price** = `price` non-null AND parses > 0;
+  **Description** = `description` non-null AND length ≥ 20; **Community** =
+  `communitySelected`; **Pickup location** = `pickupLocationSet`.
+
+### Data model for step + signals
+
+- `BulkPreview` gains three top-level fields: `step: "upload" | "groups" |
+  "review" | "pickup"`, `communitySelected: boolean`, `pickupLocationSet: boolean`.
+- Selectors return a `BulkPreviewBase` (everything except those three meta
+  fields); the `SellWizard` emit effect attaches the meta when it has the full
+  state. `communitySelected` = `selectedCommunityIds.length > 0`;
+  `pickupLocationSet` = the bulk pickup location is non-empty; `step` is derived
+  from the same branch that picks the selector (`pickup` when
+  `bulkReviewPhase === "pickup"`, else `review`, for the `bulkItems` source).
+- The single-listing `App.tsx` checklist is unchanged in content (this revision
+  applies to the bulk/AI carousel card only).
 
 ## Checklist rename — also in App.tsx
 
