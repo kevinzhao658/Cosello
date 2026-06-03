@@ -940,7 +940,7 @@ export default function App() {
       active ? "text-primary font-semibold" : "text-muted hover:text-ink"
     }`;
 
-  // Preview card + "Before you publish" checklist for the New Listing page.
+  // Preview card + "Listing checklist" for the New Listing page.
   // Rendered both inside the lg:+ sticky aside and inside the below-lg:
   // floating drawer so the two share a single source of truth.
   //
@@ -1032,7 +1032,7 @@ export default function App() {
         </article>
 
         <div className="bg-canvas border border-hairline rounded-md p-4">
-          <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Listing checklist</p>
           <ul className="space-y-2">
             {(() => {
               const isManual = newListingMode === "manual";
