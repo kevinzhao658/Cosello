@@ -12,7 +12,8 @@ their items from **Groups → Review → Pickup**. The **Upload** step is unchan
 
 | Step | Aside content |
 |---|---|
-| **Upload** | Top Searches (unchanged) |
+| **Upload** (0 photos) | Top Searches (unchanged) |
+| **Upload** (photos present, AI mode) | `BulkPreviewAside` carousel — "Photo X of Y", full pending shell (no pill) |
 | **Groups** | `BulkPreviewAside` carousel — "Preview X of Y", full card shell, price/description **pending**, "X photos" pill, title from brand/name hints |
 | **Review** | `BulkPreviewAside` carousel (unchanged behavior) |
 | **Pickup** | `BulkPreviewAside` carousel — same as Review |
@@ -72,9 +73,11 @@ checklist"** for consistency across all preview modes.
 ## Wiring — `SellWizard.tsx`
 
 - The `onBulkPreviewChange` emit effect chooses its source by phase:
+  - Upload with photos (AI mode, pre-segmentation) → `selectUploadPreview(uploadedImages, currentCardIndex)` — unit "Photo", all fields pending, no pill.
   - Groups phase (segmentation present, `bulkItems` empty) → `selectGroupsPreview(...)`
   - Review / Pickup (`bulkItems` populated) → `selectBulkPreview(...)`
   - otherwise → `null`
+- The emit is gated to `mode === "ai"` so the manual single-listing flow is unaffected.
 - `currentCardIndex` is already shared between the carousel and the group cards,
   so the aside arrows and the in-step selection stay in sync with no new state.
 - App's existing aside-mode logic is unchanged in structure: Upload
