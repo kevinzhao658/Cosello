@@ -104,6 +104,7 @@ export type SellWizardAction =
   | { type: "GENERATE_END" }
   | { type: "GENERATE_SINGLE"; details: ProductDetails }
   | { type: "GENERATE_BULK"; items: BulkItemDetails[] }
+  | { type: "INIT_BULK_MANUAL" }
   | { type: "REGENERATE_BULK_ITEM"; index: number; item: BulkItemDetails }
   | { type: "SET_PHASE"; phase: BulkReviewPhase }
   | { type: "SET_BRAND_HINT"; index: number; value: string }
@@ -210,6 +211,28 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
         groupingsModified: false,
         modifiedGroupIndices: new Set<number>(),
       };
+    case "INIT_BULK_MANUAL": {
+      if (!state.segmentation) return state;
+      const items: BulkItemDetails[] = state.segmentation.groupings.map((group, i) => ({
+        brand: state.brandHints[i] ?? "",
+        name: state.names[i] ?? "",
+        description: "",
+        price: "",
+        condition: "Good",
+        location: "",
+        tags: [],
+        imageIndices: group,
+      }));
+      return {
+        ...state,
+        isGenerating: false,
+        bulkItems: items,
+        currentCardIndex: 0,
+        bulkReviewPhase: "cards",
+        groupingsModified: false,
+        modifiedGroupIndices: new Set<number>(),
+      };
+    }
     case "REGENERATE_BULK_ITEM": {
       const updated = [...state.bulkItems];
       if (updated[action.index]) updated[action.index] = action.item;
@@ -588,6 +611,7 @@ export interface SellWizardActions {
   generateEnd: () => void;
   generateSingle: (details: ProductDetails) => void;
   generateBulk: (items: BulkItemDetails[]) => void;
+  initBulkManual: () => void;
   regenerateBulkItem: (index: number, item: BulkItemDetails) => void;
   setPhase: (phase: BulkReviewPhase) => void;
   setBrandHint: (index: number, value: string) => void;
@@ -779,6 +803,7 @@ export function useSellWizard(): [SellWizardState, SellWizardActions] {
     generateEnd: () => dispatch({ type: "GENERATE_END" }),
     generateSingle: (details) => dispatch({ type: "GENERATE_SINGLE", details }),
     generateBulk: (items) => dispatch({ type: "GENERATE_BULK", items }),
+    initBulkManual: () => dispatch({ type: "INIT_BULK_MANUAL" }),
     regenerateBulkItem: (index, item) => dispatch({ type: "REGENERATE_BULK_ITEM", index, item }),
     setPhase: (phase) => dispatch({ type: "SET_PHASE", phase }),
     setBrandHint: (index, value) => dispatch({ type: "SET_BRAND_HINT", index, value }),
