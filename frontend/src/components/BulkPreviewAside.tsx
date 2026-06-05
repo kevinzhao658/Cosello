@@ -1,5 +1,6 @@
 import { PLACEHOLDER_COMMUNITY } from "../lib/listings";
 import { formatTitle } from "../lib/format";
+import { isPricePositive, formatPriceDisplay } from "../lib/price";
 import { ListingChecklist } from "./ListingChecklist";
 import type { BulkPreview } from "../features/sell-wizard/useSellWizard";
 
@@ -14,12 +15,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
 
   // Checklist evaluation — sourced from BulkPreview.item, defensive against null fields.
   const hasBrandOrName = Boolean(item.brand.trim() || item.name.trim());
-  const hasPrice = (() => {
-    if (item.price === null) return false;
-    const raw = item.price.replace(/^\$/, "").trim();
-    const num = Number.parseFloat(raw);
-    return Number.isFinite(num) && num > 0;
-  })();
+  const hasPrice = item.price !== null && isPricePositive(item.price);
   const hasPhoto = item.imageUrl !== null;
   const hasDescription = item.description !== null && item.description.trim().length >= 20;
 
@@ -32,12 +28,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
     }
   })();
 
-  const displayPrice = (() => {
-    if (item.price === null) return "$—";
-    const raw = item.price.replace(/^\$/, "").trim();
-    const num = Number.parseFloat(raw);
-    return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-  })();
+  const displayPrice = item.price !== null ? formatPriceDisplay(item.price) : "$—";
 
   const title = formatTitle(item.brand, item.name) || "Untitled";
   const location = item.location.trim() || "—";

@@ -35,6 +35,7 @@ import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
+import { formatPriceDisplay } from "./lib/price";
 import { logView, logSearch, type ViewSource } from "./lib/events";
 import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
 import type { Notification } from "./lib/notifications";
@@ -1020,14 +1021,9 @@ export default function App() {
               })()}
             </p>
             <p className="text-base font-semibold text-ink leading-none pt-0.5">
-              {(() => {
-                if (newListingMode === "manual") {
-                  return manualPrice ? `$${manualPrice}` : "$—";
-                }
-                const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-                const num = raw ? Number.parseFloat(raw) : NaN;
-                return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-              })()}
+              {newListingMode === "manual"
+                ? (manualPrice ? `$${manualPrice}` : "$—")
+                : formatPriceDisplay(aiProductDetails?.price ?? "")}
             </p>
           </div>
         </article>
