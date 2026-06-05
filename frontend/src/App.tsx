@@ -1,4 +1,4 @@
-import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, Check, ImagePlus, ArrowRight } from "lucide-react";
+import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, ImagePlus, ArrowRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
@@ -27,6 +27,7 @@ import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWi
 import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
 import { TopSearches } from "./components/TopSearches";
 import { BulkPreviewAside } from "./components/BulkPreviewAside";
+import { ListingChecklist } from "./components/ListingChecklist";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
@@ -34,8 +35,9 @@ import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
+import { formatPriceDisplay } from "./lib/price";
 import { logView, logSearch, type ViewSource } from "./lib/events";
-import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
+import type { CategorySlug, CommunitySummary, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
 import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
@@ -143,8 +145,8 @@ export default function App() {
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
   const [visibleCount, setVisibleCount] = useState<number>(24);
-  const [publicCommunities, setPublicCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
-  const [privateCommunities, setPrivateCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<CommunitySummary[]>([]);
+  const [privateCommunities, setPrivateCommunities] = useState<CommunitySummary[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
@@ -1019,59 +1021,41 @@ export default function App() {
               })()}
             </p>
             <p className="text-base font-semibold text-ink leading-none pt-0.5">
-              {(() => {
-                if (newListingMode === "manual") {
-                  return manualPrice ? `$${manualPrice}` : "$—";
-                }
-                const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-                const num = raw ? Number.parseFloat(raw) : NaN;
-                return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-              })()}
+              {newListingMode === "manual"
+                ? (manualPrice ? `$${manualPrice}` : "$—")
+                : formatPriceDisplay(aiProductDetails?.price ?? "")}
             </p>
           </div>
         </article>
 
-        <div className="bg-canvas border border-hairline rounded-md p-4">
-          <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Listing checklist</p>
-          <ul className="space-y-2">
-            {(() => {
-              const isManual = newListingMode === "manual";
-              const hasBrandOrName = isManual
-                ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
-                : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
-              const hasPrice = (() => {
-                if (isManual) {
-                  return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
-                }
-                const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-                const num = raw ? Number.parseFloat(raw) : NaN;
-                return Number.isFinite(num) && num > 0;
-              })();
-              const hasDescription = isManual
-                ? manualDescription.trim().length >= 20
-                : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
-              const rows: ReadonlyArray<readonly [string, boolean]> = [
-                ["At least one photo", wizardImageCount > 0],
-                ["Brand or name", hasBrandOrName],
-                ["Price set", hasPrice],
-                ["Description 20+ chars", hasDescription],
-              ];
-              return rows;
-            })().map(([label, done]) => (
-              <li key={label} className="flex items-center gap-2.5 text-sm">
-                <span
-                  aria-hidden="true"
-                  className={`inline-flex items-center justify-center size-4 rounded-full border ${
-                    done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
-                  }`}
-                >
-                  <Check className="size-3" />
-                </span>
-                <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ListingChecklist
+          heading="Listing checklist"
+          rows={(() => {
+            const isManual = newListingMode === "manual";
+            const hasBrandOrName = isManual
+              ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
+              : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+            const hasPrice = (() => {
+              if (isManual) {
+                // integer-only by design (whole-dollar prices); see lib/price.ts for the float-based preview helpers
+                return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+              }
+              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const num = raw ? Number.parseFloat(raw) : NaN;
+              return Number.isFinite(num) && num > 0;
+            })();
+            const hasDescription = isManual
+              ? manualDescription.trim().length >= 20
+              : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+            const rows: ReadonlyArray<readonly [string, boolean]> = [
+              ["At least one photo", wizardImageCount > 0],
+              ["Brand or name", hasBrandOrName],
+              ["Price set", hasPrice],
+              ["Description 20+ chars", hasDescription],
+            ];
+            return rows;
+          })()}
+        />
       </>
     );
   })();

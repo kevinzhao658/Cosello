@@ -1,6 +1,7 @@
-import { Check } from "lucide-react";
 import { PLACEHOLDER_COMMUNITY } from "../lib/listings";
 import { formatTitle } from "../lib/format";
+import { isPricePositive, formatPriceDisplay } from "../lib/price";
+import { ListingChecklist } from "./ListingChecklist";
 import type { BulkPreview } from "../features/sell-wizard/useSellWizard";
 
 interface BulkPreviewAsideProps {
@@ -14,12 +15,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
 
   // Checklist evaluation — sourced from BulkPreview.item, defensive against null fields.
   const hasBrandOrName = Boolean(item.brand.trim() || item.name.trim());
-  const hasPrice = (() => {
-    if (item.price === null) return false;
-    const raw = item.price.replace(/^\$/, "").trim();
-    const num = Number.parseFloat(raw);
-    return Number.isFinite(num) && num > 0;
-  })();
+  const hasPrice = item.price !== null && isPricePositive(item.price);
   const hasPhoto = item.imageUrl !== null;
   const hasDescription = item.description !== null && item.description.trim().length >= 20;
 
@@ -32,12 +28,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
     }
   })();
 
-  const displayPrice = (() => {
-    if (item.price === null) return "$—";
-    const raw = item.price.replace(/^\$/, "").trim();
-    const num = Number.parseFloat(raw);
-    return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-  })();
+  const displayPrice = item.price !== null ? formatPriceDisplay(item.price) : "$—";
 
   const title = formatTitle(item.brand, item.name) || "Untitled";
   const location = item.location.trim() || "—";
@@ -112,28 +103,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
       </article>
 
       {/* Listing checklist */}
-      <div className="bg-canvas border border-hairline rounded-md p-4">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-          Listing checklist
-        </p>
-        <ul className="space-y-2">
-          {checklistRows.map(([label, done]) => (
-            <li key={label} className="flex items-center gap-2.5 text-sm">
-              <span
-                aria-hidden="true"
-                className={`inline-flex items-center justify-center size-4 rounded-full border ${
-                  done
-                    ? "bg-primary border-primary text-on-primary"
-                    : "bg-canvas border-hairline text-transparent"
-                }`}
-              >
-                <Check className="size-3" />
-              </span>
-              <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <ListingChecklist heading="Listing checklist" rows={checklistRows} />
     </>
   );
 }
