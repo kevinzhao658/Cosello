@@ -177,7 +177,7 @@ BULK_CANARIES: list[BulkCanary] = [
                 image="accessories/Coach_Duffle.jpeg",
                 expected_brand="Coach",
                 expected_model="Duffle",
-                expected_category="accessories",
+                expected_category="other",  # bag/duffel — no "accessories" category; remapped to "other"
             ),
             BulkItem(
                 image="other/Samsonite_Armage2.jpeg",
@@ -195,7 +195,7 @@ BULK_CANARIES: list[BulkCanary] = [
                 image="accessories/Coach_Duffle.jpeg",
                 expected_brand="Coach",
                 expected_model="Duffle",
-                expected_category="accessories",
+                expected_category="other",  # bag/duffel — no "accessories" category; remapped to "other"
             ),
             BulkItem(
                 image="other/Samsonite_Armage2.jpeg",
@@ -213,7 +213,7 @@ BULK_CANARIES: list[BulkCanary] = [
                 image="shoes/Nike_AirForce1.jpg",
                 expected_brand="Nike",
                 expected_model="Air Force 1",
-                expected_category="shoes",
+                expected_category="other",  # sneakers/footwear — no "shoes" category; remapped to "other"
             ),
         ],
         notes="Cross-category stress test — 4 items, 4 distinct brands, 4 distinct categories. Verifies per-image evidence scoping holds at scale.",
