@@ -1415,41 +1415,43 @@ export default function App() {
                 </section>
 
                 {/* AI / Manual toggle — green callout */}
-                <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
-                  <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={newListingMode === "ai"}
-                      onClick={() => setNewListingMode("ai")}
-                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                        newListingMode === "ai"
-                          ? "bg-primary text-on-primary"
-                          : "bg-transparent text-primary hover:bg-primary/10"
-                      }`}
-                    >
-                      AI Drafted
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={newListingMode === "manual"}
-                      onClick={() => setNewListingMode("manual")}
-                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                        newListingMode === "manual"
-                          ? "bg-primary text-on-primary"
-                          : "bg-transparent text-primary hover:bg-primary/10"
-                      }`}
-                    >
-                      Manual
-                    </button>
+                {wizardPhase === null && (
+                  <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
+                    <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={newListingMode === "ai"}
+                        onClick={() => setNewListingMode("ai")}
+                        className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                          newListingMode === "ai"
+                            ? "bg-primary text-on-primary"
+                            : "bg-transparent text-primary hover:bg-primary/10"
+                        }`}
+                      >
+                        AI Drafted
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={newListingMode === "manual"}
+                        onClick={() => setNewListingMode("manual")}
+                        className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                          newListingMode === "manual"
+                            ? "bg-primary text-on-primary"
+                            : "bg-transparent text-primary hover:bg-primary/10"
+                        }`}
+                      >
+                        Manual
+                      </button>
+                    </div>
+                    <p className="text-xs text-body mt-3 leading-relaxed">
+                      {newListingMode === "ai"
+                        ? "Upload as many items and we'll take care of the rest."
+                        : "Fill out the product details, description, and pricing below to publish your listing."}
+                    </p>
                   </div>
-                  <p className="text-xs text-body mt-3 leading-relaxed">
-                    {newListingMode === "ai"
-                      ? "Upload as many items and we'll take care of the rest."
-                      : "Fill out the product details, description, and pricing below to publish your listing."}
-                  </p>
-                </div>
+                )}
 
                 {/* Manual form sections */}
                 {newListingMode === "manual" && (
