@@ -29,20 +29,18 @@ import { TopSearches } from "./components/TopSearches";
 import { BulkPreviewAside } from "./components/BulkPreviewAside";
 import { ListingChecklist } from "./components/ListingChecklist";
 import { useMediaQuery } from "./hooks/useMediaQuery";
-import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
 import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { useChangeLocation } from "./hooks/useChangeLocation";
 import { useWishlist } from "./hooks/useWishlist";
+import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { formatPriceDisplay } from "./lib/price";
 import { logView, logSearch, type ViewSource } from "./lib/events";
 import type { CategorySlug, CommunitySummary, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
 import type { Notification } from "./lib/notifications";
-
-const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
@@ -130,62 +128,28 @@ export default function App() {
   }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [listingsLoaded, setListingsLoaded] = useState(false);
-  const [marketSearch, setMarketSearch] = useState("");
-  const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
-  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<number[]>([]);
-  // R-3.1: new tri-mode sort. `recommended` and `trending` both fall through
-  // to backend `sort=newest` (FYP path kicks in when no community is selected
-  // and no search is active) until dedicated backend sort modes ship.
-  type MarketSort = "recommended" | "trending" | "newest";
-  const [marketSort, setMarketSort] = useState<MarketSort>("recommended");
-  // Distance is purely a visual placeholder for now — no backend filter, no
-  // distance data on the listing payload. Hooked to local state so the slider
-  // is interactive; will start filtering once Listing carries lat/long.
-  const [distanceMiles, setDistanceMiles] = useState<number>(5);
-  // Client-side pagination: backend returns the full feed, we reveal in
-  // chunks (24 initial, +18 per IO trigger).
-  const [visibleCount, setVisibleCount] = useState<number>(24);
   const [publicCommunities, setPublicCommunities] = useState<CommunitySummary[]>([]);
   const [privateCommunities, setPrivateCommunities] = useState<CommunitySummary[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
   const [categorySchemas, setCategorySchemas] = useState<Record<string, CategorySchema>>({});
-  const [selectedCategories, setSelectedCategories] = useState<CategorySlug[]>([]);
-  const [showMyListings, setShowMyListings] = useState(false);
 
   const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const [marketSidebarCollapsed, setMarketSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    if (!window.matchMedia("(min-width: 1024px)").matches) return true;
-    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
-  });
-  useEffect(() => {
-    if (!isDesktop) return;
-    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(marketSidebarCollapsed));
-  }, [marketSidebarCollapsed, isDesktop]);
-  useEffect(() => {
-    if (isDesktop) {
-      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-      setMarketSidebarCollapsed(stored === "true");
-    } else {
-      setMarketSidebarCollapsed(true);
-    }
-  }, [isDesktop]);
-  const toggleMarketSidebar = useCallback(() => setMarketSidebarCollapsed((c) => !c), []);
+
+  const market = useMarketplaceBrowse({ page, isAuthenticated, token, isDesktop, userNeighborhood: user?.neighborhood });
+
   const handleToggleMarketCommunity = useCallback((cid: number) => {
-    setSelectedMarketCommunities((prev) =>
+    market.setSelectedCommunities((prev) =>
       prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
     );
-  }, []);
+  }, [market.setSelectedCommunities]);
   const handleToggleCategory = useCallback((slug: CategorySlug) => {
-    setSelectedCategories((prev) =>
+    market.setSelectedCategories((prev) =>
       prev.includes(slug) ? prev.filter((c) => c !== slug) : [...prev, slug]
     );
-  }, []);
-  const handleToggleMyListings = useCallback(() => setShowMyListings((v) => !v), []);
+  }, [market.setSelectedCategories]);
+  const handleToggleMyListings = useCallback(() => market.setShowMyListings((v) => !v), [market.setShowMyListings]);
 
   // Wishlist state
   const wishlist = useWishlist(token, page);
@@ -331,7 +295,7 @@ export default function App() {
       setShowEditListingModal(false);
       setShowListingDetailModal(false);
       setListingDetailData(null);
-      fetchListings();
+      market.refetch();
     }
   };
 
@@ -352,23 +316,7 @@ export default function App() {
 
   const listingViewSourceRef = useRef<ViewSource>("direct");
 
-  // Infinite-scroll sentinel for the marketplace grid.
-  const marketSentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (page !== "market") return;
-    const el = marketSentinelRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((v) => Math.min(v + 18, listings.length));
-        }
-      },
-      { rootMargin: "400px 0px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [page, listings.length, visibleCount]);
+  // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.
 
   const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
     listingViewSourceRef.current = source;
@@ -444,7 +392,7 @@ export default function App() {
     setShowListingDetailModal(false);
     setListingDetailData(null);
     setListingDetailSellerProfile(null);
-    fetchListings();
+    market.refetch();
   };
 
   const handleBuyUpdated = () => {
@@ -617,8 +565,7 @@ export default function App() {
       // ignore
     }
     await logout();
-    setListings([]);
-    setListingsLoaded(false);
+    market.reset();
     setNotifications([]);
     setNotificationsLoaded(false);
     setUnreadCount(0);
@@ -627,11 +574,11 @@ export default function App() {
     localStorage.removeItem("ge_history");
     setPublicCommunities([]);
     setPrivateCommunities([]);
-    setSelectedMarketCommunities([]);
+    market.setSelectedCommunities([]);
     setHomeSearch("");
-    setMarketSearch("");
+    market.setSearch("");
     setTradeMode("buy");
-    setMarketSort("newest");
+    market.setSort("newest");
     setMyOrderStatuses({});
     sellWizardRef.current?.resetForLogout();
     setPage("home");
@@ -667,66 +614,8 @@ export default function App() {
       .catch((err) => console.error("Failed to fetch category schemas:", err));
   }, []);
 
-  const fetchListings = async () => {
-    if (showMyListings && isAuthenticated && token) {
-      try {
-        const res = await apiFetch(`/api/listings/mine`);
-        if (res.ok) setListings(await res.json());
-      } catch (err) {
-        console.error("Failed to fetch my listings:", err);
-      } finally {
-        setListingsLoaded(true);
-      }
-      return;
-    }
-
-    const params = new URLSearchParams();
-    if (debouncedMarketSearch) params.set("search", debouncedMarketSearch);
-    // Map the new UI sort labels onto backend modes. `recommended` and
-    // `trending` both ride the existing `sort=newest` request — when no
-    // community is selected and no search is active, the backend falls into
-    // its FYP scoring path, which is the current proxy for "recommended".
-    // TODO: add a real `trending` sort backend-side (view count window).
-    const backendSort = marketSort === "newest" ? "newest" : "newest";
-    params.set("sort", backendSort);
-    if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
-
-    if (isAuthenticated && token) {
-      if (selectedMarketCommunities.length > 0) {
-        params.set("community", selectedMarketCommunities.join(","));
-      } else {
-        // Default feed: no community filter → backend returns tier-ranked results
-        if (user?.neighborhood) params.set("neighborhood", user.neighborhood);
-      }
-      try {
-        const res = await apiFetch(`/api/listings?${params}`);
-        if (res.ok) setListings(await res.json());
-      } catch (err) {
-        console.error("Failed to fetch listings:", err);
-      } finally {
-        setListingsLoaded(true);
-      }
-    } else {
-      try {
-        const res = await apiFetch(`/api/listings/public?${params}`);
-        if (res.ok) setListings(await res.json());
-      } catch (err) {
-        console.error("Failed to fetch public listings:", err);
-      } finally {
-        setListingsLoaded(true);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (page === "market") fetchListings();
-  }, [page, debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
-
-  // Reset the visible window whenever the underlying feed changes so the user
-  // doesn't land deep into a now-shorter list.
-  useEffect(() => {
-    setVisibleCount(24);
-  }, [debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, showMyListings]);
+  // fetchListings, infinite-scroll observer, market-fetch effect, and
+  // visible-count-reset effect all live in useMarketplaceBrowse.
 
   // Keep the URL hash in sync with the current page so a browser refresh
   // preserves where the user was. The initializer above reads from the hash
@@ -1271,7 +1160,7 @@ export default function App() {
                     onPosted={() => {
                       resetNewListingForm();
                       setPage("market");
-                      fetchListings();
+                      market.refetch();
                       setDraftsRefreshNonce((n) => n + 1);
                     }}
                     onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
@@ -1644,13 +1533,13 @@ export default function App() {
                     onSubmit={(e) => {
                       e.preventDefault();
                       const query = homeSearch.trim();
-                      setMarketSearch(homeSearch);
+                      market.setSearch(homeSearch);
                       setPage("market");
                       if (query) {
                         const filters: Record<string, unknown> = {};
-                        if (selectedCategories.length > 0) filters.categories = selectedCategories;
-                        if (selectedMarketCommunities.length > 0) filters.communities = selectedMarketCommunities;
-                        if (marketSort && marketSort !== "newest") filters.sort = marketSort;
+                        if (market.selectedCategories.length > 0) filters.categories = market.selectedCategories;
+                        if (market.selectedCommunities.length > 0) filters.communities = market.selectedCommunities;
+                        if (market.sort && market.sort !== "newest") filters.sort = market.sort;
                         logSearch({ query, filters });
                       }
                     }}
@@ -1716,21 +1605,21 @@ export default function App() {
       {page === "market" && (
         <section className="relative min-h-[calc(100vh-64px)] flex">
           <MarketplaceSidebar
-            collapsed={marketSidebarCollapsed}
-            onToggleCollapsed={toggleMarketSidebar}
+            collapsed={market.sidebarCollapsed}
+            onToggleCollapsed={market.toggleSidebar}
             isMobile={!isDesktop}
-            marketSearch={marketSearch}
-            onMarketSearchChange={setMarketSearch}
+            marketSearch={market.search}
+            onMarketSearchChange={market.setSearch}
             isAuthenticated={isAuthenticated}
             filterCommunities={filterCommunities}
-            selectedMarketCommunities={selectedMarketCommunities}
+            selectedMarketCommunities={market.selectedCommunities}
             onToggleCommunity={handleToggleMarketCommunity}
             categorySchemas={categorySchemas}
-            selectedCategories={selectedCategories}
+            selectedCategories={market.selectedCategories}
             onToggleCategory={handleToggleCategory}
-            distanceMiles={distanceMiles}
-            onDistanceChange={setDistanceMiles}
-            showMyListings={showMyListings}
+            distanceMiles={market.distanceMiles}
+            onDistanceChange={market.setDistanceMiles}
+            showMyListings={market.showMyListings}
             onToggleMyListings={handleToggleMyListings}
           />
           <main className="flex-1 min-w-0 px-6 lg:px-8 pt-14 lg:pt-8 pb-20">
@@ -1754,7 +1643,7 @@ export default function App() {
                 </div>
                 <p className="text-sm text-muted mt-1">
                   {user?.zip_code ? `${user.zip_code} · ` : ""}
-                  {listings.length} {listings.length === 1 ? "item" : "items"} near you
+                  {market.listings.length} {market.listings.length === 1 ? "item" : "items"} near you
                 </p>
               </div>
               <div role="tablist" aria-label="Sort by" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full">
@@ -1763,14 +1652,14 @@ export default function App() {
                   ["trending", "Trending"],
                   ["newest", "Newest"],
                 ] as const).map(([id, label]) => {
-                  const active = marketSort === id;
+                  const active = market.sort === id;
                   return (
                     <button
                       key={id}
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => setMarketSort(id)}
+                      onClick={() => market.setSort(id)}
                       className={`h-8 px-4 text-sm font-semibold rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
                         active
                           ? "bg-canvas text-ink shadow-card"
@@ -1785,22 +1674,22 @@ export default function App() {
             </header>
 
             {/* Grid */}
-            {!listingsLoaded && listings.length === 0 ? (
+            {!market.listingsLoaded && market.listings.length === 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <ListingCardSkeleton key={i} />
                 ))}
               </div>
-            ) : listings.length === 0 ? (
+            ) : market.listings.length === 0 ? (
               <div className="text-center text-muted py-12 mt-7">
-                {marketSearch || selectedMarketCommunities.length > 0 || selectedCategories.length > 0 || showMyListings
+                {market.search || market.selectedCommunities.length > 0 || market.selectedCategories.length > 0 || market.showMyListings
                   ? "No listings match your filters."
                   : "No listings yet."}
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
-                  {listings.slice(0, visibleCount).map((listing, idx) => {
+                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => {
                     const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
                       ?? listing.allCommunities?.[0]
                       ?? PLACEHOLDER_COMMUNITY;
@@ -1815,7 +1704,7 @@ export default function App() {
                         isPulsing={wishlist.isPulsing(listing.id)}
                         priority={idx < 4}
                         animationDelayMs={Math.min(idx, 11) * 30}
-                        onOpen={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
+                        onOpen={() => openListingDetail(listing, market.search ? "search" : "direct")}
                         onToggleWishlist={() => wishlist.toggle(listing.id)}
                         onPulseEnd={() => wishlist.clearPulse(listing.id)}
                       />
@@ -1824,10 +1713,10 @@ export default function App() {
                 </div>
 
                 {/* End sentinel — also drives the IntersectionObserver. */}
-                <div ref={marketSentinelRef} className="text-center py-8 text-sm text-muted italic">
-                  {visibleCount < listings.length
+                <div ref={market.sentinelRef} className="text-center py-8 text-sm text-muted italic">
+                  {market.visibleCount < market.listings.length
                     ? "Loading more nearby…"
-                    : `You've reached the end · ${listings.length} ${listings.length === 1 ? "item" : "items"}`}
+                    : `You've reached the end · ${market.listings.length} ${market.listings.length === 1 ? "item" : "items"}`}
                 </div>
               </>
             )}
