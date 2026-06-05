@@ -1,0 +1,125 @@
+<h2>Countdown in the Status column — how should it render?</h2>
+<p class="subtitle">Currently the pill says "Confirmed" once the seller picks a time slot. Replace that with the live countdown.</p>
+
+<style>
+  .row { display: grid; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr); }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; border-bottom-color: rgba(255,255,255,0.18); padding-top: 8px; padding-bottom: 8px; align-items: end; }
+  .thumb { width: 36px; height: 36px; background: rgba(255,255,255,0.12); border-radius: 4px; flex-shrink: 0; }
+  .item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .item-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .item-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .community-quiet { font-size: 10px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill-confirmed { display: inline-block; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .pill-live { display: inline-block; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .pill-icon { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .pill-wide { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .price { font-weight: 700; }
+  .grid-template { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; opacity: 0.55; padding: 0 12px 8px; }
+  .clock { font-size: 9px; }
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">Today — pill just says "Confirmed"</div>
+  <div class="mockup-body">
+    <div class="row row-head">
+      <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+    </div>
+    <div class="row">
+      <div class="item">
+        <div class="thumb"></div>
+        <div class="item-text">
+          <span class="community-quiet">West Village</span>
+          <span class="item-name">Vintage Levi's 501</span>
+        </div>
+      </div>
+      <span class="price" style="text-align:right">$48</span>
+      <span style="text-align:right"><span class="pill-confirmed">Confirmed</span></span>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top: 22px;">Pick the countdown treatment</h3>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Bare countdown — "2h 14m"</h3>
+      <p>Pill simply shows the time-remaining label. Tabular-numbered. Cleanest, tightest. Reader infers "this is a countdown" from context (status column on a confirmed order).</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill-live">2h 14m</span></span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill-live">1d 3h</span></span>
+          </div>
+        </div>
+        <div class="grid-template">just the label</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Countdown + clock icon — "🕒 2h 14m" (Recommended)</h3>
+      <p>Small clock glyph in front. Makes the "this is a countdown" semantic unmissable without taking much space. Strongest signal-to-noise ratio of the three.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill-icon"><span class="clock">🕒</span>2h 14m</span></span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill-icon"><span class="clock">🕒</span>1d 3h</span></span>
+          </div>
+        </div>
+        <div class="grid-template">lucide Clock icon + label</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Countdown + suffix — "2h 14m left"</h3>
+      <p>Explicit "left" suffix. Most self-documenting, but the pill grows wider — risks crowding on small screens. Reads like a label rather than a status chip.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill-wide">2h 14m left</span></span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill-wide">1d 3h left</span></span>
+          </div>
+        </div>
+        <div class="grid-template">label + "left" suffix</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Applies to both Selling table (when seller has confirmed a buyer's offer) and Buying table (when seller has accepted your order). Existing states like "Live", "Pending", "Pickup ready", "Completed" don't change.</p>

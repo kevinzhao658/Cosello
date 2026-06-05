@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approach 1 — thumbnail sizing</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:36px 24px 80px}
+  h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 22px;max-width:640px}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#888;margin:0 0 10px;font-weight:600}
+  .arrowbtn{width:28px;height:28px;border-radius:50%;border:1px solid #E5E5E5;display:inline-flex;align-items:center;justify-content:center;color:#555;font-size:14px;background:#fff;flex:none;cursor:pointer}
+  /* strip: padding gives the active ring room; overflow-x auto, NOT hidden vertically */
+  .strip{display:flex;gap:8px;align-items:center;padding:4px;overflow-x:auto;overflow-y:visible}
+  .thumb{width:28px;height:28px;border-radius:6px;background:#EDEDED;flex:none}
+  .thumb.cur{box-shadow:0 0 0 2px #00824C;border-radius:6px}  /* offset ring, fully visible thanks to strip padding + gap */
+  .panel{border:1px solid #E5E5E5;border-radius:10px;padding:16px}
+  .navrow{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .counter{font-size:11px;color:#888;text-align:center;margin:0 0 14px}
+  .ph{height:90px;background:#F5F5F5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:11px;margin-bottom:10px}
+  .lblmini{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#aaa;margin-bottom:3px}
+  .fld{border:1px solid #E5E5E5;border-radius:6px;padding:8px 10px;font-size:13px;color:#000;margin-bottom:10px}
+  .row{display:flex;gap:10px}.row>div{flex:1}
+  .note{font-size:12px;color:#555;margin-top:18px;line-height:1.55;max-width:560px}
+  .note b{color:#000}
+  .cmp{display:flex;gap:30px;margin-bottom:26px;flex-wrap:wrap}
+  .cmpcol{flex:1;min-width:230px}
+  .bad .strip{padding:0;overflow:hidden}
+  .bad .thumb{width:36px;height:36px}
+  .bad .thumb.cur{outline:2px solid #00824C;outline-offset:1px;box-shadow:none}
+  .mini{font-size:11px;color:#888;margin:6px 0 0}
+</style></head>
+<body><div class="wrap">
+  <h2>Approach 1 — smaller thumbnails, ring fully visible</h2>
+  <p class="subtitle">Shrunk the thumbnails (36px → 28px) and gave the strip padding + a box-shadow ring (instead of an outline that the tight container clipped). The active item's green ring now shows on all sides.</p>
+
+  <div class="cmp">
+    <div class="cmpcol bad">
+      <div class="lbl">Before — ring clipped</div>
+      <div class="strip"><span class="thumb"></span><span class="thumb cur"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span></div>
+      <p class="mini">36px thumbs, tight container w/ overflow hidden → top/left of the ring cut off.</p>
+    </div>
+    <div class="cmpcol">
+      <div class="lbl">After — ring breathes</div>
+      <div class="strip"><span class="thumb"></span><span class="thumb cur"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span></div>
+      <p class="mini">28px thumbs, padded scroll strip, box-shadow ring → fully visible. Fits more items too.</p>
+    </div>
+  </div>
+
+  <div class="lbl">Full header in context</div>
+  <div class="panel">
+    <div class="navrow">
+      <span class="arrowbtn">&#8249;</span>
+      <div class="strip" style="flex:1">
+        <span class="thumb"></span><span class="thumb cur"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span>
+      </div>
+      <span class="arrowbtn">&#8250;</span>
+    </div>
+    <p class="counter">Item 2 of 8</p>
+    <div class="ph">focused item photo</div>
+    <div class="lblmini">Title</div><div class="fld">Patagonia — Better Sweater</div>
+    <div class="row">
+      <div><div class="lblmini">Price ($)</div><div class="fld">68</div></div>
+      <div><div class="lblmini">Condition</div><div class="fld">Very good</div></div>
+    </div>
+    <div class="lblmini">Tags</div><div class="fld">fleece · outdoor · +</div>
+  </div>
+
+  <p class="note"><b>Sizing detail for the build:</b> 28px thumbs, 8px gap, 4px strip padding, ring via <code>box-shadow:0 0 0 2px</code> (not <code>outline</code>) so it never clips. Strip scrolls horizontally when items overflow; active thumb auto-scrolls into view. Sound right, or want them even smaller / a different active treatment (e.g. ring + brightness)?</p>
+</div></body></html>

@@ -1,0 +1,133 @@
+<h2>Skeleton designs for the four surfaces</h2>
+<p class="subtitle">All built from the existing <code>Skeleton</code> primitive (<code>animate-pulse bg-surface-strong</code>). New skeletons mirror the real layout shape so users see structure, not random rectangles.</p>
+
+<style>
+  .skel { background: rgba(255,255,255,0.08); border-radius: 4px; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.5; } }
+  .panel { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px; margin-top: 12px; }
+  .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.55; margin-bottom: 12px; }
+
+  /* Listings table row skeleton */
+  .row { display: grid; grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr); gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .row-item { display: flex; align-items: center; gap: 10px; }
+  .row-thumb { width: 36px; height: 36px; border-radius: 4px; }
+  .row-text { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+  .row-sub { width: 60%; height: 9px; }
+  .row-name { width: 80%; height: 12px; }
+  .row-price { width: 40px; height: 12px; margin-left: auto; }
+  .row-pill { width: 56px; height: 16px; border-radius: 999px; margin-left: auto; }
+
+  /* KPI skeleton */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .kpi { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .kpi-label { width: 60%; height: 8px; }
+  .kpi-value { width: 50%; height: 24px; }
+  .kpi-sub { width: 70%; height: 8px; }
+
+  /* Card grid skeleton */
+  .card-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
+  .card-band { width: 100%; height: 22px; border-radius: 0; }
+  .card-img { width: 100%; aspect-ratio: 1; border-radius: 0; }
+  .card-body { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .card-title { width: 80%; height: 11px; }
+  .card-price { width: 35%; height: 18px; }
+  .card-btn { width: 100%; height: 28px; border-radius: 4px; margin-top: 4px; }
+
+  /* Community tile skeleton */
+  .comm-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .comm { aspect-ratio: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .comm-circle { width: 36px; height: 36px; border-radius: 50%; }
+  .comm-name { width: 70%; height: 8px; }
+  .comm-sub { width: 50%; height: 7px; }
+
+  /* Punchlist row skeleton */
+  .punch-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .punch-icon { width: 28px; height: 28px; border-radius: 4px; }
+  .punch-text { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+  .punch-label { width: 50%; height: 11px; }
+  .punch-count { width: 30%; height: 8px; }
+  .punch-cta { width: 80px; height: 28px; border-radius: 4px; }
+
+  /* Friend recommendation skeleton */
+  .friend-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .friend-avatar { width: 32px; height: 32px; border-radius: 50%; }
+  .friend-text { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .friend-name { width: 50%; height: 10px; }
+  .friend-mutual { width: 35%; height: 8px; }
+  .friend-cta { width: 60px; height: 24px; border-radius: 4px; }
+</style>
+
+<div class="panel">
+  <div class="panel-title">Listings table — compact (Overview)</div>
+  <div class="row"><div class="row-item"><div class="skel row-thumb"></div><div class="row-text"><div class="skel row-sub"></div><div class="skel row-name"></div></div></div><div class="skel row-price"></div><div class="skel row-pill"></div></div>
+  <div class="row"><div class="row-item"><div class="skel row-thumb"></div><div class="row-text"><div class="skel row-sub"></div><div class="skel row-name"></div></div></div><div class="skel row-price"></div><div class="skel row-pill"></div></div>
+  <div class="row"><div class="row-item"><div class="skel row-thumb"></div><div class="row-text"><div class="skel row-sub"></div><div class="skel row-name"></div></div></div><div class="skel row-price"></div><div class="skel row-pill"></div></div>
+  <div class="row"><div class="row-item"><div class="skel row-thumb"></div><div class="row-text"><div class="skel row-sub"></div><div class="skel row-name"></div></div></div><div class="skel row-price"></div><div class="skel row-pill"></div></div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">KPI cards (4)</div>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="skel kpi-label"></div><div class="skel kpi-value"></div><div class="skel kpi-sub"></div></div>
+    <div class="kpi"><div class="skel kpi-label"></div><div class="skel kpi-value"></div><div class="skel kpi-sub"></div></div>
+    <div class="kpi"><div class="skel kpi-label"></div><div class="skel kpi-value"></div><div class="skel kpi-sub"></div></div>
+    <div class="kpi"><div class="skel kpi-label"></div><div class="skel kpi-value"></div><div class="skel kpi-sub"></div></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Listings tab — full card grid (reuses existing ListingCardSkeleton, refreshed)</div>
+  <div class="card-grid">
+    <div class="card"><div class="skel card-band"></div><div class="skel card-img"></div><div class="card-body"><div class="skel card-title"></div><div class="skel card-price"></div><div class="skel card-btn"></div></div></div>
+    <div class="card"><div class="skel card-band"></div><div class="skel card-img"></div><div class="card-body"><div class="skel card-title"></div><div class="skel card-price"></div><div class="skel card-btn"></div></div></div>
+    <div class="card"><div class="skel card-band"></div><div class="skel card-img"></div><div class="card-body"><div class="skel card-title"></div><div class="skel card-price"></div><div class="skel card-btn"></div></div></div>
+    <div class="card"><div class="skel card-band"></div><div class="skel card-img"></div><div class="card-body"><div class="skel card-title"></div><div class="skel card-price"></div><div class="skel card-btn"></div></div></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Communities tile grid (reuses existing CommunityCardSkeleton, count = 6)</div>
+  <div class="comm-grid">
+    <div class="comm"><div class="skel comm-circle"></div><div class="skel comm-name"></div><div class="skel comm-sub"></div></div>
+    <div class="comm"><div class="skel comm-circle"></div><div class="skel comm-name"></div><div class="skel comm-sub"></div></div>
+    <div class="comm"><div class="skel comm-circle"></div><div class="skel comm-name"></div><div class="skel comm-sub"></div></div>
+    <div class="comm"><div class="skel comm-circle"></div><div class="skel comm-name"></div><div class="skel comm-sub"></div></div>
+    <div class="comm"><div class="skel comm-circle"></div><div class="skel comm-name"></div><div class="skel comm-sub"></div></div>
+    <div class="comm"><div class="skel comm-circle"></div><div class="skel comm-name"></div><div class="skel comm-sub"></div></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Punchlist panel (4 category rows, collapsed state)</div>
+  <div class="punch-row"><div class="skel punch-icon"></div><div class="punch-text"><div class="skel punch-label"></div><div class="skel punch-count"></div></div><div class="skel punch-cta"></div></div>
+  <div class="punch-row"><div class="skel punch-icon"></div><div class="punch-text"><div class="skel punch-label"></div><div class="skel punch-count"></div></div><div class="skel punch-cta"></div></div>
+  <div class="punch-row"><div class="skel punch-icon"></div><div class="punch-text"><div class="skel punch-label"></div><div class="skel punch-count"></div></div><div class="skel punch-cta"></div></div>
+  <div class="punch-row"><div class="skel punch-icon"></div><div class="punch-text"><div class="skel punch-label"></div><div class="skel punch-count"></div></div><div class="skel punch-cta"></div></div>
+</div>
+
+<div class="panel">
+  <div class="panel-title">Friend recommendations (3 rows)</div>
+  <div class="friend-row"><div class="skel friend-avatar"></div><div class="friend-text"><div class="skel friend-name"></div><div class="skel friend-mutual"></div></div><div class="skel friend-cta"></div></div>
+  <div class="friend-row"><div class="skel friend-avatar"></div><div class="friend-text"><div class="skel friend-name"></div><div class="skel friend-mutual"></div></div><div class="skel friend-cta"></div></div>
+  <div class="friend-row"><div class="skel friend-avatar"></div><div class="friend-text"><div class="skel friend-name"></div><div class="skel friend-mutual"></div></div><div class="skel friend-cta"></div></div>
+</div>
+
+<h3 style="margin-top: 22px;">Approve?</h3>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Looks good — proceed</h3>
+      <p>Skeleton shapes mirror the real layouts. Use these counts: 4 table rows, 4 KPI cards, 4 card-grid items, 6 community tiles, 4 punchlist rows, 3 friend rows.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Adjust counts or shapes</h3>
+      <p>Tell me in chat which surface to change and how (fewer rows, different shape, etc.).</p>
+    </div>
+  </div>
+</div>

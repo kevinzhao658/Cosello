@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Final card in context</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;background:#FFFFFF;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:36px 24px 80px}
+  h2{font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0 0 6px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 6px;max-width:740px}
+  .label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;font-weight:600;margin:32px 0 6px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:12px}
+  .col{display:flex;flex-direction:column}
+  .crow{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#333;font-weight:500;margin-bottom:6px}
+  .crow img{width:20px;height:20px;border-radius:50%;object-fit:cover;flex:none}
+  .photo{position:relative;aspect-ratio:1/1;border-radius:10px;overflow:hidden;background:#F5F5F5}
+  .photo img.main{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .heart{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.9);border:1px solid #E5E5E5;display:inline-flex;align-items:center;justify-content:center;color:#888;font-size:14px}
+  .title{margin:8px 0 3px;font-size:14px;font-weight:500;color:#000}
+  .loc{margin:0 0 3px;font-size:12px;color:#555}
+  .price{margin:0;font-size:16px;font-weight:600;color:#000}
+  .scrim{position:absolute;inset:0;background:rgba(255,255,255,0.55)}
+  .sold-solid{position:absolute;left:8px;top:8px;background:#000;color:#fff;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:4px 9px;border-radius:4px}
+  .sold-frost{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.92);color:#000;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;padding:4px 9px;border-radius:999px;border:1px solid #E5E5E5}
+  .deck{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+  .pick{cursor:pointer;border-radius:12px;padding:12px;transition:all .15s ease;border:2px solid transparent}
+  .pick:hover{background:#FAFAFA}
+  .pick.selected{border-color:#00824C;background:#F4FBF7}
+  .tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#888;text-align:center;margin-bottom:10px;font-weight:600}
+  .cap{max-width:220px;margin:12px auto 0;font-size:12px;color:#555;line-height:1.5;text-align:center}
+  .cap b{color:#000}
+  .muted-title{color:#777 !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Final card in context</h2>
+  <p class="subtitle">Direction A with the community byline above a clean photo, title → location → black price below. Middle card is sold. Confirm the sold tag style at the bottom.</p>
+
+  <p class="label">Marketplace grid</p>
+  <div class="grid">
+    <div class="col">
+      <span class="crow"><img src="https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=80&amp;h=80&amp;fit=crop" alt="">West Village</span>
+      <div class="photo">
+        <img class="main" src="https://images.unsplash.com/photo-1551488831-00ddcb6c6bd3?w=440&amp;h=440&amp;fit=crop" alt="">
+        <span class="heart">&#9825;</span>
+      </div>
+      <p class="title">Acne Studios Wool Coat</p>
+      <p class="loc">SoHo</p>
+      <p class="price">$185</p>
+    </div>
+
+    <div class="col">
+      <span class="crow"><img src="https://images.unsplash.com/photo-1518972559570-7cc1309f3229?w=80&amp;h=80&amp;fit=crop" alt="">Lower East Side</span>
+      <div class="photo">
+        <img class="main" src="https://images.unsplash.com/photo-1485462537746-965f33f7f6a7?w=440&amp;h=440&amp;fit=crop" alt="">
+        <span class="scrim"></span>
+        <span class="sold-frost">Sold</span>
+      </div>
+      <p class="title muted-title">Vintage Leather Boots</p>
+      <p class="loc">East Village</p>
+      <p class="price" style="color:#777">$92</p>
+    </div>
+
+    <div class="col">
+      <span class="crow"><img src="https://images.unsplash.com/photo-1517841905240-472988babdf9?w=80&amp;h=80&amp;fit=crop" alt="">Chelsea</span>
+      <div class="photo">
+        <img class="main" src="https://images.unsplash.com/photo-1434389677669-e08b4cac3105?w=440&amp;h=440&amp;fit=crop" alt="">
+        <span class="heart">&#9825;</span>
+      </div>
+      <p class="title">Levi's 501 Original</p>
+      <p class="loc">Chelsea</p>
+      <p class="price">$48</p>
+    </div>
+  </div>
+
+  <p class="label">Last call · SOLD tag style (top-left on the dimmed photo)</p>
+  <div class="deck">
+    <div class="pick" data-choice="sold-solid" onclick="toggleSelect(this)">
+      <div class="tag">Solid black</div>
+      <div style="width:210px">
+        <span class="crow"><img src="https://images.unsplash.com/photo-1518972559570-7cc1309f3229?w=80&amp;h=80&amp;fit=crop" alt="">Lower East Side</span>
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1485462537746-965f33f7f6a7?w=440&amp;h=440&amp;fit=crop" alt="">
+          <span class="scrim"></span>
+          <span class="sold-solid">Sold</span>
+        </div>
+        <p class="title muted-title">Vintage Leather Boots</p>
+        <p class="price" style="color:#777;margin-top:4px">$92</p>
+      </div>
+      <p class="cap"><b>Solid black pill.</b> Higher contrast, more assertive.</p>
+    </div>
+
+    <div class="pick" data-choice="sold-frost" onclick="toggleSelect(this)">
+      <div class="tag">Frosted</div>
+      <div style="width:210px">
+        <span class="crow"><img src="https://images.unsplash.com/photo-1518972559570-7cc1309f3229?w=80&amp;h=80&amp;fit=crop" alt="">Lower East Side</span>
+        <div class="photo">
+          <img class="main" src="https://images.unsplash.com/photo-1485462537746-965f33f7f6a7?w=440&amp;h=440&amp;fit=crop" alt="">
+          <span class="scrim"></span>
+          <span class="sold-frost">Sold</span>
+        </div>
+        <p class="title muted-title">Vintage Leather Boots</p>
+        <p class="price" style="color:#777;margin-top:4px">$92</p>
+      </div>
+      <p class="cap"><b>Frosted pill.</b> Quieter, matches the card's light material.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

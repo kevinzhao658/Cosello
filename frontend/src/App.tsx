@@ -24,7 +24,9 @@ import { NotificationsPanel } from "./features/notifications/NotificationsPanel"
 import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
 import { ListingDetailModal, type SellerProfile } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
-import type { ProductDetails } from "./features/sell-wizard/useSellWizard";
+import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
+import { TopSearches } from "./components/TopSearches";
+import { BulkPreviewAside } from "./components/BulkPreviewAside";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
@@ -68,6 +70,9 @@ export default function App() {
   // never writes back through these.
   const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
   const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
+  // Bulk preview: emitted by SellWizard on every bulkItems/index change so the
+  // aside can render a navigable live preview of the focused bulk item.
+  const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null);
 
   // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
   // flow and a blank-form manual flow. Manual form fields live here so the page
@@ -935,119 +940,141 @@ export default function App() {
       active ? "text-primary font-semibold" : "text-muted hover:text-ink"
     }`;
 
-  // Preview card + "Before you publish" checklist for the New Listing page.
+  // Preview card + "Listing checklist" for the New Listing page.
   // Rendered both inside the lg:+ sticky aside and inside the below-lg:
   // floating drawer so the two share a single source of truth.
-  const newListingPreviewContent = (
-    <>
-      <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
-      <article>
-        {/* Community byline — above the photo */}
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <span
-            aria-hidden="true"
-            className="size-5 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[9px] font-bold"
-          >
-            {PLACEHOLDER_COMMUNITY.name.charAt(0).toUpperCase()}
-          </span>
-          <span className="text-xs font-medium text-body line-clamp-1">{PLACEHOLDER_COMMUNITY.name}</span>
-        </div>
-        <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
-          {aiCoverImageUrl ? (
-            <img
-              src={aiCoverImageUrl}
-              alt="Listing cover preview"
-              className="absolute inset-0 size-full object-cover"
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
-              <ImagePlus className="size-8" aria-hidden="true" />
-              <span className="text-[11px]">Photo preview after publish</span>
-            </div>
-          )}
-        </div>
-        <div className="pt-2 space-y-0.5">
-          <p className="text-sm font-medium text-ink line-clamp-1">
-            {(() => {
-              if (newListingMode === "manual") {
-                const brand = manualBrand.trim();
-                const name = manualName.trim();
+  //
+  // Mode selection:
+  //   wizardImageCount === 0          → TopSearches (no photos yet)
+  //   bulkPreview !== null            → BulkPreviewAside (AI bulk mode, ≥1 item)
+  //   else                            → single-item preview (manual or AI single)
+  const newListingPreviewContent = (() => {
+    if (wizardImageCount === 0) {
+      return <TopSearches />;
+    }
+
+    if (bulkPreview !== null) {
+      return (
+        <BulkPreviewAside
+          preview={bulkPreview}
+          onPrev={() => sellWizardRef.current?.setBulkCardIndex(bulkPreview.index - 1)}
+          onNext={() => sellWizardRef.current?.setBulkCardIndex(bulkPreview.index + 1)}
+        />
+      );
+    }
+
+    // Single-item preview (manual or AI single mode) — unchanged.
+    return (
+      <>
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+        <article>
+          {/* Community byline — above the photo */}
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span
+              aria-hidden="true"
+              className="size-5 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[9px] font-bold"
+            >
+              {PLACEHOLDER_COMMUNITY.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="text-xs font-medium text-body line-clamp-1">{PLACEHOLDER_COMMUNITY.name}</span>
+          </div>
+          <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
+            {aiCoverImageUrl ? (
+              <img
+                src={aiCoverImageUrl}
+                alt="Listing cover preview"
+                className="absolute inset-0 size-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
+                <ImagePlus className="size-8" aria-hidden="true" />
+                <span className="text-[11px]">Photo preview after publish</span>
+              </div>
+            )}
+          </div>
+          <div className="pt-2 space-y-0.5">
+            <p className="text-sm font-medium text-ink line-clamp-1">
+              {(() => {
+                if (newListingMode === "manual") {
+                  const brand = manualBrand.trim();
+                  const name = manualName.trim();
+                  if (brand && name) return `${brand} — ${name}`;
+                  return brand || name || "Untitled";
+                }
+                const brand = aiProductDetails?.brand?.trim() ?? "";
+                const name = aiProductDetails?.name?.trim() ?? "";
                 if (brand && name) return `${brand} — ${name}`;
                 return brand || name || "Untitled";
-              }
-              const brand = aiProductDetails?.brand?.trim() ?? "";
-              const name = aiProductDetails?.name?.trim() ?? "";
-              if (brand && name) return `${brand} — ${name}`;
-              return brand || name || "Untitled";
-            })()}
-          </p>
-          <p className="text-xs text-muted line-clamp-1">
-            {(() => {
-              const location = newListingMode === "manual"
-                ? (manualPickup.trim() || user?.neighborhood || "West Village")
-                : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
-              const condition = newListingMode === "manual"
-                ? manualCondition
-                : (aiProductDetails?.condition?.trim() ?? "");
-              return condition ? `${location} · ${condition}` : location;
-            })()}
-          </p>
-          <p className="text-base font-semibold text-ink leading-none pt-0.5">
-            {(() => {
-              if (newListingMode === "manual") {
-                return manualPrice ? `$${manualPrice}` : "$—";
-              }
-              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-              const num = raw ? Number.parseFloat(raw) : NaN;
-              return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-            })()}
-          </p>
-        </div>
-      </article>
+              })()}
+            </p>
+            <p className="text-xs text-muted line-clamp-1">
+              {(() => {
+                const location = newListingMode === "manual"
+                  ? (manualPickup.trim() || user?.neighborhood || "West Village")
+                  : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
+                const condition = newListingMode === "manual"
+                  ? manualCondition
+                  : (aiProductDetails?.condition?.trim() ?? "");
+                return condition ? `${location} · ${condition}` : location;
+              })()}
+            </p>
+            <p className="text-base font-semibold text-ink leading-none pt-0.5">
+              {(() => {
+                if (newListingMode === "manual") {
+                  return manualPrice ? `$${manualPrice}` : "$—";
+                }
+                const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+                const num = raw ? Number.parseFloat(raw) : NaN;
+                return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
+              })()}
+            </p>
+          </div>
+        </article>
 
-      <div className="bg-canvas border border-hairline rounded-md p-4">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
-        <ul className="space-y-2">
-          {(() => {
-            const isManual = newListingMode === "manual";
-            const hasBrandOrName = isManual
-              ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
-              : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
-            const hasPrice = (() => {
-              if (isManual) {
-                return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
-              }
-              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-              const num = raw ? Number.parseFloat(raw) : NaN;
-              return Number.isFinite(num) && num > 0;
-            })();
-            const hasDescription = isManual
-              ? manualDescription.trim().length >= 20
-              : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
-            const rows: ReadonlyArray<readonly [string, boolean]> = [
-              ["At least one photo", wizardImageCount > 0],
-              ["Brand or name", hasBrandOrName],
-              ["Price set", hasPrice],
-              ["Description 20+ chars", hasDescription],
-            ];
-            return rows;
-          })().map(([label, done]) => (
-            <li key={label} className="flex items-center gap-2.5 text-sm">
-              <span
-                aria-hidden="true"
-                className={`inline-flex items-center justify-center size-4 rounded-full border ${
-                  done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
-                }`}
-              >
-                <Check className="size-3" />
-              </span>
-              <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
-  );
+        <div className="bg-canvas border border-hairline rounded-md p-4">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Listing checklist</p>
+          <ul className="space-y-2">
+            {(() => {
+              const isManual = newListingMode === "manual";
+              const hasBrandOrName = isManual
+                ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
+                : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+              const hasPrice = (() => {
+                if (isManual) {
+                  return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+                }
+                const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+                const num = raw ? Number.parseFloat(raw) : NaN;
+                return Number.isFinite(num) && num > 0;
+              })();
+              const hasDescription = isManual
+                ? manualDescription.trim().length >= 20
+                : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+              const rows: ReadonlyArray<readonly [string, boolean]> = [
+                ["At least one photo", wizardImageCount > 0],
+                ["Brand or name", hasBrandOrName],
+                ["Price set", hasPrice],
+                ["Description 20+ chars", hasDescription],
+              ];
+              return rows;
+            })().map(([label, done]) => (
+              <li key={label} className="flex items-center gap-2.5 text-sm">
+                <span
+                  aria-hidden="true"
+                  className={`inline-flex items-center justify-center size-4 rounded-full border ${
+                    done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
+                  }`}
+                >
+                  <Check className="size-3" />
+                </span>
+                <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </>
+    );
+  })();
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -1333,16 +1360,6 @@ export default function App() {
                 >
                   Drafts
                 </button>
-                {newListingMode === "manual" && (
-                  <button
-                    type="button"
-                    disabled={isPublishingManual || wizardImageCount === 0}
-                    onClick={handlePublishNewListing}
-                    className="inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                  >
-                    {isPublishingManual ? "Publishing…" : "Publish listing"}
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1393,45 +1410,48 @@ export default function App() {
                       }
                     }}
                     onBackToDrafts={() => setDraftRouteState({ kind: "gallery" })}
+                    onBulkPreviewChange={setBulkPreview}
                   />
                 </section>
 
                 {/* AI / Manual toggle — green callout */}
-                <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
-                  <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={newListingMode === "ai"}
-                      onClick={() => setNewListingMode("ai")}
-                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                        newListingMode === "ai"
-                          ? "bg-primary text-on-primary"
-                          : "bg-transparent text-primary hover:bg-primary/10"
-                      }`}
-                    >
-                      AI Drafted
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={newListingMode === "manual"}
-                      onClick={() => setNewListingMode("manual")}
-                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                        newListingMode === "manual"
-                          ? "bg-primary text-on-primary"
-                          : "bg-transparent text-primary hover:bg-primary/10"
-                      }`}
-                    >
-                      Manual
-                    </button>
+                {wizardPhase === null && (
+                  <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
+                    <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={newListingMode === "ai"}
+                        onClick={() => setNewListingMode("ai")}
+                        className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                          newListingMode === "ai"
+                            ? "bg-primary text-on-primary"
+                            : "bg-transparent text-primary hover:bg-primary/10"
+                        }`}
+                      >
+                        AI Drafted
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={newListingMode === "manual"}
+                        onClick={() => setNewListingMode("manual")}
+                        className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                          newListingMode === "manual"
+                            ? "bg-primary text-on-primary"
+                            : "bg-transparent text-primary hover:bg-primary/10"
+                        }`}
+                      >
+                        Manual
+                      </button>
+                    </div>
+                    <p className="text-xs text-body mt-3 leading-relaxed">
+                      {newListingMode === "ai"
+                        ? "Upload as many items and we'll take care of the rest."
+                        : "Fill out the product details, description, and pricing below to publish your listing."}
+                    </p>
                   </div>
-                  <p className="text-xs text-body mt-3 leading-relaxed">
-                    {newListingMode === "ai"
-                      ? "Upload as many items and we'll take care of the rest."
-                      : "Fill out the product details, description, and pricing below to publish your listing."}
-                  </p>
-                </div>
+                )}
 
                 {/* Manual form sections */}
                 {newListingMode === "manual" && (
@@ -1619,6 +1639,14 @@ export default function App() {
                         Your address will not be shared until pickup is confirmed.
                       </p>
                     </section>
+                    <button
+                      type="button"
+                      disabled={isPublishingManual || wizardImageCount === 0}
+                      onClick={handlePublishNewListing}
+                      className="w-full inline-flex items-center justify-center h-11 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      {isPublishingManual ? "Publishing…" : "Publish listing"}
+                    </button>
                   </>
                 )}
               </div>

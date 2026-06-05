@@ -31,6 +31,7 @@ export interface GroupsStepProps {
   wizardAnchorRef: React.RefObject<HTMLDivElement>;
   onBackArrow: () => void;
   onAdvanceToReason: () => void;
+  onFillManually: () => void;
   onGenerate: () => void;
   setRationale: (v: string) => void;
   setRationaleOther: (v: string) => void;
@@ -55,7 +56,7 @@ export function GroupsStep({
   bulkReviewPhase, segmentation, uploadedImages, bulkItems, brandHints, names,
   rationale, rationaleOther, isGenerating, instructionExiting, currentCardIndex,
   dragImageState, dragOverGroup, dragOverGap, wizardAnchorRef,
-  onBackArrow, onAdvanceToReason, onGenerate, setRationale, setRationaleOther,
+  onBackArrow, onAdvanceToReason, onFillManually, onGenerate, setRationale, setRationaleOther,
   setDragOverGap, setDragOverGroup, onDropNewGroup, onDragOver, onDragLeave, onDrop,
   onDragStart, onDragEnd, onDeleteMouseDown, onDeleteClick, onBrandChange, onNameChange,
   onCardSelect, fileInputRef, onClearAll,
@@ -147,16 +148,29 @@ export function GroupsStep({
           style={{ animation: "wizardStepIn 300ms ease-out both" }}
         >
           {bulkReviewPhase === "review" ? (
-            <Button
-              onClick={onAdvanceToReason}
-              disabled={
-                segmentation.groupings.length === 0 ||
-                segmentation.groupings.some((g) => g.length === 0)
-              }
-              className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            >
-              {`Continue (${segmentation.groupings.length} ${segmentation.groupings.length === 1 ? "item" : "items"})`}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                onClick={onAdvanceToReason}
+                disabled={
+                  segmentation.groupings.length === 0 ||
+                  segmentation.groupings.some((g) => g.length === 0)
+                }
+                className="flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                {`Generate with AI (${segmentation.groupings.length})`}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onFillManually}
+                disabled={
+                  segmentation.groupings.length === 0 ||
+                  segmentation.groupings.some((g) => g.length === 0)
+                }
+                className="flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                Fill in manually
+              </Button>
+            </div>
           ) : (
             <div className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left">
               <div className="space-y-2">

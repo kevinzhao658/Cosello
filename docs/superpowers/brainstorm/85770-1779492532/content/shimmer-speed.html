@@ -1,0 +1,64 @@
+<h2>Shimmer speed — pick the pace</h2>
+<p class="subtitle">Same listings rows, three durations. Watch for a few seconds to feel the rhythm.</p>
+
+<style>
+  .skel-shimmer-1 { border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.06) 100%); background-size: 200% 100%; animation: shimmer 2s linear infinite; }
+  .skel-shimmer-2 { border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.06) 100%); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
+  .skel-shimmer-3 { border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.06) 100%); background-size: 200% 100%; animation: shimmer 3s linear infinite; }
+  .skel-shimmer-4 { border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.06) 100%); background-size: 200% 100%; animation: shimmer 4s linear infinite; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .panel { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px; }
+  .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .panel-tag { padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 600; background: rgba(80,200,120,0.18); color: #6ee7a8; }
+
+  .quad { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  .row { display: grid; grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr); gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .row-item { display: flex; align-items: center; gap: 10px; }
+  .row-thumb { width: 36px; height: 36px; }
+  .row-text { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+  .row-sub { width: 60%; height: 9px; }
+  .row-name { width: 80%; height: 12px; }
+  .row-price { width: 40px; height: 12px; margin-left: auto; }
+  .row-pill { width: 56px; height: 16px; border-radius: 999px; margin-left: auto; }
+</style>
+
+<div class="quad">
+
+  <div class="panel">
+    <div class="panel-title"><span>2s — quick</span><span class="panel-tag">A</span></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-1 row-thumb"></div><div class="row-text"><div class="skel-shimmer-1 row-sub"></div><div class="skel-shimmer-1 row-name"></div></div></div><div class="skel-shimmer-1 row-price"></div><div class="skel-shimmer-1 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-1 row-thumb"></div><div class="row-text"><div class="skel-shimmer-1 row-sub"></div><div class="skel-shimmer-1 row-name"></div></div></div><div class="skel-shimmer-1 row-price"></div><div class="skel-shimmer-1 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-1 row-thumb"></div><div class="row-text"><div class="skel-shimmer-1 row-sub"></div><div class="skel-shimmer-1 row-name"></div></div></div><div class="skel-shimmer-1 row-price"></div><div class="skel-shimmer-1 row-pill"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span>2.5s — medium</span><span class="panel-tag">B</span></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-2 row-thumb"></div><div class="row-text"><div class="skel-shimmer-2 row-sub"></div><div class="skel-shimmer-2 row-name"></div></div></div><div class="skel-shimmer-2 row-price"></div><div class="skel-shimmer-2 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-2 row-thumb"></div><div class="row-text"><div class="skel-shimmer-2 row-sub"></div><div class="skel-shimmer-2 row-name"></div></div></div><div class="skel-shimmer-2 row-price"></div><div class="skel-shimmer-2 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-2 row-thumb"></div><div class="row-text"><div class="skel-shimmer-2 row-sub"></div><div class="skel-shimmer-2 row-name"></div></div></div><div class="skel-shimmer-2 row-price"></div><div class="skel-shimmer-2 row-pill"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span>3s — slow (Recommended)</span><span class="panel-tag">C</span></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-3 row-thumb"></div><div class="row-text"><div class="skel-shimmer-3 row-sub"></div><div class="skel-shimmer-3 row-name"></div></div></div><div class="skel-shimmer-3 row-price"></div><div class="skel-shimmer-3 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-3 row-thumb"></div><div class="row-text"><div class="skel-shimmer-3 row-sub"></div><div class="skel-shimmer-3 row-name"></div></div></div><div class="skel-shimmer-3 row-price"></div><div class="skel-shimmer-3 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-3 row-thumb"></div><div class="row-text"><div class="skel-shimmer-3 row-sub"></div><div class="skel-shimmer-3 row-name"></div></div></div><div class="skel-shimmer-3 row-price"></div><div class="skel-shimmer-3 row-pill"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span>4s — very slow</span><span class="panel-tag">D</span></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-4 row-thumb"></div><div class="row-text"><div class="skel-shimmer-4 row-sub"></div><div class="skel-shimmer-4 row-name"></div></div></div><div class="skel-shimmer-4 row-price"></div><div class="skel-shimmer-4 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-4 row-thumb"></div><div class="row-text"><div class="skel-shimmer-4 row-sub"></div><div class="skel-shimmer-4 row-name"></div></div></div><div class="skel-shimmer-4 row-price"></div><div class="skel-shimmer-4 row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer-4 row-thumb"></div><div class="row-text"><div class="skel-shimmer-4 row-sub"></div><div class="skel-shimmer-4 row-name"></div></div></div><div class="skel-shimmer-4 row-price"></div><div class="skel-shimmer-4 row-pill"></div></div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top: 22px;">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content"><h3>2s — quick</h3><p>Just slightly slower than the previous 1.6s.</p></div></div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)"><div class="letter">B</div><div class="content"><h3>2.5s — medium</h3><p>Common skeleton-screen pace on iOS/Android stock libraries.</p></div></div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)"><div class="letter">C</div><div class="content"><h3>3s — slow (Recommended)</h3><p>Calmer rhythm. Easier to ignore peripherally. What Instagram and LinkedIn use.</p></div></div>
+  <div class="option" data-choice="d" onclick="toggleSelect(this)"><div class="letter">D</div><div class="content"><h3>4s — very slow</h3><p>Borderline ambient. Risk: feels broken if data takes a while.</p></div></div>
+</div>

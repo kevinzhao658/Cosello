@@ -30,6 +30,7 @@ from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
 from routers.punchlist import router as punchlist_router
+from routers.searches import router as searches_router
 from category_schemas import CATEGORY_SCHEMAS
 from services.google import vision
 from services.google.vision import VisionResult
@@ -59,6 +60,7 @@ app.include_router(friends_router)
 app.include_router(notifications_router)
 app.include_router(orders_router)
 app.include_router(punchlist_router)
+app.include_router(searches_router)
 
 # Legacy local-disk uploads directory. Pre-Phase 3 listings stored images here;
 # everything new goes to Supabase Storage. On Vercel the runtime filesystem is

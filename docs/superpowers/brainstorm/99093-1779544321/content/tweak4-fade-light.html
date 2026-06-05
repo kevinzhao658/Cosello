@@ -1,0 +1,163 @@
+<h2>Read notification fade — light palette</h2>
+<p class="subtitle">Rendered against the actual Cosello Trade palette. Unread row has the white canvas + green dot; read row sits on the soft surface tint.</p>
+
+<style>
+  /* Override frame background to white-ish so the preview is accurate */
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+
+  .panel { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 0; overflow: hidden; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; padding: 6px 14px; background: #FAFAFA; border-bottom: 1px solid #EFEFEF; }
+
+  .notif { display: flex; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #E5E5E5; position: relative; }
+  .notif-unread { background: #FFFFFF; }
+  .notif-read    { background: #F5F5F5; }
+  .notif:last-child { border-bottom: 0; }
+
+  .dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: #00824C; }
+  .icon-tile { width: 36px; height: 36px; background: #DCEEE4; color: #00824C; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; font-weight: 700; }
+  .body { flex: 1; min-width: 0; padding-right: 18px; }
+  .title { font-size: 13px; font-weight: 600; margin: 0; }
+  .text { font-size: 12px; margin-top: 2px; line-height: 1.4; }
+  .time { font-size: 10px; color: #888; margin-top: 4px; }
+
+  /* INK = unread baseline */
+  .ink-title { color: #000000; }
+  .ink-body { color: #333333; }
+
+  /* Variant A — current text-muted */
+  .a-title { color: #555555; }
+  .a-body  { color: #555555; }
+
+  /* Variant B — text-muted-soft (#888888) */
+  .b-title { color: #888888; }
+  .b-body  { color: #888888; }
+
+  /* Variant C — wrapper opacity 0.5 */
+  .c-wrap  { opacity: 0.5; }
+
+  /* Variant D — muted color + font-normal */
+  .d-title { color: #555555; font-weight: 400; }
+  .d-body  { color: #555555; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Current — text-muted (#555)</h3>
+      <p>What's in production now. Drop text-ink → text-muted for read items.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title a-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text a-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Lighter — text-muted-soft (#888) (Recommended)</h3>
+      <p>Pushes text further toward the soft-surface background. Reads as clearly deprioritized while staying legible.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title b-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text b-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>50% opacity on the content block</h3>
+      <p>Apply <code>opacity-50</code> to the title/body/time wrapper. Icon tile stays full color so the notification type is still scannable.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body c-wrap">
+            <p class="title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Muted color + drop font-semibold → font-normal</h3>
+      <p>Title loses its bold weight when read. Combined with text-muted color, reads as clearly secondary. Strongest hierarchical shift.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title ink-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text ink-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title d-title">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text d-body">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click A / B / C / D.</p>

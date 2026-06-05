@@ -1,0 +1,153 @@
+<h2>Your Listings (Overview compact table) — after Option A</h2>
+<p class="subtitle">One row per state that can render in this surface. Locked grid template, content-width pills, locked status column edge. The only Option-A color change: "Awaiting buyer" flips from jade → amber.</p>
+
+<style>
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+
+  .panel { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 20px; margin-top: 14px; }
+  .panel-title { font-size: 14px; font-weight: 700; color: #000; margin-bottom: 14px; }
+
+  .row-head { display: grid; grid-template-columns: minmax(0,1fr) max-content minmax(108px,max-content); column-gap: 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; padding-bottom: 8px; border-bottom: 1px solid #E5E5E5; }
+
+  .row { display: grid; grid-template-columns: minmax(0,1fr) max-content minmax(108px,max-content); column-gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid #F0F0F0; }
+  .row:last-child { border-bottom: 0; }
+
+  .item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .thumb { width: 32px; height: 32px; background: linear-gradient(135deg, #d4b896 0%, #b8966c 50%, #9c7a4c 100%); border-radius: 4px; flex-shrink: 0; border: 1px solid #E5E5E5; }
+  .thumb-blue { background: linear-gradient(135deg, #b8c5d4 0%, #889ab8 50%, #5c7494 100%); }
+  .thumb-grey { background: linear-gradient(135deg, #c4c4c4 0%, #a0a0a0 50%, #707070 100%); }
+  .thumb-red { background: linear-gradient(135deg, #d4a896 0%, #b8786c 50%, #9c4c4c 100%); }
+  .item-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .community { font-size: 10px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { font-size: 12px; font-weight: 600; color: #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .price { font-size: 13px; font-weight: 700; color: #000; }
+
+  .pill { justify-self: start; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .p-primary { background: #00824C; color: #ffffff; }
+  .p-primary-soft { background: #DCEEE4; color: #00824C; }
+  .p-amber { background: rgba(217, 154, 60, 0.18); color: #b8782e; }
+  .p-muted { background: #EAEAEA; color: #555555; }
+
+  .annotation { font-size: 10px; color: #888; padding: 4px 0 0 42px; font-style: italic; }
+  .change-tag { display: inline-block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #b8782e; background: rgba(217, 154, 60, 0.12); padding: 1px 6px; border-radius: 3px; margin-left: 6px; }
+
+  .legend { margin-top: 18px; padding: 12px 14px; background: #FAFAFA; border-radius: 6px; font-size: 11px; color: #555; }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+</style>
+
+<div class="panel">
+  <div class="panel-title">Your listings · Selling</div>
+
+  <div class="row-head">
+    <span>Item</span><span>Price</span><span>Status</span>
+  </div>
+
+  <!-- Live -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb"></div>
+      <div class="item-text"><span class="community">West Village</span><span class="name">Vintage Levi's 501</span></div>
+    </div>
+    <span class="price">$48</span>
+    <span class="pill p-primary"><span class="dot"></span>Live</span>
+  </div>
+
+  <!-- {N} pending -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb thumb-blue"></div>
+      <div class="item-text"><span class="community">Chelsea</span><span class="name">Eames lounge chair replica</span></div>
+    </div>
+    <span class="price">$285</span>
+    <span class="pill p-primary-soft"><span class="dot"></span>3 pending</span>
+  </div>
+
+  <!-- Pickup in {label} -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb"></div>
+      <div class="item-text"><span class="community">SoHo</span><span class="name">Filson Mile Marker tote</span></div>
+    </div>
+    <span class="price">$120</span>
+    <span class="pill p-primary">Pickup in 2h 14m</span>
+  </div>
+
+  <!-- Pickup ready -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb thumb-blue"></div>
+      <div class="item-text"><span class="community">East Village</span><span class="name">Hasselblad 500c medium-format</span></div>
+    </div>
+    <span class="price">$3,400</span>
+    <span class="pill p-primary"><span class="dot"></span>Pickup ready</span>
+  </div>
+
+  <!-- Awaiting buyer (NEW: amber) -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb"></div>
+      <div class="item-text"><span class="community">Williamsburg</span><span class="name">Acne Studios leather jacket</span></div>
+    </div>
+    <span class="price">$680</span>
+    <span class="pill p-amber"><span class="dot"></span>Awaiting buyer<span class="change-tag">A change</span></span>
+  </div>
+
+  <!-- Completed -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb thumb-grey"></div>
+      <div class="item-text"><span class="community">Tribeca</span><span class="name">Apple MacBook Air 2022</span></div>
+    </div>
+    <span class="price">$650</span>
+    <span class="pill p-muted"><span class="dot"></span>Completed</span>
+  </div>
+
+  <!-- Expired -->
+  <div class="row">
+    <div class="item">
+      <div class="thumb thumb-grey"></div>
+      <div class="item-text"><span class="community">LES</span><span class="name">Stussy x Nike Air Force 1</span></div>
+    </div>
+    <span class="price">$240</span>
+    <span class="pill p-muted"><span class="dot"></span>Expired</span>
+  </div>
+
+</div>
+
+<div class="legend">
+  <strong style="color:#000;">Color semantics in Option A:</strong>
+  <div class="legend-row"><span class="pill p-primary"><span class="dot"></span>jade</span> — happy path, in motion (Live, Pickup ready, Pickup in {label})</div>
+  <div class="legend-row"><span class="pill p-primary-soft"><span class="dot"></span>jade-soft</span> — incoming work that's not urgent yet ({N} pending)</div>
+  <div class="legend-row"><span class="pill p-amber"><span class="dot"></span>amber</span> — waiting on the other party (Awaiting buyer — now matches Buying's "Awaiting seller")</div>
+  <div class="legend-row"><span class="pill p-muted"><span class="dot"></span>muted</span> — terminal / done (Completed, Expired)</div>
+</div>
+
+<div class="legend" style="margin-top: 10px; border-left: 3px solid #b8782e; background: rgba(217, 154, 60, 0.06);">
+  <strong style="color:#000;">Heads-up — Draft and Sold are absent.</strong> The compact table's status logic (line 2572) doesn't enumerate <code>listing.status === "draft"</code> or <code>"sold"</code> — so a draft listing today renders as "Live" and a sold-but-not-completed listing also renders as "Live". Worth fixing in Option A by adding explicit branches, OR explicitly out-of-scope (we just align card grid → compact table, which means card grid ALSO drops Draft/Sold). Tell me which.
+</div>
+
+<div class="options" style="margin-top: 18px;">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Approve as shown — and add Draft / Sold branches to the compact table</h3>
+      <p>Compact table gains "Draft" (amber) and "Sold" (muted) branches. Card grid keeps them too. Surfaces stay fully aligned. Recommended — fixes the gap.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Approve as shown — Draft / Sold stay out of scope (keep current behavior)</h3>
+      <p>Draft + sold listings continue to render as "Live" in both surfaces (we propagate this gap from the compact table to the card grid). Smallest diff, but the gap persists.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>I want to tweak something else first</h3>
+      <p>Colors / labels / row ordering / something I haven't surfaced — tell me in chat.</p>
+    </div>
+  </div>
+</div>
