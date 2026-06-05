@@ -64,6 +64,7 @@ def verify_supabase_jwt(token: str) -> Optional[str]:
                 algorithms=["HS256"],
                 audience=AUDIENCE,
                 issuer=ISSUER,
+                leeway=60,
             )
         elif alg in ("RS256", "ES256"):
             signing_key = _jwks_client.get_signing_key_from_jwt(token)
@@ -73,6 +74,7 @@ def verify_supabase_jwt(token: str) -> Optional[str]:
                 algorithms=["RS256", "ES256"],
                 audience=AUDIENCE,
                 issuer=ISSUER,
+                leeway=60,
             )
         else:
             logger.warning("Unsupported JWT alg %r — cannot verify token.", alg)
