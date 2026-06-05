@@ -37,7 +37,7 @@ import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { formatPriceDisplay } from "./lib/price";
 import { logView, logSearch, type ViewSource } from "./lib/events";
-import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
+import type { CategorySlug, CommunitySummary, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
 import type { Notification } from "./lib/notifications";
 
 const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
@@ -145,8 +145,8 @@ export default function App() {
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
   const [visibleCount, setVisibleCount] = useState<number>(24);
-  const [publicCommunities, setPublicCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
-  const [privateCommunities, setPrivateCommunities] = useState<{ id: number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<CommunitySummary[]>([]);
+  const [privateCommunities, setPrivateCommunities] = useState<CommunitySummary[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
