@@ -32,6 +32,7 @@ import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
 import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
+import { useChangeLocation } from "./hooks/useChangeLocation";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { logView, logSearch, type ViewSource } from "./lib/events";
@@ -244,44 +245,7 @@ export default function App() {
   // Quick-change location modal — opened from the Settings icon next to the
   // marketplace location header. Edits zip + neighborhood only; full profile
   // edits still go through MyAccount → Edit Profile.
-  const [changeLocationOpen, setChangeLocationOpen] = useState(false);
-  const [changeLocationZip, setChangeLocationZip] = useState("");
-  const [changeLocationNeighborhood, setChangeLocationNeighborhood] = useState("");
-  const [changeLocationError, setChangeLocationError] = useState("");
-  const [isChangingLocation, setIsChangingLocation] = useState(false);
-
-  const openChangeLocation = useCallback(() => {
-    setChangeLocationZip(user?.zip_code ?? "");
-    setChangeLocationNeighborhood(user?.neighborhood ?? "");
-    setChangeLocationError("");
-    setChangeLocationOpen(true);
-  }, [user?.zip_code, user?.neighborhood]);
-
-  const submitChangeLocation = useCallback(async () => {
-    setIsChangingLocation(true);
-    setChangeLocationError("");
-    try {
-      const res = await apiFetch("/api/auth/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          neighborhood: changeLocationNeighborhood.trim(),
-          zip_code: changeLocationZip.trim() || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ detail: "Update failed" }));
-        throw new Error(data.detail || "Update failed");
-      }
-      const updated = await res.json();
-      updateUser(updated);
-      setChangeLocationOpen(false);
-    } catch (err) {
-      setChangeLocationError(err instanceof Error ? err.message : "Update failed");
-    } finally {
-      setIsChangingLocation(false);
-    }
-  }, [changeLocationNeighborhood, changeLocationZip, updateUser]);
+  const changeLocation = useChangeLocation(user, updateUser);
 
   // Reset the New Listing form back to defaults — called after a successful
   // publish so a follow-up listing starts blank.
@@ -1862,7 +1826,7 @@ export default function App() {
                     <button
                       type="button"
                       aria-label="Change location"
-                      onClick={openChangeLocation}
+                      onClick={changeLocation.openModal}
                       className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
                       <Settings className="size-4" />
@@ -2427,12 +2391,12 @@ export default function App() {
       {/* Quick change-location modal — opened from the Settings icon next
           to the marketplace location header. Edits neighborhood + zip only;
           full profile edits live in MyAccount → Edit Profile. */}
-      {changeLocationOpen && (
-        <ModalShell open onClose={() => setChangeLocationOpen(false)} z={210}>
+      {changeLocation.open && (
+        <ModalShell open onClose={changeLocation.close} z={210}>
           <div className="relative bg-canvas border border-hairline rounded-md w-full max-w-sm mx-4 p-6 shadow-overlay">
             <button
               type="button"
-              onClick={() => setChangeLocationOpen(false)}
+              onClick={changeLocation.close}
               aria-label="Close"
               className="absolute top-3 right-3 size-8 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
@@ -2450,8 +2414,8 @@ export default function App() {
                 <input
                   id="cl-neighborhood"
                   type="text"
-                  value={changeLocationNeighborhood}
-                  onChange={(e) => setChangeLocationNeighborhood(e.target.value)}
+                  value={changeLocation.neighborhood}
+                  onChange={(e) => changeLocation.setNeighborhood(e.target.value)}
                   placeholder="e.g. Chinatown"
                   className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
                 />
@@ -2464,32 +2428,32 @@ export default function App() {
                   id="cl-zip"
                   type="text"
                   inputMode="numeric"
-                  value={changeLocationZip}
-                  onChange={(e) => setChangeLocationZip(e.target.value)}
+                  value={changeLocation.zip}
+                  onChange={(e) => changeLocation.setZip(e.target.value)}
                   placeholder="10013"
                   maxLength={10}
                   className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
                 />
               </div>
-              {changeLocationError && (
-                <p className="text-sm text-error">{changeLocationError}</p>
+              {changeLocation.error && (
+                <p className="text-sm text-error">{changeLocation.error}</p>
               )}
             </div>
             <div className="flex justify-end gap-2 mt-5">
               <button
                 type="button"
-                onClick={() => setChangeLocationOpen(false)}
+                onClick={changeLocation.close}
                 className="h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={submitChangeLocation}
-                disabled={isChangingLocation || !changeLocationNeighborhood.trim()}
+                onClick={changeLocation.submit}
+                disabled={changeLocation.isSubmitting || !changeLocation.neighborhood.trim()}
                 className="h-9 px-4 rounded-md bg-primary hover:bg-primary-hover text-on-primary text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
-                {isChangingLocation ? "Saving…" : "Save"}
+                {changeLocation.isSubmitting ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
