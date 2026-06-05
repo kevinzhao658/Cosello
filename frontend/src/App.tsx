@@ -34,6 +34,7 @@ import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings"
 import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { useChangeLocation } from "./hooks/useChangeLocation";
+import { useWishlist } from "./hooks/useWishlist";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { formatPriceDisplay } from "./lib/price";
@@ -187,12 +188,7 @@ export default function App() {
   const handleToggleMyListings = useCallback(() => setShowMyListings((v) => !v), []);
 
   // Wishlist state
-  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-  // Listings currently playing the one-shot save-pulse animation. Items are
-  // added when the heart toggles unsaved → saved and cleared onAnimationEnd
-  // so each save plays the pulse exactly once.
-  const [pulseSavedIds, setPulseSavedIds] = useState<Set<string>>(new Set());
-  const [wishlistItems, setWishlistItems] = useState<Listing[]>([]);
+  const wishlist = useWishlist(token, page);
 
   // Profile dropdown state (custom, not Radix)
   const [profileOpen, setProfileOpen] = useState(false);
@@ -626,8 +622,7 @@ export default function App() {
     setNotifications([]);
     setNotificationsLoaded(false);
     setUnreadCount(0);
-    setWishlist(new Set());
-    setWishlistItems([]);
+    wishlist.reset();
     setHistoryItems([]);
     localStorage.removeItem("ge_history");
     setPublicCommunities([]);
@@ -723,58 +718,6 @@ export default function App() {
     }
   };
 
-  const fetchWishlist = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/wishlist");
-      if (res.ok) {
-        const ids: string[] = await res.json();
-        setWishlist(new Set(ids));
-      }
-    } catch (err) {
-      console.error("Failed to fetch wishlist:", err);
-    }
-  };
-
-  const fetchWishlistItems = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/wishlist/listings");
-      if (res.ok) {
-        const data: Listing[] = await res.json();
-        setWishlistItems(data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch wishlist listings:", err);
-    }
-  };
-
-  const toggleWishlist = async (listingId: string) => {
-    if (!token) return;
-    try {
-      const res = await apiFetch(`/api/wishlist/${listingId}`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const { wishlisted } = await res.json();
-        setWishlist((prev) => {
-          const next = new Set(prev);
-          wishlisted ? next.add(listingId) : next.delete(listingId);
-          return next;
-        });
-        if (wishlisted) {
-          setPulseSavedIds((prev) => {
-            const next = new Set(prev);
-            next.add(listingId);
-            return next;
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Failed to toggle wishlist:", err);
-    }
-  };
-
   useEffect(() => {
     if (page === "market") fetchListings();
   }, [page, debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
@@ -823,14 +766,6 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [page, user?.id, draftsRefreshNonce]);
-
-  useEffect(() => {
-    if (token) fetchWishlist();
-  }, [token]);
-
-  useEffect(() => {
-    if (page === "account" && token) fetchWishlistItems();
-  }, [page, token]);
 
   const fetchMyOrderStatuses = async () => {
     if (!token) return;
@@ -1876,13 +1811,13 @@ export default function App() {
                         heroCommunity={heroCommunity}
                         isOwn={isAuthenticated && listing.userId === user?.id}
                         isAuthenticated={isAuthenticated}
-                        isWishlisted={wishlist.has(listing.id)}
-                        isPulsing={pulseSavedIds.has(listing.id)}
+                        isWishlisted={wishlist.ids.has(listing.id)}
+                        isPulsing={wishlist.isPulsing(listing.id)}
                         priority={idx < 4}
                         animationDelayMs={Math.min(idx, 11) * 30}
                         onOpen={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
-                        onToggleWishlist={() => toggleWishlist(listing.id)}
-                        onPulseEnd={() => setPulseSavedIds((prev) => { const next = new Set(prev); next.delete(listing.id); return next; })}
+                        onToggleWishlist={() => wishlist.toggle(listing.id)}
+                        onPulseEnd={() => wishlist.clearPulse(listing.id)}
                       />
                     );
                   })}
@@ -2231,7 +2166,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlist.items} wishlist={wishlist.ids} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 
