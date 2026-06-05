@@ -813,7 +813,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   }, [pendingListingId]);
 
   // Punchlist: derived client-side from loaded state — no server round-trip.
-  // The /api/me/punchlist endpoint was never shipped; this replaces it entirely.
+  // Punchlist is derived client-side from already-loaded data; the unused backend /api/me/punchlist route was removed (see cleanup/hygiene-sweep).
   const punchlist = useMemo<PunchlistResponse>(() => {
     const mapOrderToPickup = (o: OrderData, role: "seller" | "buyer"): PunchlistPickup => {
       const countdown = getPickupCountdown(o);
