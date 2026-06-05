@@ -1360,16 +1360,6 @@ export default function App() {
                 >
                   Drafts
                 </button>
-                {newListingMode === "manual" && (
-                  <button
-                    type="button"
-                    disabled={isPublishingManual || wizardImageCount === 0}
-                    onClick={handlePublishNewListing}
-                    className="inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                  >
-                    {isPublishingManual ? "Publishing…" : "Publish listing"}
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1647,6 +1637,14 @@ export default function App() {
                         Your address will not be shared until pickup is confirmed.
                       </p>
                     </section>
+                    <button
+                      type="button"
+                      disabled={isPublishingManual || wizardImageCount === 0}
+                      onClick={handlePublishNewListing}
+                      className="w-full inline-flex items-center justify-center h-11 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      {isPublishingManual ? "Publishing…" : "Publish listing"}
+                    </button>
                   </>
                 )}
               </div>
