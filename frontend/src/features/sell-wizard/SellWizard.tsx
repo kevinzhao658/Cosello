@@ -1126,6 +1126,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               wizardAnchorRef={wizardAnchorRef}
               onBackArrow={handleBackArrow}
               onAdvanceToReason={() => transitionToPhase("reason")}
+              onFillManually={() => actions.initBulkManual()}
               onGenerate={handleGenerateListings}
               setRationale={actions.setRationale}
               setRationaleOther={actions.setRationaleOther}
