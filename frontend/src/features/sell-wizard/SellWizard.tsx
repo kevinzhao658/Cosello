@@ -3,9 +3,9 @@ import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
-import { formatTitle } from "../../lib/format";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import { useDraftAutosave } from "./useDraftAutosave";
+import { usePostListing } from "./usePostListing";
 import {
   useSellWizard,
   selectBulkPreview,
@@ -82,14 +82,6 @@ function relativeTime(ms: number): string {
   const hr = Math.floor(min / 60);
   return `${hr}h ago`;
 }
-
-const priceStringToCents = (raw: string): number | null => {
-  const cleaned = raw.replace(/^\$/, "").trim();
-  if (cleaned === "") return null;
-  const dollars = Number.parseFloat(cleaned);
-  if (!Number.isFinite(dollars) || dollars < 0) return null;
-  return Math.round(dollars * 100);
-};
 
 export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function SellWizard({
   categorySchemas,
@@ -194,6 +186,19 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     initializedFromNeighborhoodRef,
     pendingDraftId,
     onDraftLoaded,
+  });
+
+  const post = usePostListing({
+    state,
+    actions,
+    isAuthenticated,
+    currentDraftId,
+    setCurrentDraftId,
+    selectedCommunityIds,
+    onPosted,
+    onPublishedDraft,
+    onRequestSignIn,
+    clearDraftCreatedAt: draft.clearDraftCreatedAt,
   });
 
   // Auto-ticking "Saved · Xs ago" — bump every 15s while the indicator shows
@@ -632,56 +637,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     actions.updateBulkItemField(index, field, value);
   }, [actions]);
 
-  const handlePostListing = useCallback(async (override?: { details: ProductDetails; pickupLocation: string }) => {
-    // Override path lets the New Listing page publish in Manual mode without
-    // waiting for setProductDetails to flush through React state.
-    const details = override?.details ?? productDetails;
-    const pickup = override?.pickupLocation ?? postPickupLocation;
-    if (!details || uploadedImages.length === 0) return;
-    if (!isAuthenticated) { onRequestSignIn(); return; }
-
-    const priceCents = priceStringToCents(details.price);
-    if (priceCents === null) { alert("Enter a valid price before posting."); return; }
-
-    try {
-      const formData = new FormData();
-      const draftUrls = segmentation
-        ? segmentation.image_urls.filter(
-            (url): url is string => typeof url === "string" && url.length > 0,
-          )
-        : [];
-      if (draftUrls.length > 0) {
-        formData.append("draft_urls", JSON.stringify(draftUrls));
-      } else {
-        uploadedImages.forEach((img) => formData.append("images", img.file));
-      }
-      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = details;
-      void _; void _rf;
-      const postData = { ...rest, priceCents };
-      formData.append("data", JSON.stringify(postData));
-      // Seller's community picks from the PickupStep picker (PR 3). Capped to
-      // 3 client-side; backend re-validates cap + membership.
-      formData.append("communities", selectedCommunityIds.join(","));
-      formData.append("visibility", "public");
-      formData.append("pickup_location", pickup);
-
-      const res = await apiFetch("/api/listings", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Failed to post listing");
-      await res.json();
-
-      // Cleanup: revoke blob URLs before resetting state.
-      for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
-      actions.postListingReset();
-      onPosted();
-      onPublishedDraft?.(currentDraftId);
-      setCurrentDraftId(null);
-      draft.clearDraftCreatedAt();
-    } catch (err) {
-      console.error("Post listing failed:", err);
-      alert(err instanceof Error ? err.message : "Something went wrong");
-    }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn, draft]);
-
   const resetForLogout = useCallback(() => {
     setCurrentDraftId(null);
     draft.clearDraftCreatedAt();
@@ -714,7 +669,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   }, [uploadedImages.length, actions]);
 
   useImperativeHandle(ref, () => ({
-    postSingleListing: handlePostListing,
+    postSingleListing: post.postSingleListing,
     resetForLogout,
     addImages: addImagesFromFiles,
     getImageCount: () => uploadedImagesRef.current.length,
@@ -723,97 +678,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setProductDetails: (details) => actions.setProductDetails(details),
     setPostPickupLocation: (value) => actions.setPostPickupLocation(value),
     setBulkCardIndex: (index) => actions.setCurrentCardIndex(index),
-  }), [handlePostListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
-
-  const handleBulkPostListing = async () => {
-    if (bulkItems.length === 0 || uploadedImages.length === 0) return;
-    if (!isAuthenticated) { onRequestSignIn(); return; }
-
-    const invalidIdx = bulkItems.findIndex((item) => priceStringToCents(item.price) === null);
-    if (invalidIdx !== -1) {
-      const offender = bulkItems[invalidIdx];
-      alert(`Enter a valid price for "${formatTitle(offender.brand, offender.name)}" before posting.`);
-      return;
-    }
-
-    actions.setPostingBulk(true);
-
-    try {
-      const trimmedBulkDefault = bulkPickupLocation.trim();
-      const fallbackPickup = trimmedBulkDefault !== "" ? trimmedBulkDefault : postPickupLocation;
-
-      const results = await Promise.allSettled(
-        bulkItems.map(async (item) => {
-          const formData = new FormData();
-          const draftUrlsForItem = segmentation
-            ? item.imageIndices
-                .map((i) => segmentation.image_urls[i])
-                .filter((url): url is string => typeof url === "string" && url.length > 0)
-            : [];
-          if (draftUrlsForItem.length > 0) {
-            formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
-          } else {
-            for (const imgIdx of item.imageIndices) {
-              if (uploadedImages[imgIdx]) {
-                formData.append("images", uploadedImages[imgIdx].file);
-              }
-            }
-          }
-          const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
-          void _indices; void _conf; void _rf; void _itemPickup;
-          const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
-          formData.append("data", JSON.stringify(productData));
-          // Bulk items share one community selection from PickupStep.
-          formData.append("communities", selectedCommunityIds.join(","));
-          formData.append("visibility", "public");
-          const itemPickup =
-            item.pickupLocation && item.pickupLocation.trim() !== ""
-              ? item.pickupLocation
-              : fallbackPickup;
-          formData.append("pickup_location", itemPickup);
-
-          const res = await apiFetch("/api/listings", { method: "POST", body: formData });
-          if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
-        }),
-      );
-
-      const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-      if (failures.length > 0) {
-        const messages = failures
-          .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
-          .join("\n");
-        throw new Error(messages);
-      }
-
-      for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
-      actions.postListingReset();
-      onPosted();
-      onPublishedDraft?.(currentDraftId);
-      setCurrentDraftId(null);
-      draft.clearDraftCreatedAt();
-    } catch (err) {
-      console.error("Bulk post failed:", err);
-      alert(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      actions.setPostingBulk(false);
-    }
-  };
-
-  const handleBulkPostFromPickupStep = async () => {
-    const trimmedDefault = bulkPickupLocation.trim();
-    if (trimmedDefault !== "") {
-      actions.setBulkItems(
-        bulkItems.map((item) => ({
-          ...item,
-          pickupLocation:
-            item.pickupLocation && item.pickupLocation.trim() !== ""
-              ? item.pickupLocation
-              : trimmedDefault,
-        })),
-      );
-    }
-    await handleBulkPostListing();
-  };
+  }), [post.postSingleListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
 
   const transitionToPhase = (next: "review" | "reason" | "cards" | "pickup") => {
     actions.setInstructionExiting(true);
@@ -1172,7 +1037,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onChange={actions.setBulkPickupLocation}
             onPost={() => {
               if (!isAuthenticated) { onRequestSignIn(); return; }
-              handleBulkPostFromPickupStep();
+              post.postBulkFromPickup();
             }}
             availableCommunities={availableCommunities}
             selectedCommunityIds={selectedCommunityIds}
