@@ -33,6 +33,7 @@ import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings"
 import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
 import { useChangeLocation } from "./hooks/useChangeLocation";
+import { useNewListingForm } from "./hooks/useNewListingForm";
 import { useWishlist } from "./hooks/useWishlist";
 import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
 import { useListingDetail } from "./hooks/useListingDetail";
@@ -60,44 +61,6 @@ export default function App() {
   // tracks the current phase so the home-page hero + nav logo can collapse
   // while the wizard is in a deep step.
   const sellWizardRef = useRef<SellWizardHandle | null>(null);
-  const [wizardPhase, setWizardPhase] = useState<"review" | "reason" | "cards" | "pickup" | null>(null);
-  // Mirror of wizard.uploadedImages.length so the #newlisting page can react
-  // (preview cover, checklist, photo counter). The wizard fires onImagesChange
-  // on every state.uploadedImages change.
-  const [wizardImageCount, setWizardImageCount] = useState(0);
-  // Mirrors of wizard-internal state for the right-column preview on
-  // #newlisting. The wizard fires onProductDetailsChange whenever its AI-generated
-  // productDetails updates, and onCoverImageChange whenever the first
-  // upload/segmentation thumb resolves. Both are read-only views — App.tsx
-  // never writes back through these.
-  const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
-  const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
-  // Bulk preview: emitted by SellWizard on every bulkItems/index change so the
-  // aside can render a navigable live preview of the focused bulk item.
-  const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null);
-
-  // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
-  // flow and a blank-form manual flow. Manual form fields live here so the page
-  // owns the publish payload; the wizard owns the photo state and the publish
-  // network call (called via the imperative handle after seeding productDetails).
-  const [newListingMode, setNewListingMode] = useState<"ai" | "manual">("ai");
-  // Below lg: the preview/checklist column collapses into a floating overlay
-  // that the user opens via a jade circle button — keeps mid-flow vertical
-  // space clear and stops the preview from pushing the form below the fold.
-  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false);
-  const previewToggleRef = useRef<HTMLButtonElement | null>(null);
-  const previewCloseRef = useRef<HTMLButtonElement | null>(null);
-  const [manualBrand, setManualBrand] = useState("");
-  const [manualName, setManualName] = useState("");
-  const [manualDescription, setManualDescription] = useState("");
-  const [manualPrice, setManualPrice] = useState("");
-  const [manualCondition, setManualCondition] = useState<string>("Good");
-  const [manualCategory, setManualCategory] = useState<CategorySlug>("other");
-  const [manualPickup, setManualPickup] = useState("");
-  const [manualTags, setManualTags] = useState<string[]>([]);
-  const [manualTagInput, setManualTagInput] = useState("");
-  const [manualCategoryAttributes, setManualCategoryAttributes] = useState<Record<string, string>>({});
-  const [isPublishingManual, setIsPublishingManual] = useState(false);
 
   const [page, setPage] = useState<Page>(() => {
     const hash = window.location.hash.replace("#", "");
@@ -127,6 +90,16 @@ export default function App() {
     setPage("account");
   }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
+
+  const newListing = useNewListingForm({
+    sellWizardRef,
+    isAuthenticated,
+    user,
+    page,
+    onRequireSignIn: () => setPage("signin"),
+    onRequireAiConfirm: () => setShowPostConfirm(true),
+  });
+
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [publicCommunities, setPublicCommunities] = useState<CommunitySummary[]>([]);
   const [privateCommunities, setPrivateCommunities] = useState<CommunitySummary[]>([]);
@@ -196,80 +169,6 @@ export default function App() {
   // marketplace location header. Edits zip + neighborhood only; full profile
   // edits still go through MyAccount → Edit Profile.
   const changeLocation = useChangeLocation(user, updateUser);
-
-  // Reset the New Listing form back to defaults — called after a successful
-  // publish so a follow-up listing starts blank.
-  const resetNewListingForm = useCallback(() => {
-    setNewListingMode("ai");
-    setManualBrand("");
-    setManualName("");
-    setManualDescription("");
-    setManualPrice("");
-    setManualCondition("Good");
-    setManualCategory("other");
-    setManualPickup("");
-    setManualTags([]);
-    setManualTagInput("");
-    setManualCategoryAttributes({});
-    setWizardImageCount(0);
-    setAiProductDetails(null);
-    setAiCoverImageUrl(null);
-  }, []);
-
-  // Manual-mode publish. Seeds the wizard's productDetails from the page-level
-  // form fields, then calls the wizard's existing single-publish handler (which
-  // already wires images + categories + pickup + auth gates correctly).
-  const handlePublishNewListing = useCallback(async () => {
-    if (!isAuthenticated) {
-      setPage("signin");
-      return;
-    }
-    if (newListingMode === "ai") {
-      // AI mode publish happens via the wizard's own flow — Publish in the
-      // page toolbar is disabled until the wizard has produced a productDetails
-      // (single) or bulkItems (multi). For single, we route through the same
-      // confirm modal the home flow uses.
-      setShowPostConfirm(true);
-      return;
-    }
-    if (wizardImageCount === 0) {
-      alert("Add at least one photo before publishing.");
-      return;
-    }
-    const priceNumber = Number.parseInt(manualPrice, 10);
-    if (!Number.isFinite(priceNumber) || priceNumber <= 0) {
-      alert("Enter a valid price before publishing.");
-      return;
-    }
-    if (!manualBrand.trim() && !manualName.trim()) {
-      alert("Add a brand or item name before publishing.");
-      return;
-    }
-    const wizard = sellWizardRef.current;
-    if (!wizard) return;
-
-    setIsPublishingManual(true);
-    try {
-      const details = {
-        brand: manualBrand.trim(),
-        name: manualName.trim(),
-        description: manualDescription.trim(),
-        price: manualPrice,
-        condition: manualCondition,
-        location: user?.neighborhood || "",
-        tags: manualTags,
-        category: manualCategory,
-        categoryAttributes: manualCategoryAttributes,
-        identifierConfidence: "high" as const,
-        retrieval_fallback: false,
-      };
-      const pickup = manualPickup.trim() || user?.pickup_address || "";
-      await wizard.postSingleListing({ details, pickupLocation: pickup });
-      resetNewListingForm();
-    } finally {
-      setIsPublishingManual(false);
-    }
-  }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualCategoryAttributes, manualPickup, manualTags, user, resetNewListingForm]);
 
   // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.
 
@@ -468,31 +367,6 @@ export default function App() {
     }
   }, [needsRegistration, pendingSignupToken]);
 
-  // Preview overlay (New Listing, below lg:) — ESC closes, focus moves to the
-  // close button on open and back to the toggle on close. Effect short-circuits
-  // when the overlay isn't open so the listeners don't sit live on other pages.
-  useEffect(() => {
-    if (!previewOverlayOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPreviewOverlayOpen(false);
-    };
-    window.addEventListener("keydown", handleKey);
-    const focusFrame = requestAnimationFrame(() => {
-      previewCloseRef.current?.focus();
-    });
-    return () => {
-      window.removeEventListener("keydown", handleKey);
-      cancelAnimationFrame(focusFrame);
-      previewToggleRef.current?.focus();
-    };
-  }, [previewOverlayOpen]);
-
-  // Auto-close the preview overlay when leaving the New Listing page so it
-  // doesn't reopen with stale state next time the user lands there.
-  useEffect(() => {
-    if (page !== "newlisting" && previewOverlayOpen) setPreviewOverlayOpen(false);
-  }, [page, previewOverlayOpen]);
-
   const userInitials = (() => {
     const name = user?.display_name?.trim();
     if (!name) return "";
@@ -511,20 +385,20 @@ export default function App() {
   // floating drawer so the two share a single source of truth.
   //
   // Mode selection:
-  //   wizardImageCount === 0          → TopSearches (no photos yet)
-  //   bulkPreview !== null            → BulkPreviewAside (AI bulk mode, ≥1 item)
+  //   newListing.imageCount === 0     → TopSearches (no photos yet)
+  //   newListing.bulkPreview !== null → BulkPreviewAside (AI bulk mode, ≥1 item)
   //   else                            → single-item preview (manual or AI single)
   const newListingPreviewContent = (() => {
-    if (wizardImageCount === 0) {
+    if (newListing.imageCount === 0) {
       return <TopSearches />;
     }
 
-    if (bulkPreview !== null) {
+    if (newListing.bulkPreview !== null) {
       return (
         <BulkPreviewAside
-          preview={bulkPreview}
-          onPrev={() => sellWizardRef.current?.setBulkCardIndex(bulkPreview.index - 1)}
-          onNext={() => sellWizardRef.current?.setBulkCardIndex(bulkPreview.index + 1)}
+          preview={newListing.bulkPreview}
+          onPrev={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index - 1)}
+          onNext={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index + 1)}
         />
       );
     }
@@ -545,9 +419,9 @@ export default function App() {
             <span className="text-xs font-medium text-body line-clamp-1">{PLACEHOLDER_COMMUNITY.name}</span>
           </div>
           <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
-            {aiCoverImageUrl ? (
+            {newListing.aiCoverImageUrl ? (
               <img
-                src={aiCoverImageUrl}
+                src={newListing.aiCoverImageUrl}
                 alt="Listing cover preview"
                 className="absolute inset-0 size-full object-cover"
               />
@@ -561,33 +435,33 @@ export default function App() {
           <div className="pt-2 space-y-0.5">
             <p className="text-sm font-medium text-ink line-clamp-1">
               {(() => {
-                if (newListingMode === "manual") {
-                  const brand = manualBrand.trim();
-                  const name = manualName.trim();
+                if (newListing.mode === "manual") {
+                  const brand = newListing.brand.trim();
+                  const name = newListing.name.trim();
                   if (brand && name) return `${brand} — ${name}`;
                   return brand || name || "Untitled";
                 }
-                const brand = aiProductDetails?.brand?.trim() ?? "";
-                const name = aiProductDetails?.name?.trim() ?? "";
+                const brand = newListing.aiProductDetails?.brand?.trim() ?? "";
+                const name = newListing.aiProductDetails?.name?.trim() ?? "";
                 if (brand && name) return `${brand} — ${name}`;
                 return brand || name || "Untitled";
               })()}
             </p>
             <p className="text-xs text-muted line-clamp-1">
               {(() => {
-                const location = newListingMode === "manual"
-                  ? (manualPickup.trim() || user?.neighborhood || "West Village")
-                  : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
-                const condition = newListingMode === "manual"
-                  ? manualCondition
-                  : (aiProductDetails?.condition?.trim() ?? "");
+                const location = newListing.mode === "manual"
+                  ? (newListing.pickup.trim() || user?.neighborhood || "West Village")
+                  : (newListing.aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
+                const condition = newListing.mode === "manual"
+                  ? newListing.condition
+                  : (newListing.aiProductDetails?.condition?.trim() ?? "");
                 return condition ? `${location} · ${condition}` : location;
               })()}
             </p>
             <p className="text-base font-semibold text-ink leading-none pt-0.5">
-              {newListingMode === "manual"
-                ? (manualPrice ? `$${manualPrice}` : "$—")
-                : formatPriceDisplay(aiProductDetails?.price ?? "")}
+              {newListing.mode === "manual"
+                ? (newListing.price ? `$${newListing.price}` : "$—")
+                : formatPriceDisplay(newListing.aiProductDetails?.price ?? "")}
             </p>
           </div>
         </article>
@@ -595,24 +469,24 @@ export default function App() {
         <ListingChecklist
           heading="Listing checklist"
           rows={(() => {
-            const isManual = newListingMode === "manual";
+            const isManual = newListing.mode === "manual";
             const hasBrandOrName = isManual
-              ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
-              : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+              ? (newListing.brand.trim().length > 0 || newListing.name.trim().length > 0)
+              : Boolean(newListing.aiProductDetails?.brand?.trim() || newListing.aiProductDetails?.name?.trim());
             const hasPrice = (() => {
               if (isManual) {
                 // integer-only by design (whole-dollar prices); see lib/price.ts for the float-based preview helpers
-                return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+                return /^[0-9]+$/.test(newListing.price) && Number.parseInt(newListing.price, 10) > 0;
               }
-              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const raw = newListing.aiProductDetails?.price?.replace(/^\$/, "").trim();
               const num = raw ? Number.parseFloat(raw) : NaN;
               return Number.isFinite(num) && num > 0;
             })();
             const hasDescription = isManual
-              ? manualDescription.trim().length >= 20
-              : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+              ? newListing.description.trim().length >= 20
+              : (newListing.aiProductDetails?.description?.trim().length ?? 0) >= 20;
             const rows: ReadonlyArray<readonly [string, boolean]> = [
-              ["At least one photo", wizardImageCount > 0],
+              ["At least one photo", newListing.imageCount > 0],
               ["Brand or name", hasBrandOrName],
               ["Price set", hasPrice],
               ["Description 20+ chars", hasDescription],
@@ -927,23 +801,23 @@ export default function App() {
                     ref={sellWizardRef}
                     categorySchemas={categorySchemas}
                     isActive={true}
-                    mode={newListingMode}
-                    photosOnly={newListingMode === "manual"}
+                    mode={newListing.mode}
+                    photosOnly={newListing.mode === "manual"}
                     publicCommunities={publicCommunities}
                     privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={() => setPage("signin")}
                     onPosted={() => {
-                      resetNewListingForm();
+                      newListing.reset();
                       setPage("market");
                       market.refetch();
                       setDraftsRefreshNonce((n) => n + 1);
                     }}
                     onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
-                    onPhaseChange={setWizardPhase}
-                    onImagesChange={setWizardImageCount}
-                    onProductDetailsChange={setAiProductDetails}
-                    onCoverImageChange={setAiCoverImageUrl}
+                    onPhaseChange={newListing.setWizardPhase}
+                    onImagesChange={newListing.setImageCount}
+                    onProductDetailsChange={newListing.setAiProductDetails}
+                    onCoverImageChange={newListing.setAiCoverImageUrl}
                     pendingDraftId={draftRouteState.kind === "load" ? draftRouteState.id : null}
                     onDraftLoaded={() => {
                       // Once the wizard loads the draft we don't want to keep
@@ -958,21 +832,21 @@ export default function App() {
                       }
                     }}
                     onBackToDrafts={() => setDraftRouteState({ kind: "gallery" })}
-                    onBulkPreviewChange={setBulkPreview}
+                    onBulkPreviewChange={newListing.setBulkPreview}
                   />
                 </section>
 
                 {/* AI / Manual toggle — green callout */}
-                {wizardPhase === null && (
+                {newListing.wizardPhase === null && (
                   <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
                     <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
                         role="tab"
-                        aria-selected={newListingMode === "ai"}
-                        onClick={() => setNewListingMode("ai")}
+                        aria-selected={newListing.mode === "ai"}
+                        onClick={() => newListing.setMode("ai")}
                         className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                          newListingMode === "ai"
+                          newListing.mode === "ai"
                             ? "bg-primary text-on-primary"
                             : "bg-transparent text-primary hover:bg-primary/10"
                         }`}
@@ -982,10 +856,10 @@ export default function App() {
                       <button
                         type="button"
                         role="tab"
-                        aria-selected={newListingMode === "manual"}
-                        onClick={() => setNewListingMode("manual")}
+                        aria-selected={newListing.mode === "manual"}
+                        onClick={() => newListing.setMode("manual")}
                         className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                          newListingMode === "manual"
+                          newListing.mode === "manual"
                             ? "bg-primary text-on-primary"
                             : "bg-transparent text-primary hover:bg-primary/10"
                         }`}
@@ -994,7 +868,7 @@ export default function App() {
                       </button>
                     </div>
                     <p className="text-xs text-body mt-3 leading-relaxed">
-                      {newListingMode === "ai"
+                      {newListing.mode === "ai"
                         ? "Upload as many items and we'll take care of the rest."
                         : "Fill out the product details, description, and pricing below to publish your listing."}
                     </p>
@@ -1002,7 +876,7 @@ export default function App() {
                 )}
 
                 {/* Manual form sections */}
-                {newListingMode === "manual" && (
+                {newListing.mode === "manual" && (
                   <>
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
                       <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Product details</h3>
@@ -1010,8 +884,8 @@ export default function App() {
                         <label className="block">
                           <span className="text-xs text-muted uppercase tracking-wider">Brand</span>
                           <Input
-                            value={manualBrand}
-                            onChange={(e) => setManualBrand(e.target.value)}
+                            value={newListing.brand}
+                            onChange={(e) => newListing.setBrand(e.target.value)}
                             placeholder="Olivetti, Eames, Le Creuset…"
                             className="mt-1"
                           />
@@ -1019,8 +893,8 @@ export default function App() {
                         <label className="block">
                           <span className="text-xs text-muted uppercase tracking-wider">Name / model</span>
                           <Input
-                            value={manualName}
-                            onChange={(e) => setManualName(e.target.value)}
+                            value={newListing.name}
+                            onChange={(e) => newListing.setName(e.target.value)}
                             placeholder="Lettera 32, LCW chair, 5.5qt dutch oven…"
                             className="mt-1"
                           />
@@ -1040,17 +914,17 @@ export default function App() {
                                 { slug: "other", label: "Other" },
                               ] as { slug: CategorySlug; label: string }[])
                           ).map((c) => {
-                            const active = manualCategory === c.slug;
+                            const active = newListing.category === c.slug;
                             return (
                               <button
                                 key={c.slug}
                                 type="button"
                                 onClick={() => {
-                                  setManualCategory(c.slug);
+                                  newListing.setCategory(c.slug);
                                   // Different category → different schema. Drop
                                   // stale attribute values so they don't ship
                                   // alongside fields the new category doesn't have.
-                                  setManualCategoryAttributes({});
+                                  newListing.setCategoryAttributes({});
                                 }}
                                 aria-pressed={active}
                                 className={getChipClass(active)}
@@ -1066,10 +940,10 @@ export default function App() {
                         {Object.keys(categorySchemas).length > 0 && (
                           <div className="mt-3">
                             <CategoryAttributeFields
-                              category={manualCategory}
+                              category={newListing.category}
                               schemas={categorySchemas}
-                              attributes={manualCategoryAttributes}
-                              onChange={(key, value) => setManualCategoryAttributes((prev) => ({ ...prev, [key]: value }))}
+                              attributes={newListing.categoryAttributes}
+                              onChange={(key, value) => newListing.setCategoryAttributes((prev) => ({ ...prev, [key]: value }))}
                             />
                           </div>
                         )}
@@ -1078,14 +952,14 @@ export default function App() {
                         <span className="text-xs text-muted uppercase tracking-wider">Condition</span>
                         <div role="radiogroup" aria-label="Condition" className="flex flex-wrap gap-2 mt-2">
                           {CONDITIONS.map((c) => {
-                            const active = manualCondition === c;
+                            const active = newListing.condition === c;
                             return (
                               <button
                                 key={c}
                                 type="button"
                                 role="radio"
                                 aria-checked={active}
-                                onClick={() => setManualCondition(c)}
+                                onClick={() => newListing.setCondition(c)}
                                 className={getChipClass(active)}
                               >
                                 {c}
@@ -1099,13 +973,13 @@ export default function App() {
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
                       <header className="flex items-baseline justify-between">
                         <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
-                        <span className={`text-xs ${manualDescription.length >= 20 ? "text-primary" : "text-muted"}`}>
-                          {manualDescription.length} / 20+ chars
+                        <span className={`text-xs ${newListing.description.length >= 20 ? "text-primary" : "text-muted"}`}>
+                          {newListing.description.length} / 20+ chars
                         </span>
                       </header>
                       <textarea
-                        value={manualDescription}
-                        onChange={(e) => setManualDescription(e.target.value)}
+                        value={newListing.description}
+                        onChange={(e) => newListing.setDescription(e.target.value)}
                         rows={5}
                         placeholder="Tell the story. Where you got it, what you used it for, any flaws worth calling out."
                         className="w-full min-h-32 bg-surface-soft border border-hairline rounded-md p-3 text-sm text-ink placeholder:text-muted-soft resize-y focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
@@ -1113,13 +987,13 @@ export default function App() {
                       <div>
                         <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          {manualTags.map((t) => (
+                          {newListing.tags.map((t) => (
                             <span key={t} className={getChipClass(true)}>
                               {t}
                               <button
                                 type="button"
                                 aria-label={`Remove ${t}`}
-                                onClick={() => setManualTags((prev) => prev.filter((x) => x !== t))}
+                                onClick={() => newListing.setTags((prev) => prev.filter((x) => x !== t))}
                                 className="text-on-primary/80 hover:text-on-primary transition-colors"
                               >
                                 <X className="size-3" />
@@ -1127,17 +1001,17 @@ export default function App() {
                             </span>
                           ))}
                           <input
-                            value={manualTagInput}
-                            onChange={(e) => setManualTagInput(e.target.value)}
+                            value={newListing.tagInput}
+                            onChange={(e) => newListing.setTagInput(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key !== "Enter") return;
                               e.preventDefault();
-                              const trimmed = manualTagInput.trim();
-                              if (!trimmed || manualTags.includes(trimmed)) return;
-                              setManualTags((prev) => [...prev, trimmed]);
-                              setManualTagInput("");
+                              const trimmed = newListing.tagInput.trim();
+                              if (!trimmed || newListing.tags.includes(trimmed)) return;
+                              newListing.setTags((prev) => [...prev, trimmed]);
+                              newListing.setTagInput("");
                             }}
-                            placeholder={manualTags.length ? "Add another…" : "typewriter, 1960s…"}
+                            placeholder={newListing.tags.length ? "Add another…" : "typewriter, 1960s…"}
                             className="flex-1 min-w-32 max-w-xs px-2.5 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
                           />
                         </div>
@@ -1162,8 +1036,8 @@ export default function App() {
                               type="text"
                               inputMode="numeric"
                               pattern="[0-9]*"
-                              value={manualPrice}
-                              onChange={(e) => setManualPrice(e.target.value.replace(/\D/g, ""))}
+                              value={newListing.price}
+                              onChange={(e) => newListing.setPrice(e.target.value.replace(/\D/g, ""))}
                               placeholder="0"
                               className="flex-1 min-w-0 bg-transparent border-0 outline-none text-3xl font-extrabold tracking-display text-ink placeholder:text-muted-soft"
                             />
@@ -1175,8 +1049,8 @@ export default function App() {
                             <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
                             <input
                               type="text"
-                              value={manualPickup}
-                              onChange={(e) => setManualPickup(e.target.value)}
+                              value={newListing.pickup}
+                              onChange={(e) => newListing.setPickup(e.target.value)}
                               placeholder={user?.neighborhood || "West Village"}
                               className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-muted-soft"
                             />
@@ -1189,11 +1063,11 @@ export default function App() {
                     </section>
                     <button
                       type="button"
-                      disabled={isPublishingManual || wizardImageCount === 0}
-                      onClick={handlePublishNewListing}
+                      disabled={newListing.isPublishing || newListing.imageCount === 0}
+                      onClick={newListing.publish}
                       className="w-full inline-flex items-center justify-center h-11 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
-                      {isPublishingManual ? "Publishing…" : "Publish listing"}
+                      {newListing.isPublishing ? "Publishing…" : "Publish listing"}
                     </button>
                   </>
                 )}
@@ -1211,17 +1085,17 @@ export default function App() {
                 via the effect above. lg:hidden on both keeps the desktop
                 experience untouched. */}
             <button
-              ref={previewToggleRef}
+              ref={newListing.toggleRef}
               type="button"
-              onClick={() => setPreviewOverlayOpen(true)}
+              onClick={() => newListing.setOverlayOpen(true)}
               aria-label="Show listing preview"
               aria-haspopup="dialog"
-              aria-expanded={previewOverlayOpen}
-              className={`lg:hidden fixed bottom-5 right-5 z-30 size-12 rounded-full bg-primary text-on-primary shadow-card hover:bg-primary-hover transition-colors flex items-center justify-center ${FOCUS_RING} ${previewOverlayOpen ? "hidden" : ""}`}
+              aria-expanded={newListing.overlayOpen}
+              className={`lg:hidden fixed bottom-5 right-5 z-30 size-12 rounded-full bg-primary text-on-primary shadow-card hover:bg-primary-hover transition-colors flex items-center justify-center ${FOCUS_RING} ${newListing.overlayOpen ? "hidden" : ""}`}
             >
               <Eye className="size-5" aria-hidden="true" />
             </button>
-            {previewOverlayOpen && (
+            {newListing.overlayOpen && (
               <div
                 className="lg:hidden fixed inset-0 z-40"
                 role="dialog"
@@ -1232,7 +1106,7 @@ export default function App() {
                   type="button"
                   aria-label="Close preview"
                   tabIndex={-1}
-                  onClick={() => setPreviewOverlayOpen(false)}
+                  onClick={() => newListing.setOverlayOpen(false)}
                   className="absolute inset-0 bg-ink/30 backdrop-blur-sm"
                 />
                 <div
@@ -1241,9 +1115,9 @@ export default function App() {
                   <div className="sticky top-0 bg-canvas border-b border-hairline px-5 py-3 flex items-center justify-between">
                     <p className="text-sm font-semibold text-ink">Preview</p>
                     <button
-                      ref={previewCloseRef}
+                      ref={newListing.closeRef}
                       type="button"
-                      onClick={() => setPreviewOverlayOpen(false)}
+                      onClick={() => newListing.setOverlayOpen(false)}
                       aria-label="Close preview"
                       className={`inline-flex items-center justify-center size-8 rounded-md text-muted hover:text-ink hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                     >
