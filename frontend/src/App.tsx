@@ -1097,7 +1097,7 @@ export default function App() {
             </button>
             {newListing.overlayOpen && (
               <div
-                className="lg:hidden fixed inset-0 z-40"
+                className="lg:hidden fixed inset-0 z-[60]"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Listing preview"
@@ -1112,16 +1112,16 @@ export default function App() {
                 <div
                   className="absolute inset-y-0 right-0 w-[min(380px,100vw)] bg-canvas border-l border-hairline shadow-overlay h-full overflow-y-auto motion-safe:transition-transform"
                 >
-                  <div className="sticky top-0 bg-canvas border-b border-hairline px-5 py-3 flex items-center justify-between">
+                  <div className="sticky top-0 bg-canvas border-b border-hairline px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center justify-between">
                     <p className="text-sm font-semibold text-ink">Preview</p>
                     <button
                       ref={newListing.closeRef}
                       type="button"
                       onClick={() => newListing.setOverlayOpen(false)}
                       aria-label="Close preview"
-                      className={`inline-flex items-center justify-center size-8 rounded-md text-muted hover:text-ink hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                      className={`inline-flex items-center justify-center size-10 rounded-full border border-hairline bg-canvas text-ink shadow-sm hover:bg-surface-soft active:bg-surface-soft transition-colors ${FOCUS_RING}`}
                     >
-                      <X className="size-4" aria-hidden="true" />
+                      <X className="size-5" aria-hidden="true" />
                     </button>
                   </div>
                   <div className="p-5 space-y-4">
