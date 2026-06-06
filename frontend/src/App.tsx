@@ -35,12 +35,12 @@ import { useClickOutside } from "./hooks/useClickOutside";
 import { useChangeLocation } from "./hooks/useChangeLocation";
 import { useWishlist } from "./hooks/useWishlist";
 import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
+import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
 import { formatTitle } from "./lib/format";
 import { formatPriceDisplay } from "./lib/price";
 import { logView, logSearch, type ViewSource } from "./lib/events";
 import type { CategorySlug, CommunitySummary, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
-import type { Notification } from "./lib/notifications";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
@@ -158,11 +158,8 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
-  // Notifications state
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // Notifications data + server-sync
+  const notif = useNotifications({ isAuthenticated, token });
 
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
@@ -403,73 +400,6 @@ export default function App() {
   // Close profile dropdown on outside click
   useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
 
-  // Fetch unread notification count periodically
-  const fetchUnreadCount = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/notifications/unread-count");
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadCount(data.count);
-      }
-    } catch { /* ignore */ }
-  };
-
-  const fetchNotifications = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/notifications");
-      if (res.ok) {
-        setNotifications(await res.json());
-      }
-    } catch { /* ignore */ } finally {
-      setNotificationsLoaded(true);
-    }
-  };
-
-  const handleMarkAllRead = async () => {
-    if (!token) return;
-    try {
-      await apiFetch("/api/notifications/mark-read", {
-        method: "POST",
-      });
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-    } catch { /* ignore */ }
-  };
-
-  const handleNotificationAction = async (notificationId: number, action: "accept" | "reject") => {
-    if (!token) return;
-    try {
-      const res = await apiFetch(`/api/notifications/${notificationId}/${action}`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        setNotifications((prev) =>
-          prev.map((n) =>
-            n.id === notificationId
-              ? { ...n, join_request_status: action === "accept" ? "accepted" : "rejected" }
-              : n
-          )
-        );
-      }
-    } catch (err) {
-      console.error(`Failed to ${action} request:`, err);
-    }
-  };
-
-  const notificationsRef = useRef(notifications);
-  useEffect(() => { notificationsRef.current = notifications; }, [notifications]);
-
-  const markNotificationRead = useCallback((notificationId: number) => {
-    const target = notificationsRef.current.find((n) => n.id === notificationId);
-    if (!target || target.is_read) return;
-    setNotifications((prev) => prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n)));
-    setUnreadCount((u) => Math.max(0, u - 1));
-    // Server endpoint is idempotent — fire-and-forget; UI is already optimistic.
-    apiFetch(`/api/notifications/${notificationId}/read`, { method: "POST" }).catch(() => {});
-  }, []);
-
   const handleNotifClick = useCallback((notificationId: number, type: string, listingId: string | null) => {
     const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","pickup_ready","review_submitted","address_released","order_completed"].includes(type);
     const noListing = ["order_declined","order_cancelled","order_expired"].includes(type);
@@ -478,7 +408,7 @@ export default function App() {
     // request_accepted is terminal (informational) — clear it on click even
     // though it has no listing_id to route to.
     if (withListing || noListing || type === "request_accepted") {
-      markNotificationRead(notificationId);
+      notif.markOneRead(notificationId);
     }
     // Confirmation-flow notifications open the OrderConfirmSummary modal in
     // place. The modal's "Confirm pickup" CTA leads into the attestation +
@@ -488,7 +418,7 @@ export default function App() {
     // the user happened to be when the notification landed.
     const inPlaceTypes = ["order_confirmed", "pickup_ready", "address_released", "order_completed", "review_submitted"];
     if (inPlaceTypes.includes(type) && listingId) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       openOrderConfirmSummary(listingId);
       return;
     }
@@ -500,7 +430,7 @@ export default function App() {
     // populates. After-action subscribers (MyAccountPage when mounted)
     // refetch on success; otherwise next mount picks up fresh state.
     if (type === "purchase" && listingId) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       (async () => {
         try {
           const res = await apiFetch("/api/orders");
@@ -531,29 +461,21 @@ export default function App() {
     // `order_updated` (buyer/seller mutual updates) and other listing-bearing
     // notifs keep their existing /account routing.
     if (withListing && listingId) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       setPendingListingId(listingId);
       setPage("account");
     } else if (noListing) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       setPage("account");
     }
-  }, [markNotificationRead, openOrderConfirmSummary, openOrderManagement]);
+  }, [notif.markOneRead, notif.setOpen, openOrderConfirmSummary, openOrderManagement]);
 
   const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
-    setNotificationsOpen(false);
+    notif.setOpen(false);
     // The "Confirm pickup" inline CTA on the address_released notification —
     // route through the same in-place modal flow as a click on the body.
     if (listingId) openOrderConfirmSummary(listingId);
-  }, [openOrderConfirmSummary]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !token) return;
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, token]);
-
+  }, [notif.setOpen, openOrderConfirmSummary]);
 
   const handleLogout = async () => {
     setProfileOpen(false);
@@ -566,9 +488,7 @@ export default function App() {
     }
     await logout();
     market.reset();
-    setNotifications([]);
-    setNotificationsLoaded(false);
-    setUnreadCount(0);
+    notif.reset();
     wishlist.reset();
     setHistoryItems([]);
     localStorage.removeItem("ge_history");
@@ -923,11 +843,11 @@ export default function App() {
                   <button
                     aria-label="Notifications"
                     onClick={() => {
-                      setNotificationsOpen((prev) => {
+                      notif.setOpen((prev) => {
                         if (!prev) {
-                          fetchNotifications();
+                          notif.fetchNotifications();
                         } else {
-                          if (unreadCount > 0) handleMarkAllRead();
+                          if (notif.unreadCount > 0) notif.markAllRead();
                         }
                         return !prev;
                       });
@@ -935,7 +855,7 @@ export default function App() {
                     className="relative inline-flex items-center justify-center size-9 rounded-full bg-transparent text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
                   >
                     <Bell className="size-[18px]" />
-                    {unreadCount > 0 && (
+                    {notif.unreadCount > 0 && (
                       <span
                         aria-hidden="true"
                         className="absolute top-1.5 right-2 size-2 rounded-full bg-primary ring-2 ring-canvas"
@@ -944,16 +864,16 @@ export default function App() {
                   </button>
 
                   <NotificationsPanel
-                    open={notificationsOpen}
+                    open={notif.open}
                     onClose={() => {
-                      setNotificationsOpen(false);
-                      if (unreadCount > 0) handleMarkAllRead();
+                      notif.setOpen(false);
+                      if (notif.unreadCount > 0) notif.markAllRead();
                     }}
-                    notifications={notifications}
-                    notificationsLoaded={notificationsLoaded}
-                    unreadCount={unreadCount}
-                    onMarkAllRead={handleMarkAllRead}
-                    onAction={handleNotificationAction}
+                    notifications={notif.notifications}
+                    notificationsLoaded={notif.notificationsLoaded}
+                    unreadCount={notif.unreadCount}
+                    onMarkAllRead={notif.markAllRead}
+                    onAction={notif.act}
                     onNotifClick={handleNotifClick}
                     onConfirmPickup={handleNotifConfirmPickup}
                     onOpenUserDashboard={openUserDashboard}
