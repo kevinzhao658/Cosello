@@ -21,8 +21,8 @@ import { DraftsGallery } from "./components/DraftsGallery";
 import * as draftStorage from "./lib/draftStorage";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
-import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
-import { ListingDetailModal, type SellerProfile } from "./features/listings/ListingDetailModal";
+import { BuyModal } from "./features/orders/BuyModal";
+import { ListingDetailModal } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
 import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
 import { TopSearches } from "./components/TopSearches";
@@ -35,12 +35,12 @@ import { useClickOutside } from "./hooks/useClickOutside";
 import { useChangeLocation } from "./hooks/useChangeLocation";
 import { useWishlist } from "./hooks/useWishlist";
 import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
+import { useListingDetail } from "./hooks/useListingDetail";
 import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
-import { formatTitle } from "./lib/format";
 import { formatPriceDisplay } from "./lib/price";
-import { logView, logSearch, type ViewSource } from "./lib/events";
-import type { CategorySlug, CommunitySummary, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
+import { logSearch } from "./lib/events";
+import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
@@ -182,24 +182,15 @@ export default function App() {
     });
   };
 
-  // User profile overlay state
-  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
-
-  // Listing detail modal state
-  const [showListingDetailModal, setShowListingDetailModal] = useState(false);
-  const [listingDetailData, setListingDetailData] = useState<Listing | null>(null);
-  const [listingDetailSellerProfile, setListingDetailSellerProfile] = useState<SellerProfile | null>(null);
-  const [isLoadingListingDetail, setIsLoadingListingDetail] = useState(false);
-
-  // Buy confirmation modal state
-  const [buyerOrderStatus, setBuyerOrderStatus] = useState<{ status: string | null; order_id?: number } | null>(null);
-  const [myOrderStatuses, setMyOrderStatuses] = useState<Record<string, { status: string; orderId: number }>>({});
-  const [showBuyModal, setShowBuyModal] = useState(false);
-  const [buyEditingOrder, setBuyEditingOrder] = useState<EditingOrderSeed | null>(null);
-
-  // Edit listing modal trigger. All field state lives inside EditListingModal;
-  // App.tsx only owns the open flag and the save handler.
-  const [showEditListingModal, setShowEditListingModal] = useState(false);
+  const detail = useListingDetail({
+    token,
+    user,
+    isAuthenticated,
+    page,
+    addToHistory,
+    refetchListings: market.refetch,
+    registerViewUserHandler,
+  });
 
   // Quick-change location modal — opened from the Settings icon next to the
   // marketplace location header. Edits zip + neighborhood only; full profile
@@ -280,122 +271,7 @@ export default function App() {
     }
   }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualCategoryAttributes, manualPickup, manualTags, user, resetNewListingForm]);
 
-  const handleSaveListingFromMarket = async (patch: ListingUpdatePatch) => {
-    if (!listingDetailData || !token) return;
-    const formData = new FormData();
-    formData.append("data", JSON.stringify(patch));
-    const res = await apiFetch(`/api/listings/${listingDetailData.id}`, {
-      method: "PUT",
-      body: formData,
-    });
-    if (res.ok) {
-      setShowEditListingModal(false);
-      setShowListingDetailModal(false);
-      setListingDetailData(null);
-      market.refetch();
-    }
-  };
-
-  const openUserDashboard = useCallback((userId: string) => {
-    if (!token || userId === user?.id) return;
-    setViewingUserId(userId);
-  }, [token, user?.id]);
-
-  // Register openUserDashboard with the OrderModalsProvider so the lifted
-  // OrderManagementModal's buyer-avatar click can navigate to the buyer
-  // profile from any page. The provider lives in main.tsx (outside App), so
-  // it can't take this as a prop — the register-on-mount pattern keeps the
-  // wiring shallow.
-  useEffect(() => {
-    registerViewUserHandler(openUserDashboard);
-    return () => registerViewUserHandler(null);
-  }, [registerViewUserHandler, openUserDashboard]);
-
-  const listingViewSourceRef = useRef<ViewSource>("direct");
-
   // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.
-
-  const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
-    listingViewSourceRef.current = source;
-    setShowListingDetailModal(true);
-    setListingDetailData(listing);
-    setListingDetailSellerProfile(null);
-    setBuyerOrderStatus(null);
-    addToHistory({ id: listing.id, title: formatTitle(listing.brand, listing.name), imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "viewed" });
-    if (token && listing.userId) {
-      setIsLoadingListingDetail(true);
-      try {
-        const [profileRes, orderStatusRes] = await Promise.all([
-          apiFetch(`/api/friends/profile/${listing.userId}`),
-          listing.userId !== user?.id
-            ? apiFetch(`/api/orders/status/${listing.id}`)
-            : Promise.resolve(null),
-        ]);
-        if (profileRes.ok) setListingDetailSellerProfile(await profileRes.json());
-        if (orderStatusRes && orderStatusRes.ok) setBuyerOrderStatus(await orderStatusRes.json());
-      } catch { /* ignore */ }
-      finally { setIsLoadingListingDetail(false); }
-    }
-  };
-
-  // Dwell-time tracking for the listing detail view.
-  //
-  // Fires logView exactly once per "view session" — the period from when the
-  // detail modal opens to when it closes (cleanup), the listing changes
-  // (cleanup with a new id), the route changes (cleanup because page in deps
-  // forces re-run), or the tab is hidden (visibilitychange).
-  //
-  // The fired guard prevents double-firing: visibilitychange may flush first,
-  // then cleanup runs on unmount and is a no-op.
-  useEffect(() => {
-    if (!showListingDetailModal || !listingDetailData) return;
-    const listingId = listingDetailData.id;
-    const source = listingViewSourceRef.current;
-    const startTs = performance.now();
-    let fired = false;
-
-    const flush = () => {
-      if (fired) return;
-      fired = true;
-      logView({
-        listing_id: listingId,
-        source,
-        dwell_ms: Math.max(0, Math.round(performance.now() - startTs)),
-      });
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      flush();
-    };
-  }, [showListingDetailModal, listingDetailData?.id, page]);
-
-  const openEditPickupSlots = (listing: Listing, orderId: number, existingSlots: { date: string; time: string }[]) => {
-    setListingDetailData(listing);
-    setBuyEditingOrder({ id: orderId, existingSlots });
-    setShowBuyModal(true);
-  };
-
-  const handleBuyConfirmed = (orderId: number, listing: Listing) => {
-    addToHistory({ id: listing.id, title: formatTitle(listing.brand, listing.name), imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "purchased" });
-    setBuyerOrderStatus({ status: "pending", order_id: orderId });
-    setMyOrderStatuses((prev) => ({ ...prev, [listing.id]: { status: "pending", orderId } }));
-    setShowBuyModal(false);
-    setShowListingDetailModal(false);
-    setListingDetailData(null);
-    setListingDetailSellerProfile(null);
-    market.refetch();
-  };
-
-  const handleBuyUpdated = () => {
-    setShowBuyModal(false);
-    setBuyEditingOrder(null);
-  };
 
   // Close profile dropdown on outside click
   useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
@@ -499,7 +375,6 @@ export default function App() {
     market.setSearch("");
     setTradeMode("buy");
     market.setSort("newest");
-    setMyOrderStatuses({});
     sellWizardRef.current?.resetForLogout();
     setPage("home");
   };
@@ -575,25 +450,6 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [page, user?.id, draftsRefreshNonce]);
-
-  const fetchMyOrderStatuses = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/orders");
-      if (res.ok) {
-        const orders: { id: number; listing_id: string; status: string; role: string; selected_pickup_slots: { date: string; time: string }[] }[] = await res.json();
-        const statuses: Record<string, { status: string; orderId: number }> = {};
-        for (const o of orders) {
-          if (o.role === "buyer") statuses[o.listing_id] = { status: o.status, orderId: o.id };
-        }
-        setMyOrderStatuses(statuses);
-      }
-    } catch { /* ignore */ }
-  };
-
-  useEffect(() => {
-    if (token) fetchMyOrderStatuses();
-  }, [token]);
 
   // Redirect to home if user logs out while on a protected page
   useEffect(() => {
@@ -876,7 +732,7 @@ export default function App() {
                     onAction={notif.act}
                     onNotifClick={handleNotifClick}
                     onConfirmPickup={handleNotifConfirmPickup}
-                    onOpenUserDashboard={openUserDashboard}
+                    onOpenUserDashboard={detail.openUserDashboard}
                   />
                 </div>
 
@@ -1624,7 +1480,7 @@ export default function App() {
                         isPulsing={wishlist.isPulsing(listing.id)}
                         priority={idx < 4}
                         animationDelayMs={Math.min(idx, 11) * 30}
-                        onOpen={() => openListingDetail(listing, market.search ? "search" : "direct")}
+                        onOpen={() => detail.openListingDetail(listing, market.search ? "search" : "direct")}
                         onToggleWishlist={() => wishlist.toggle(listing.id)}
                         onPulseEnd={() => wishlist.clearPulse(listing.id)}
                       />
@@ -1975,7 +1831,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlist.items} wishlist={wishlist.ids} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlist.items} wishlist={wishlist.ids} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={detail.openListingDetail} onViewUser={detail.openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 
@@ -2052,66 +1908,54 @@ export default function App() {
 
       {/* Listing Detail Modal */}
       <ListingDetailModal
-        open={showListingDetailModal}
-        onClose={() => { setShowListingDetailModal(false); setListingDetailData(null); setListingDetailSellerProfile(null); }}
-        listing={listingDetailData}
+        open={detail.detailOpen}
+        onClose={detail.closeDetail}
+        listing={detail.listing}
         isAuthenticated={isAuthenticated}
         currentUserId={user?.id}
-        sellerProfile={listingDetailSellerProfile}
-        isLoadingSeller={isLoadingListingDetail}
-        buyerOrderStatus={buyerOrderStatus}
+        sellerProfile={detail.sellerProfile}
+        isLoadingSeller={detail.isLoadingSeller}
+        buyerOrderStatus={detail.buyerOrderStatus}
         categorySchemas={categorySchemas}
-        onOpenUserDashboard={openUserDashboard}
-        onOpenEdit={() => setShowEditListingModal(true)}
-        onOpenBuy={() => { setBuyEditingOrder(null); setShowBuyModal(true); }}
-        onEditPickupSlots={() => {
-          if (buyerOrderStatus?.order_id && listingDetailData) {
-            (async () => {
-              try {
-                const res = await apiFetch(`/api/orders/status/${listingDetailData.id}`);
-                if (res.ok) {
-                  const data = await res.json();
-                  openEditPickupSlots(listingDetailData, data.order_id, data.selected_pickup_slots || []);
-                }
-              } catch { /* ignore */ }
-            })();
-          }
-        }}
-        onSignInPrompt={() => { setShowListingDetailModal(false); setPage("signin"); }}
+        onOpenUserDashboard={detail.openUserDashboard}
+        onOpenEdit={detail.openEdit}
+        onOpenBuy={detail.openBuy}
+        onEditPickupSlots={detail.editPickupSlots}
+        onSignInPrompt={() => { detail.dismissDetail(); setPage("signin"); }}
       />
 
       {/* Buy Confirmation Modal */}
       <BuyModal
-        open={showBuyModal}
-        onClose={() => { setShowBuyModal(false); setBuyEditingOrder(null); }}
-        listing={listingDetailData}
-        editingOrder={buyEditingOrder}
-        onConfirmed={handleBuyConfirmed}
-        onUpdated={handleBuyUpdated}
-        onNavigateToTerms={() => { setShowBuyModal(false); setPage("terms"); }}
+        open={detail.buyOpen}
+        onClose={detail.closeBuy}
+        listing={detail.listing}
+        editingOrder={detail.buyEditingOrder}
+        onConfirmed={detail.onBuyConfirmed}
+        onUpdated={detail.onBuyUpdated}
+        onNavigateToTerms={() => { detail.dismissBuy(); setPage("terms"); }}
       />
 
       {/* Edit Listing Modal (from marketplace detail) */}
-      {showEditListingModal && listingDetailData && (
+      {detail.editOpen && detail.listing && (
         <EditListingModal
           open
-          onClose={() => setShowEditListingModal(false)}
-          listing={listingDetailData}
-          location={user?.neighborhood || listingDetailData.location || ""}
-          onSave={handleSaveListingFromMarket}
+          onClose={detail.closeEdit}
+          listing={detail.listing}
+          location={user?.neighborhood || detail.listing.location || ""}
+          onSave={detail.saveListingEdit}
           categorySchemas={categorySchemas}
           z={260}
         />
       )}
 
       {/* User Profile Overlay */}
-      {viewingUserId && (
+      {detail.viewingUserId && (
         <Suspense fallback={null}>
           <UserProfileOverlay
-            userId={viewingUserId}
-            onClose={() => setViewingUserId(null)}
-            onViewUser={(id) => setViewingUserId(id)}
-            openListingDetail={openListingDetail}
+            userId={detail.viewingUserId}
+            onClose={detail.closeUserDashboard}
+            onViewUser={(id) => detail.setViewingUserId(id)}
+            openListingDetail={detail.openListingDetail}
           />
         </Suspense>
       )}
