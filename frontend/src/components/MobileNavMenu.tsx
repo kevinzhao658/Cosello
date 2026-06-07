@@ -84,7 +84,7 @@ export function MobileNavMenu({
               <Users className="size-[18px]" aria-hidden />
               Communities
             </span>
-            <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-muted-soft border border-hairline rounded-full px-2 py-0.5">
+            <span className="text-[10px] font-bold text-muted-soft border border-hairline rounded-full px-2 py-0.5">
               Coming soon
             </span>
           </div>

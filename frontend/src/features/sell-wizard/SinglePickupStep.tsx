@@ -31,7 +31,7 @@ export function SinglePickupStep({
       />
       <div className="mt-8 space-y-5 max-w-md mx-auto">
         <div>
-          <label htmlFor="single-pickup-location" className="text-xs text-muted uppercase tracking-wider">
+          <label htmlFor="single-pickup-location" className="text-xs text-muted">
             Pickup location
           </label>
           <Input

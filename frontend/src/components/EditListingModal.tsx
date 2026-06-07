@@ -152,17 +152,17 @@ export function EditListingModal({
           */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Brand</label>
+              <label className="text-xs text-muted mb-1 block">Brand</label>
               <Input value={brand} onChange={(e) => setBrand(e.target.value)} className="text-sm" />
             </div>
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Name</label>
+              <label className="text-xs text-muted mb-1 block">Name</label>
               <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" />
             </div>
           </div>
 
           <div>
-            <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Description</label>
+            <label className="text-xs text-muted mb-1 block">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -173,11 +173,11 @@ export function EditListingModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Price</label>
+              <label className="text-xs text-muted mb-1 block">Price</label>
               <PriceInput value={price} onChange={setPrice} className="text-sm" placeholder="0" />
             </div>
             <div>
-              <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Condition</label>
+              <label className="text-xs text-muted mb-1 block">Condition</label>
               <select
                 value={condition}
                 onChange={(e) => setCondition(e.target.value)}
@@ -191,7 +191,7 @@ export function EditListingModal({
           </div>
 
           <div>
-            <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Location</label>
+            <label className="text-xs text-muted mb-1 block">Location</label>
             <Input value={location} readOnly disabled className="text-sm" />
             <p className="text-[11px] text-muted-soft mt-1">Location is synced from your profile</p>
           </div>
@@ -211,7 +211,7 @@ export function EditListingModal({
           )}
 
           <div>
-            <label className="text-xs uppercase tracking-widest text-muted mb-1 block">Tags</label>
+            <label className="text-xs text-muted mb-1 block">Tags</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {tags.map((tag, i) => (
                 <span

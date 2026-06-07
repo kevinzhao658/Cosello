@@ -207,7 +207,7 @@ export function GroupsStep({
               </div>
               {rationale === "Other" && (
                 <div>
-                  <label htmlFor="sell-rationale-other" className="text-xs text-muted uppercase tracking-wider">Tell us briefly why</label>
+                  <label htmlFor="sell-rationale-other" className="text-xs text-muted">Tell us briefly why</label>
                   <Input
                     id="sell-rationale-other"
                     value={rationaleOther}

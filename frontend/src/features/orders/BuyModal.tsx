@@ -195,7 +195,7 @@ export function BuyModal({
 
           {/* Pickup Availability */}
           <div className="mb-5">
-            <p className="text-xs uppercase tracking-widest text-muted mb-1">When can you pick up?</p>
+            <p className="text-xs text-muted mb-1">When can you pick up?</p>
             <p className="text-[11px] text-muted-soft mb-3">Toggle the days you're available, then set your time window</p>
 
             {(() => {

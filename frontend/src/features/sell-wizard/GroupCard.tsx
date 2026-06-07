@@ -121,7 +121,7 @@ export const GroupCard = memo(function GroupCard({
               style={{ fieldSizing: "content" } as React.CSSProperties}
               className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-border-strong pb-0.5 text-xs text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors text-center"
             />
-            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-muted uppercase leading-none">Brand</label>
+            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-muted leading-none">Brand</label>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <input
@@ -135,7 +135,7 @@ export const GroupCard = memo(function GroupCard({
               style={{ fieldSizing: "content" } as React.CSSProperties}
               className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-border-strong pb-0.5 text-xs text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors text-center"
             />
-            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-muted uppercase leading-none">Name</label>
+            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-muted leading-none">Name</label>
           </div>
         </div>
       )}

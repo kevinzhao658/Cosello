@@ -406,7 +406,7 @@ export default function App() {
     // Single-item preview (manual or AI single mode) — unchanged.
     return (
       <>
-        <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+        <p className="text-xs font-semibold text-muted">Listing preview</p>
         <article>
           {/* Community byline — above the photo */}
           <div className="flex items-center gap-1.5 mb-1.5">
@@ -792,7 +792,7 @@ export default function App() {
                 {/* Photos section eyebrow */}
                 <section>
                   <header className="flex items-baseline justify-between mb-3">
-                    <h2 className="text-sm font-semibold text-ink uppercase tracking-wider">Photos</h2>
+                    <h2 className="text-sm font-semibold text-ink">Photos</h2>
                   </header>
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
@@ -879,10 +879,10 @@ export default function App() {
                 {newListing.mode === "manual" && (
                   <>
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
-                      <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Product details</h3>
+                      <h3 className="text-xs font-semibold text-muted">Product details</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="block">
-                          <span className="text-xs text-muted uppercase tracking-wider">Brand</span>
+                          <span className="text-xs text-muted">Brand</span>
                           <Input
                             value={newListing.brand}
                             onChange={(e) => newListing.setBrand(e.target.value)}
@@ -891,7 +891,7 @@ export default function App() {
                           />
                         </label>
                         <label className="block">
-                          <span className="text-xs text-muted uppercase tracking-wider">Name / model</span>
+                          <span className="text-xs text-muted">Name / model</span>
                           <Input
                             value={newListing.name}
                             onChange={(e) => newListing.setName(e.target.value)}
@@ -901,7 +901,7 @@ export default function App() {
                         </label>
                       </div>
                       <div>
-                        <span className="text-xs text-muted uppercase tracking-wider">Category</span>
+                        <span className="text-xs text-muted">Category</span>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {(Object.entries(categorySchemas).length > 0
                             ? Object.entries(categorySchemas).map(([slug, schema]) => ({ slug: slug as CategorySlug, label: schema.label }))
@@ -949,7 +949,7 @@ export default function App() {
                         )}
                       </div>
                       <div>
-                        <span className="text-xs text-muted uppercase tracking-wider">Condition</span>
+                        <span className="text-xs text-muted">Condition</span>
                         <div role="radiogroup" aria-label="Condition" className="flex flex-wrap gap-2 mt-2">
                           {CONDITIONS.map((c) => {
                             const active = newListing.condition === c;
@@ -972,7 +972,7 @@ export default function App() {
 
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
                       <header className="flex items-baseline justify-between">
-                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
+                        <h3 className="text-xs font-semibold text-muted">Description</h3>
                         <span className={`text-xs ${newListing.description.length >= 20 ? "text-primary" : "text-muted"}`}>
                           {newListing.description.length} / 20+ chars
                         </span>
@@ -985,7 +985,7 @@ export default function App() {
                         className="w-full min-h-32 bg-surface-soft border border-hairline rounded-md p-3 text-sm text-ink placeholder:text-muted-soft resize-y focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                       />
                       <div>
-                        <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
+                        <span className="text-xs text-muted">Tags</span>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {newListing.tags.map((t) => (
                             <span key={t} className={getChipClass(true)}>
@@ -1020,7 +1020,7 @@ export default function App() {
 
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
                       <header className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Pricing &amp; pickup</h3>
+                        <h3 className="text-xs font-semibold text-muted">Pricing &amp; pickup</h3>
                         {/* Price suggestion is faked for now; real suggestion logic
                             is queued in backlog.md (sell-flow pricing). */}
                         <span className="bg-primary-soft text-primary px-2 py-1 rounded-full text-xs font-medium">
@@ -1029,7 +1029,7 @@ export default function App() {
                       </header>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <span className="text-xs text-muted uppercase tracking-wider">Price</span>
+                          <span className="text-xs text-muted">Price</span>
                           <div className="flex items-center gap-1 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
                             <span className="text-3xl font-extrabold tracking-display text-ink">$</span>
                             <input
@@ -1044,7 +1044,7 @@ export default function App() {
                           </div>
                         </div>
                         <div>
-                          <span className="text-xs text-muted uppercase tracking-wider">Pickup neighborhood</span>
+                          <span className="text-xs text-muted">Pickup neighborhood</span>
                           <div className="flex items-center gap-2 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
                             <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
                             <input
@@ -1139,12 +1139,12 @@ export default function App() {
         <section className="min-h-[calc(100vh-64px)] flex items-start justify-center px-4 sm:px-6 lg:px-8 pt-8 pb-16 sm:pt-12 sm:pb-16">
           <div className="w-full max-w-[760px]">
             <div className="mb-8">
-              <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
+              <p className="text-[12px] font-semibold text-muted mb-5">
                 {(() => {
                   const d = new Date();
                   const wk = d.toLocaleDateString("en-US", { weekday: "long" });
                   const mo = d.toLocaleDateString("en-US", { month: "long" });
-                  return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`.toUpperCase();
+                  return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`;
                 })()}
               </p>
               <h1 className="text-5xl sm:text-6xl font-extrabold tracking-display text-ink leading-[1.05] mb-5">
@@ -1854,7 +1854,7 @@ export default function App() {
             </p>
             <div className="space-y-3">
               <div>
-                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Neighborhood
                 </label>
                 <input
@@ -1867,7 +1867,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <label htmlFor="cl-zip" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
                 <input

@@ -8,7 +8,7 @@ interface ListingChecklistProps {
 export function ListingChecklist({ heading, rows }: ListingChecklistProps) {
   return (
     <div className="bg-canvas border border-hairline rounded-md p-4">
-      <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+      <p className="text-xs font-semibold text-muted mb-3">
         {heading}
       </p>
       <ul className="space-y-2">

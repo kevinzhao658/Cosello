@@ -46,7 +46,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
         >
           ‹
         </button>
-        <span className="text-xs font-semibold text-muted uppercase tracking-wider">
+        <span className="text-xs font-semibold text-muted">
           {unit} {index + 1} of {count}
         </span>
         <button
