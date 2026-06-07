@@ -81,18 +81,18 @@ export const GroupCard = memo(function GroupCard({
               draggable={bulkReviewPhase === "review"}
               onDragStart={bulkReviewPhase === "review" ? () => onDragStart(imgIdx, groupIdx) : undefined}
               onDragEnd={bulkReviewPhase === "review" ? onDragEnd : undefined}
-              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 overflow-hidden ${
+              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 ${
                 bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
               } ${isDragging ? "opacity-40" : "opacity-100"}`}
             >
-              <SkeletonImage src={previewSrc} alt={`Photo ${imgIdx + 1}`} />
+              <SkeletonImage src={previewSrc} alt={`Photo ${imgIdx + 1}`} className="rounded-md" />
               {bulkReviewPhase === "review" && (
                 <button
                   type="button"
                   aria-label={`Delete photo ${imgIdx + 1}`}
                   onMouseDown={onDeleteMouseDown}
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteClick(imgIdx); }}
-                  className="absolute top-1 right-1 z-10 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                  className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                 >
                   <X className="size-3" />
                 </button>

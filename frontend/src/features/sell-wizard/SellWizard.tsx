@@ -902,7 +902,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute top-1 right-1 z-10 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                              className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
@@ -958,18 +958,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             >
               <div className="flex flex-wrap items-center gap-2">
                 {uploadedImages.map((img, index) => (
-                  <div key={index} className="relative size-[72px] rounded-md overflow-hidden border border-hairline bg-surface-soft">
+                  <div key={index} className="relative size-[72px] rounded-md border border-hairline bg-surface-soft">
                     <img
                       src={img.preview}
                       alt={`Upload ${index + 1}`}
-                      className="size-full object-cover"
+                      className="size-full object-cover rounded-md"
                     />
                     <button
                       type="button"
                       aria-label={`Delete photo ${index + 1}`}
                       onMouseDown={handleDeletePhotoMouseDown}
                       onClick={handleDeletePhotoClick(index)}
-                      className="absolute top-1 right-1 z-10 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                      className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                     >
                       <X className="size-3" />
                     </button>
