@@ -875,8 +875,11 @@ export default function App() {
                   />
                 </section>
 
-                {/* AI / Manual toggle — green callout */}
-                {newListing.wizardPhase === null && (
+                {/* AI / Manual toggle — only on the upload step (step 1). Hidden
+                    once the wizard advances: bulk sets wizardPhase, and the
+                    single-item flow sets aiProductDetails (which resets
+                    wizardPhase to null), so we check both to hide it uniformly. */}
+                {newListing.wizardPhase === null && newListing.aiProductDetails === null && (
                   <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
                     <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
                       <button
