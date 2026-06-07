@@ -724,6 +724,26 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     bulkReviewPhase,
   });
 
+  // Jump back to a completed step from the progress bar. Bulk phases all share
+  // the same persisted data, so any backward jump is safe; the single flow only
+  // jumps back to Review. Step 1 (upload) and forward steps aren't jumpable.
+  const handleStepJump = (step: number) => {
+    if (inWizardPhase) {
+      const phaseForStep: Record<number, "review" | "reason" | "cards" | "pickup"> = {
+        2: "review",
+        3: "reason",
+        4: "cards",
+        5: "pickup",
+      };
+      const target = phaseForStep[step];
+      if (target && target !== bulkReviewPhase) transitionToPhase(target);
+      return;
+    }
+    if (productDetails && step === 2 && singlePostPhase !== "review") {
+      setSinglePostPhase("review");
+    }
+  };
+
   if (!isActive) return null;
 
   return (
@@ -760,7 +780,14 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           )}
         </div>
       )}
-      {wizardStep && <StepProgressBar current={wizardStep.current} total={wizardStep.total} />}
+      {wizardStep && (
+        <StepProgressBar
+          current={wizardStep.current}
+          total={wizardStep.total}
+          labels={wizardStep.labels}
+          onStepClick={handleStepJump}
+        />
+      )}
       {prunedCommunityCount > 0 && (
         <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
           <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
