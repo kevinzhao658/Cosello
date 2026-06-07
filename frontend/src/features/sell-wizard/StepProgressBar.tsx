@@ -3,26 +3,59 @@ interface StepProgressBarProps {
   total: number;
 }
 
-// Static glossy-capsule progress bar. The fill width is current/total; only the
-// width animates (on step change) — no shimmer/motion, so no reduced-motion case.
+// Connected numbered step bubbles spread across the wizard content width.
+// Completed steps are solid violet, the current step is a violet-ringed outline,
+// upcoming steps are quiet grey outlines. A connector line behind the bubbles
+// fills up to the current step. No visible "Step X of Y" text — the bubbles carry
+// the number; an aria-label keeps it accessible. Only the line fill animates.
 export function StepProgressBar({ current, total }: StepProgressBarProps) {
-  const pct = Math.max(0, Math.min(100, (current / total) * 100));
+  const steps = Array.from({ length: total }, (_, i) => i + 1);
+  // Line connects the centers of the first → last bubble; fill reaches the
+  // current bubble's center.
+  const fillPct = total > 1 ? ((current - 1) / (total - 1)) * 100 : 0;
+
   return (
-    <div className="mt-3 max-w-[300px] mx-auto">
-      <div className="h-2 rounded-full bg-hairline overflow-hidden">
+    <div
+      className="mt-3 max-w-md mx-auto px-2"
+      role="progressbar"
+      aria-valuemin={1}
+      aria-valuemax={total}
+      aria-valuenow={current}
+      aria-label={`Step ${current} of ${total}`}
+    >
+      <div className="relative flex items-center justify-between">
+        {/* Connector track + violet fill, behind the bubbles. */}
         <div
-          className="h-full rounded-full transition-[width] duration-500 ease-out"
-          style={{
-            width: `${pct}%`,
-            background: "linear-gradient(#9a63f3, var(--primary) 55%, #6a28d9)",
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.45), inset 0 -1px 1px rgba(0,0,0,0.12)",
-          }}
-        />
+          className="absolute left-2.5 right-2.5 top-1/2 -translate-y-1/2 h-0.5 bg-hairline"
+          aria-hidden="true"
+        >
+          <div
+            className="h-full bg-primary transition-[width] duration-500 ease-out"
+            style={{ width: `${fillPct}%` }}
+          />
+        </div>
+
+        {steps.map((n) => {
+          const done = n < current;
+          const isCurrent = n === current;
+          return (
+            <span
+              key={n}
+              aria-current={isCurrent ? "step" : undefined}
+              className={`relative z-10 flex items-center justify-center size-5 rounded-full text-[10px] font-bold transition-colors ${
+                done
+                  ? "bg-primary text-on-primary"
+                  : isCurrent
+                    ? "bg-canvas text-primary border-2 border-primary"
+                    : "bg-canvas text-muted-soft border border-hairline"
+              }`}
+              style={isCurrent ? { boxShadow: "0 0 0 3px rgba(124,58,237,0.16)" } : undefined}
+            >
+              {n}
+            </span>
+          );
+        })}
       </div>
-      <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-muted text-center">
-        Step {current} of {total}
-      </p>
     </div>
   );
 }
