@@ -16,7 +16,7 @@ export function StepProgressBar({ current, total }: StepProgressBarProps) {
 
   return (
     <div
-      className="mt-3 max-w-md mx-auto px-2"
+      className="mt-5 mb-6 max-w-md mx-auto px-2"
       role="progressbar"
       aria-valuemin={1}
       aria-valuemax={total}
