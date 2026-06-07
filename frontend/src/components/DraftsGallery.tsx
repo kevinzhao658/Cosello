@@ -34,16 +34,18 @@ function relativeTime(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
+// Number of items in the draft, independent of the single/bulk distinction
+// (which is unreliable — a single AI item still ran segmentation). Drafts save
+// only after a commit, so one of these always resolves.
+function itemCount(draft: Draft): number {
+  if (draft.state.bulkItems.length > 0) return draft.state.bulkItems.length;
+  if (draft.state.segmentation?.groupings?.length) return draft.state.segmentation.groupings.length;
+  return 1;
+}
+
 function draftTitle(draft: Draft): string {
-  if (draft.mode === "bulk" && draft.state.bulkItems.length > 0) {
-    return `Bulk · ${draft.state.bulkItems.length} items`;
-  }
-  const brand = draft.state.productDetails?.brand?.trim() ?? "";
-  const name = draft.state.productDetails?.name?.trim() ?? "";
-  const title = [brand, name].filter(Boolean).join(" ");
-  if (title) return title;
-  const photoCount = draft.files.length;
-  return `Untitled · ${photoCount} photo${photoCount === 1 ? "" : "s"}`;
+  const n = itemCount(draft);
+  return `${n} item${n === 1 ? "" : "s"}`;
 }
 
 export function DraftsGallery({
@@ -170,7 +172,7 @@ export function DraftsGallery({
             <div className="flex-1 min-w-0">
               <div className="text-lg font-bold text-ink truncate">{draftTitle(draft)}</div>
               <div className="text-sm text-muted truncate">
-                {draft.mode === "single" ? "Single" : "Bulk"} · {relativeTime(draft.updatedAt)}
+                {relativeTime(draft.updatedAt)}
               </div>
             </div>
           </button>
