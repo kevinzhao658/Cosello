@@ -660,14 +660,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
     }
     setIsCompressing(true);
-    void Promise.all(trimmed.map(compressImage)).then((compressed) => {
-      setIsCompressing(false);
-      const newImages = compressed.map((file) => ({
-        file,
-        preview: URL.createObjectURL(file),
-      }));
-      actions.appendImages(newImages);
-    });
+    void Promise.all(trimmed.map(compressImage))
+      .then((compressed) => {
+        const newImages = compressed.map((file) => ({
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        actions.appendImages(newImages);
+      })
+      .finally(() => setIsCompressing(false));
   }, [uploadedImages.length, actions]);
 
   useImperativeHandle(ref, () => ({
