@@ -902,7 +902,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute top-1 right-1 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                              className="absolute top-1 right-1 z-10 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
@@ -969,7 +969,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                       aria-label={`Delete photo ${index + 1}`}
                       onMouseDown={handleDeletePhotoMouseDown}
                       onClick={handleDeletePhotoClick(index)}
-                      className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-full bg-ink/70 text-on-dark text-xs hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      className="absolute top-1 right-1 z-10 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                     >
                       <X className="size-3" />
                     </button>

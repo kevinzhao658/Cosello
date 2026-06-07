@@ -92,7 +92,7 @@ export const GroupCard = memo(function GroupCard({
                   aria-label={`Delete photo ${imgIdx + 1}`}
                   onMouseDown={onDeleteMouseDown}
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteClick(imgIdx); }}
-                  className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                  className="absolute top-1 right-1 z-10 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                 >
                   <X className="size-3" />
                 </button>
