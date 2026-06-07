@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cosello · Listing-name edit affordances</title>
+<style>
+  :root{
+    --primary:#7C3AED; --primary-active:#6D28D9; --primary-soft:#F3EEFF;
+    --ink:#1A1523; --muted:#6B6577; --muted-soft:#9A93A6;
+    --canvas:#FFFFFF; --surface-soft:#F7F5FB;
+    --hairline:#E8E4F0; --border-strong:#D9D3E6; --error:#DC2626; --success:#16A34A;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; min-height:100vh; background:
+      radial-gradient(1100px 560px at 50% -10%, #efe9fb 0%, #f6f4fb 42%, #f2f0f7 100%);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); padding:34px 16px 72px; display:flex; flex-direction:column; align-items:center; gap:16px;}
+  .head{text-align:center; max-width:560px; margin-bottom:6px;}
+  .head h1{font-size:19px; letter-spacing:-.02em; margin:0 0 5px;}
+  .head p{font-size:12.5px; color:var(--muted); margin:0; line-height:1.55;}
+
+  .card{width:560px; max-width:100%; background:var(--canvas); border:1px solid var(--hairline);
+    border-radius:16px; box-shadow:0 12px 34px -22px rgba(48,30,90,.4); padding:16px 18px 14px;}
+  .badge{display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:800; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--primary); background:var(--primary-soft); border-radius:999px; padding:4px 10px; margin-bottom:14px;}
+  .badge .rec{color:#fff; background:var(--success); border-radius:999px; padding:1px 6px; font-size:8.5px;}
+  .hdr{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; min-height:46px;}
+  .name-zone{min-width:0; flex:1;}
+  .drafts{flex:0 0 auto; height:34px; padding:0 14px; border-radius:9px; border:1px solid var(--border-strong);
+    background:var(--canvas); color:var(--ink); font:inherit; font-size:12.5px; font-weight:700; cursor:default;}
+  .cap{margin:13px 2px 0; font-size:11.5px; color:var(--muted); line-height:1.5;}
+  .cap b{color:var(--ink);} .cap .pro{color:var(--success); font-weight:700;} .cap .con{color:var(--error); font-weight:700;}
+
+  /* shared title look */
+  .title{font-size:30px; font-weight:800; letter-spacing:-.02em; line-height:1.05;}
+  .title.empty{color:var(--muted-soft);} .title.full{color:var(--ink);}
+  svg{width:1em; height:1em; display:block;}
+
+  input.name{font:inherit; width:100%; background:transparent; color:var(--ink); border:0; padding:0;
+    font-size:30px; font-weight:800; letter-spacing:-.02em; line-height:1.05;}
+  input.name::placeholder{color:var(--muted-soft);}
+  input.name:focus{outline:none;}
+
+  /* A — pencil affordance (current) */
+  .a-btn{display:inline-flex; align-items:center; gap:10px; max-width:100%; border:0; background:transparent;
+    cursor:pointer; padding:2px 4px; margin:-2px -4px; border-radius:8px; text-align:left;}
+  .a-btn .title{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .a-btn .pen{font-size:18px; color:var(--muted-soft); flex:0 0 auto; transition:.15s;}
+  .a-btn:hover .pen{color:var(--primary);}
+  .a-input{border-bottom:2px solid var(--primary); padding-bottom:2px;}
+
+  /* B — hover-reveal (Notion-style) */
+  .b-btn{display:inline-flex; align-items:center; gap:10px; max-width:100%; border:0; background:transparent;
+    cursor:text; padding:4px 8px; margin:-4px -8px; border-radius:9px; text-align:left; transition:.15s;}
+  .b-btn:hover{background:var(--surface-soft);}
+  .b-btn .title{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .b-hint{font-size:11px; font-weight:700; color:var(--muted-soft); opacity:0; transition:.15s; flex:0 0 auto;
+    display:inline-flex; align-items:center; gap:4px;}
+  .b-hint svg{width:13px;height:13px;}
+  .b-btn:hover .b-hint{opacity:1;}
+
+  /* C — explicit "Rename" chip */
+  .c-row{display:inline-flex; align-items:center; gap:12px; max-width:100%;}
+  .c-row .title{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .chip{flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; height:28px; padding:0 11px;
+    border-radius:999px; border:1px solid var(--border-strong); background:var(--canvas); color:var(--muted);
+    font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; transition:.15s;}
+  .chip:hover{border-color:var(--primary); color:var(--primary); background:var(--primary-soft);}
+  .chip svg{width:13px;height:13px;}
+
+  /* D — signposted field (always a field) */
+  .d-wrap{position:relative; display:flex; align-items:center; gap:10px; max-width:100%;}
+  .d-wrap input.name{border-bottom:2px dashed var(--border-strong); padding-bottom:2px; transition:border-color .15s;}
+  .d-wrap input.name:focus{border-bottom-style:solid; border-color:var(--primary);}
+  .d-pen{font-size:17px; color:var(--muted-soft); flex:0 0 auto;}
+
+  /* E — inline confirm/cancel */
+  .e-btn{display:inline-flex; align-items:center; gap:10px; max-width:100%; border:0; background:transparent; cursor:pointer; padding:2px 4px; margin:-2px -4px; border-radius:8px; text-align:left;}
+  .e-btn .title{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .e-btn .pen{font-size:18px; color:var(--muted-soft); flex:0 0 auto;}
+  .e-btn:hover .pen{color:var(--primary);}
+  .e-edit{display:flex; align-items:center; gap:8px;}
+  .e-edit input.name{border-bottom:2px solid var(--primary); padding-bottom:2px;}
+  .icon-btn{flex:0 0 auto; width:32px; height:32px; border-radius:8px; border:1px solid var(--border-strong);
+    background:var(--canvas); display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:.15s;}
+  .icon-btn svg{width:16px;height:16px;}
+  .icon-btn.ok{color:var(--success);} .icon-btn.ok:hover{background:#e9f7ee; border-color:var(--success);}
+  .icon-btn.no{color:var(--error);} .icon-btn.no:hover{background:#fdecec; border-color:var(--error);}
+
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Listing-name edit affordances</h1>
+    <p>Five ways to signal the name is editable. Each is live — click to try it. Default state is empty
+       ("New listing"), the case where discoverability matters most. Type to see the filled state.</p>
+  </div>
+
+  <!-- A -->
+  <div class="card" id="opt-a">
+    <span class="badge">Option A · Pencil <span class="rec">CURRENT</span></span>
+    <div class="hdr">
+      <div class="name-zone">
+        <button class="a-btn" data-role="display">
+          <span class="title empty" data-role="label">New listing</span>
+          <span class="pen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>
+        </button>
+        <input class="name a-input hidden" data-role="input" maxlength="80" placeholder="New listing" />
+      </div>
+      <button class="drafts">Drafts</button>
+    </div>
+    <p class="cap"><b>Heading + trailing pencil.</b> Tidy, reads as a title. <span class="con">Con:</span> a small icon is easy to miss; not obviously "tap me".</p>
+  </div>
+
+  <!-- B -->
+  <div class="card" id="opt-b">
+    <span class="badge">Option B · Hover-reveal</span>
+    <div class="hdr">
+      <div class="name-zone">
+        <button class="b-btn" data-role="display">
+          <span class="title empty" data-role="label">New listing</span>
+          <span class="b-hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Rename</span>
+        </button>
+        <input class="name hidden" data-role="input" maxlength="80" placeholder="New listing" />
+      </div>
+      <button class="drafts">Drafts</button>
+    </div>
+    <p class="cap"><b>Notion-style.</b> Cleanest at rest; soft hover background + "Rename" appears on hover. <span class="con">Con:</span> hover doesn't exist on touch — weak for a mobile-first marketplace.</p>
+  </div>
+
+  <!-- C -->
+  <div class="card" id="opt-c">
+    <span class="badge">Option C · "Rename" chip <span class="rec">REC</span></span>
+    <div class="hdr">
+      <div class="name-zone">
+        <div class="c-row" data-role="display">
+          <span class="title empty" data-role="label">New listing</span>
+          <button class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Rename</button>
+        </div>
+        <input class="name hidden" data-role="input" maxlength="80" placeholder="New listing"
+               style="border-bottom:2px solid var(--primary); padding-bottom:2px;" />
+      </div>
+      <button class="drafts">Drafts</button>
+    </div>
+    <p class="cap"><b>Explicit labeled button.</b> <span class="pro">Pro:</span> unmistakable on every device, no hover needed. Slightly more visual weight in the header.</p>
+  </div>
+
+  <!-- D -->
+  <div class="card" id="opt-d">
+    <span class="badge">Option D · Signposted field</span>
+    <div class="hdr">
+      <div class="name-zone">
+        <div class="d-wrap">
+          <input class="name" data-role="input" maxlength="80" placeholder="New listing" />
+          <span class="d-pen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>
+        </div>
+      </div>
+      <button class="drafts">Drafts</button>
+    </div>
+    <p class="cap"><b>Always a field</b> — dashed underline + faint pencil signal "editable"; underline turns solid violet on focus. <span class="pro">Pro:</span> zero clicks to edit. <span class="con">Con:</span> reads less like a page title.</p>
+  </div>
+
+  <!-- E -->
+  <div class="card" id="opt-e">
+    <span class="badge">Option E · Inline confirm</span>
+    <div class="hdr">
+      <div class="name-zone">
+        <button class="e-btn" data-role="display">
+          <span class="title empty" data-role="label">New listing</span>
+          <span class="pen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>
+        </button>
+        <div class="e-edit hidden" data-role="editzone">
+          <input class="name" data-role="input" maxlength="80" placeholder="New listing" />
+          <button class="icon-btn ok" data-role="ok" title="Save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></button>
+          <button class="icon-btn no" data-role="cancel" title="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+      </div>
+      <button class="drafts">Drafts</button>
+    </div>
+    <p class="cap"><b>Pencil → input with ✓ / ✕.</b> <span class="pro">Pro:</span> explicit save + a real cancel-to-revert (the current build has no revert). More controls on screen during edit.</p>
+  </div>
+
+<script>
+  const setLabel=(label,val)=>{ label.textContent=val||"New listing"; label.classList.toggle("empty",!val); label.classList.toggle("full",!!val); };
+
+  // A — pencil toggle
+  (function(){
+    const root=document.getElementById('opt-a');
+    const disp=root.querySelector('[data-role=display]'), inp=root.querySelector('[data-role=input]'), label=root.querySelector('[data-role=label]');
+    disp.addEventListener('click',()=>{ inp.value=label.classList.contains('empty')?'':label.textContent; disp.classList.add('hidden'); inp.classList.remove('hidden'); inp.focus(); inp.select(); });
+    const done=()=>{ setLabel(label,inp.value.trim()); inp.classList.add('hidden'); disp.classList.remove('hidden'); };
+    inp.addEventListener('blur',done);
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); inp.blur(); }});
+  })();
+
+  // B — hover reveal, click to edit
+  (function(){
+    const root=document.getElementById('opt-b');
+    const disp=root.querySelector('[data-role=display]'), inp=root.querySelector('[data-role=input]'), label=root.querySelector('[data-role=label]');
+    inp.style.borderBottom='2px solid var(--primary)'; inp.style.paddingBottom='2px';
+    disp.addEventListener('click',()=>{ inp.value=label.classList.contains('empty')?'':label.textContent; disp.classList.add('hidden'); inp.classList.remove('hidden'); inp.focus(); inp.select(); });
+    const done=()=>{ setLabel(label,inp.value.trim()); inp.classList.add('hidden'); disp.classList.remove('hidden'); };
+    inp.addEventListener('blur',done);
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); inp.blur(); }});
+  })();
+
+  // C — rename chip
+  (function(){
+    const root=document.getElementById('opt-c');
+    const disp=root.querySelector('[data-role=display]'), inp=root.querySelector('[data-role=input]'), label=root.querySelector('[data-role=label]'), chip=root.querySelector('.chip');
+    chip.addEventListener('click',()=>{ inp.value=label.classList.contains('empty')?'':label.textContent; disp.classList.add('hidden'); inp.classList.remove('hidden'); inp.focus(); inp.select(); });
+    const done=()=>{ setLabel(label,inp.value.trim()); inp.classList.add('hidden'); disp.classList.remove('hidden'); };
+    inp.addEventListener('blur',done);
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key==='Escape'){ e.preventDefault(); inp.blur(); }});
+  })();
+
+  // D — always a field (nothing to toggle)
+
+  // E — inline confirm/cancel
+  (function(){
+    const root=document.getElementById('opt-e');
+    const disp=root.querySelector('[data-role=display]'), zone=root.querySelector('[data-role=editzone]'), inp=root.querySelector('[data-role=input]'), label=root.querySelector('[data-role=label]');
+    let prev='';
+    const open=()=>{ prev=label.classList.contains('empty')?'':label.textContent; inp.value=prev; disp.classList.add('hidden'); zone.classList.remove('hidden'); inp.focus(); inp.select(); };
+    const save=()=>{ setLabel(label,inp.value.trim()); zone.classList.add('hidden'); disp.classList.remove('hidden'); };
+    const cancel=()=>{ setLabel(label,prev); zone.classList.add('hidden'); disp.classList.remove('hidden'); };
+    disp.addEventListener('click',open);
+    root.querySelector('[data-role=ok]').addEventListener('click',save);
+    root.querySelector('[data-role=cancel]').addEventListener('click',cancel);
+    inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); save(); } if(e.key==='Escape'){ e.preventDefault(); cancel(); }});
+  })();
+</script>
+</body>
+</html>

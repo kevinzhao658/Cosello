@@ -832,17 +832,20 @@ export default function App() {
                     className="w-full bg-transparent border-0 border-b-2 border-primary p-0 pb-0.5 text-3xl font-extrabold tracking-display text-ink leading-[1.05] placeholder:text-muted-soft focus:outline-none focus:ring-0"
                   />
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingName(true)}
-                    aria-label="Edit listing name"
-                    className="group inline-flex items-center gap-2 max-w-full text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                  >
-                    <span className={`min-w-0 truncate text-3xl font-extrabold tracking-display leading-[1.05] ${newListing.draftName ? "text-ink" : "text-muted-soft"}`}>
+                  <div className="flex items-center gap-3 max-w-full">
+                    <h1 className={`min-w-0 truncate text-3xl font-extrabold tracking-display leading-[1.05] ${newListing.draftName ? "text-ink" : "text-muted-soft"}`}>
                       {newListing.draftName || "New listing"}
-                    </span>
-                    <Pencil className="size-4 shrink-0 text-muted-soft group-hover:text-primary transition-colors" aria-hidden />
-                  </button>
+                    </h1>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingName(true)}
+                      aria-label="Rename listing"
+                      className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-border-strong text-muted text-[11.5px] font-bold hover:border-primary hover:text-primary hover:bg-primary-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                      Rename
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
