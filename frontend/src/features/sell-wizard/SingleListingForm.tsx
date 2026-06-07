@@ -21,12 +21,13 @@ interface SingleListingFormProps {
   uploadedImages: UploadedImage[];
   imageUrls: string[];
   onAddPhotos: (files: FileList) => void;
+  onDeletePhoto: (index: number) => void;
 }
 
 export function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   newTag, setNewTag, onContinue, isAuthenticated,
-  uploadedImages, imageUrls, onAddPhotos,
+  uploadedImages, imageUrls, onAddPhotos, onDeletePhoto,
 }: SingleListingFormProps) {
   const singlePhotoInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,8 +46,18 @@ export function SingleListingForm({
         {uploadedImages.map((img, i) => {
           const src = imageUrls[i] ?? img.preview ?? null;
           return (
-            <div key={i} className="relative size-16 shrink-0 rounded-md border border-hairline overflow-hidden">
-              <SkeletonImage src={src} alt="Photo" />
+            <div key={i} className="relative size-16 shrink-0 rounded-md border border-hairline">
+              <SkeletonImage src={src} alt="Photo" className="rounded-md" />
+              {uploadedImages.length > 1 && (
+                <button
+                  type="button"
+                  aria-label="Delete photo"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeletePhoto(i); }}
+                  className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
             </div>
           );
         })}

@@ -30,13 +30,14 @@ export interface AIReviewStepProps {
   updateBulkItemField: (i: number, field: string, value: unknown) => void;
   regenerateBulkItem: (groupIdx: number) => void;
   addPhotoToBulkItem: (index: number, files: FileList) => void;
+  onDeletePhoto: (index: number) => void;
   onAdvance: () => void;
 }
 
 export function AIReviewStep({
   bulkItems, currentCardIndex, uploadedImages, imageUrls, categorySchemas, editingTitle, newTag,
   isGenerating, setEditingTitle, setNewTag, setCurrentCardIndex, deleteBulkItem,
-  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onAdvance,
+  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onDeletePhoto, onAdvance,
 }: AIReviewStepProps) {
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const activeThumbRef = useRef<HTMLButtonElement>(null);
@@ -119,8 +120,18 @@ export function AIReviewStep({
             // can drop blob URLs after backgrounding).
             const src = imageUrls?.[imgIdx] ?? uploadedImages[imgIdx]?.preview ?? null;
             return (
-              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline overflow-hidden">
-                <SkeletonImage src={src} alt="Item" />
+              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline">
+                <SkeletonImage src={src} alt="Item" className="rounded-md" />
+                {currentItem.imageIndices.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label="Delete photo"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeletePhoto(imgIdx); }}
+                    className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
               </div>
             );
           })}
