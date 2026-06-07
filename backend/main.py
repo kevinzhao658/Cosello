@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, Community, CommunityMember, WishlistItem, WishlistFolder, PurchaseOrder, Notification, Listing
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
 from routers.events import router as events_router
@@ -907,7 +907,7 @@ async def create_signed_upload_urls(
 async def segment_photos(
     images: list[UploadFile] = File(default_factory=list),
     image_urls: str = Form(""),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     parsed_image_urls: list[str] = []
     if image_urls:
@@ -979,7 +979,7 @@ class GenerateListingsRequest(BaseModel):
 @app.post("/api/generate-listings")
 async def generate_listings(
     req: GenerateListingsRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     if len(req.image_urls) != len(req.vision_signals):
         raise HTTPException(
