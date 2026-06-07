@@ -37,6 +37,10 @@ export interface UseDraftAutosaveDeps {
   initializedFromNeighborhoodRef: React.MutableRefObject<boolean>;
   pendingDraftId: string | null;
   onDraftLoaded?: () => void;
+  /** Editable draft name from the page heading; persisted as Draft.name. */
+  draftName?: string;
+  /** Called on draft load to push the saved name back up to the page heading. */
+  onDraftNameLoaded?: (name: string) => void;
 }
 
 export interface UseDraftAutosaveReturn {
@@ -66,6 +70,8 @@ export function useDraftAutosave({
   initializedFromNeighborhoodRef,
   pendingDraftId,
   onDraftLoaded,
+  draftName = "",
+  onDraftNameLoaded,
 }: UseDraftAutosaveDeps): UseDraftAutosaveReturn {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
 
@@ -117,13 +123,14 @@ export function useDraftAutosave({
       createdAt: now, // will be overwritten if the draft already exists
       updatedAt: now,
       mode,
+      name: draftName.trim() || undefined,
       selectedCommunityIds,
       singlePostPhase,
       state: persistable,
       files,
       lastSaveError: null,
     };
-  }, [currentDraftId, selectedCommunityIds, singlePostPhase, state, user?.id]);
+  }, [currentDraftId, draftName, selectedCommunityIds, singlePostPhase, state, user?.id]);
 
   // Debounced auto-save. Fires only after the user has committed to a
   // listing — i.e. the wizard has run segmentation (bulk) or generated
@@ -186,6 +193,7 @@ export function useDraftAutosave({
     state,
     selectedCommunityIds,
     singlePostPhase,
+    draftName,
     currentDraftId,
   ]);
 
@@ -240,7 +248,8 @@ export function useDraftAutosave({
     setCurrentDraftId(draft.id);
     draftCreatedAtRef.current = draft.createdAt;
     if (prunedCount > 0) setPrunedCommunityCount(prunedCount);
-  }, [actions, publicCommunities, privateCommunities]);
+    onDraftNameLoaded?.(draft.name ?? "");
+  }, [actions, publicCommunities, privateCommunities, onDraftNameLoaded]);
 
   // Reset everything for a brand-new draft. Called when the user taps
   // "Start a new listing" from the gallery.
