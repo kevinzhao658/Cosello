@@ -26,6 +26,8 @@ import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
+import { StepProgressBar } from "./StepProgressBar";
+import { computeWizardStep } from "./wizardStep";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -715,6 +717,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     [bulkReviewPhase],
   );
 
+  const wizardStep = computeWizardStep({
+    mode,
+    productDetails,
+    singlePostPhase,
+    bulkReviewPhase,
+  });
+
   if (!isActive) return null;
 
   return (
@@ -751,6 +760,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           )}
         </div>
       )}
+      {wizardStep && <StepProgressBar current={wizardStep.current} total={wizardStep.total} />}
       {prunedCommunityCount > 0 && (
         <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
           <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />

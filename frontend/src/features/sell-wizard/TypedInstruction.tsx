@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react";
 import { ChevronRight } from "lucide-react";
 
-export function TypedInstruction({ bulkReviewPhase, exiting, stepLabel, onBack }: {
+export function TypedInstruction({ bulkReviewPhase, exiting, onBack }: {
   bulkReviewPhase: "review" | "reason" | "cards" | "pickup" | null;
   exiting: boolean;
-  // Optional override for the eyebrow label. When unset, the eyebrow defaults
-  // to the bulk-flow step counter (Step 2 of 5 ... Step 5 of 5). Single-listing
-  // callers pass their own (e.g. "Step 4 of 4").
-  stepLabel?: string;
-  // Optional back action — when provided, a back chevron renders to the left
-  // of the eyebrow on the same row.
+  // Optional back action — when provided, a back chevron renders above the
+  // typed headline.
   onBack?: () => void;
 }) {
   const [typedInstruction, setTypedInstruction] = useState("");
@@ -51,15 +47,6 @@ export function TypedInstruction({ bulkReviewPhase, exiting, stepLabel, onBack }
     bulkReviewPhase !== "pickup"
   ) return null;
 
-  const defaultStepLabel = bulkReviewPhase === "review"
-    ? "Step 2 of 5"
-    : bulkReviewPhase === "reason"
-      ? "Step 3 of 5"
-      : bulkReviewPhase === "pickup"
-        ? "Step 5 of 5"
-        : "Step 4 of 5";
-  const eyebrow = stepLabel ?? defaultStepLabel;
-
   return (
     <div
       className="mt-3 text-center"
@@ -69,8 +56,8 @@ export function TypedInstruction({ bulkReviewPhase, exiting, stepLabel, onBack }
           : "wizardStepIn 300ms ease-out both",
       }}
     >
-      <div className="relative flex items-center justify-center mb-2">
-        {onBack && (
+      {onBack && (
+        <div className="relative flex items-center justify-center mb-2">
           <button
             type="button"
             onClick={onBack}
@@ -79,11 +66,8 @@ export function TypedInstruction({ bulkReviewPhase, exiting, stepLabel, onBack }
           >
             <ChevronRight className="size-3.5 rotate-180" />
           </button>
-        )}
-        <p className="text-[12px] font-semibold text-muted">
-          {eyebrow}
-        </p>
-      </div>
+        </div>
+      )}
       <p className="text-4xl sm:text-5xl font-extrabold text-ink leading-[1.05] tracking-display">
         {typedInstruction}
         {!typedInstruction.endsWith("?") && !typedInstruction.endsWith(".") && (
