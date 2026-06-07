@@ -148,8 +148,8 @@ export function DraftsGallery({
       {/* Drafts header (only when drafts exist) */}
       {hasDrafts && (
         <div className="flex items-baseline justify-between">
-          <h2 className="text-[10px] font-bold text-muted">Drafts</h2>
-          <span className="text-[10px] text-muted-soft">
+          <h2 className="text-lg font-bold tracking-tight text-ink">Drafts</h2>
+          <span className="text-[11px] text-muted-soft">
             {drafts.length} in progress
           </span>
         </div>
