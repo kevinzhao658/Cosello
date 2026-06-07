@@ -121,21 +121,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     () => [...publicCommunities, ...privateCommunities],
     [publicCommunities, privateCommunities],
   );
-  const userNeighborhoodCommunityId = useMemo(
-    () => publicCommunities.find((c) => c.neighborhood === user?.neighborhood)?.id ?? null,
-    [publicCommunities, user?.neighborhood],
-  );
   const [selectedCommunityIds, setSelectedCommunityIds] = useState<number[]>([]);
-  // Initial pre-selection: when the user's neighborhood community resolves,
-  // seed the picker with it (only if the seller hasn't touched the picker yet).
   const initializedFromNeighborhoodRef = useRef(false);
-  useEffect(() => {
-    if (initializedFromNeighborhoodRef.current) return;
-    if (userNeighborhoodCommunityId !== null) {
-      setSelectedCommunityIds([userNeighborhoodCommunityId]);
-      initializedFromNeighborhoodRef.current = true;
-    }
-  }, [userNeighborhoodCommunityId]);
   // Single-listing wizard has its own two-phase split (review → pickup) to
   // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
   const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");

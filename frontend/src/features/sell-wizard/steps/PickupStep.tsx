@@ -34,10 +34,6 @@ export function PickupStep({
 }: PickupStepProps) {
   return (
     <div className="space-y-5 max-w-md mx-auto">
-      <h2 className="text-xl font-extrabold text-ink leading-tight tracking-tight">
-        Where are you selling?
-      </h2>
-
       <div>
         <label htmlFor="bulk-pickup-location" className="text-xs text-muted uppercase tracking-wider">
           Pickup location
