@@ -3,19 +3,28 @@ interface StepProgressBarProps {
   total: number;
   /** One-word label per step (length === total). */
   labels: string[];
+  /**
+   * Furthest step the user has reached this session (high-water mark). Every
+   * step up to here is "completed" and stays jumpable in BOTH directions —
+   * going back doesn't demote later steps to "future". Defaults to `current`.
+   */
+  maxReached?: number;
   /** Jump to a completed step. Called only for steps the bar renders as clickable. */
   onStepClick?: (step: number) => void;
 }
 
 // Connected numbered step bubbles, each with a one-word label above. Completed
-// steps are solid violet (and clickable as a shortcut back to that step), the
-// current step is a violet-ringed outline, upcoming steps are quiet greys. A
-// connector line behind the bubbles fills up to the current step. Equal-width
-// columns keep each label centered over its bubble.
-export function StepProgressBar({ current, total, labels, onStepClick }: StepProgressBarProps) {
+// steps (everything up to the high-water mark) are solid violet and clickable as
+// a shortcut — backward OR forward — except the current step, which is a
+// violet-ringed outline marking "you are here". Steps beyond the high-water mark
+// are quiet greys. A connector line behind the bubbles fills to the furthest
+// reached step. Equal-width columns keep each label centered over its bubble.
+export function StepProgressBar({ current, total, labels, maxReached, onStepClick }: StepProgressBarProps) {
   const steps = Array.from({ length: total }, (_, i) => i + 1);
-  // Fill reaches the current bubble's center along the line (bubble 1 → last).
-  const fillPct = total > 1 ? ((current - 1) / (total - 1)) * 100 : 0;
+  // High-water mark never sits behind the current step.
+  const reached = Math.max(maxReached ?? current, current);
+  // Fill reaches the furthest-completed bubble's center along the line.
+  const fillPct = total > 1 ? ((reached - 1) / (total - 1)) * 100 : 0;
   // The line spans bubble-1 center → bubble-last center; each is half a column
   // in from the edge.
   const lineInset = `${50 / total}%`;
@@ -32,13 +41,13 @@ export function StepProgressBar({ current, total, labels, onStepClick }: StepPro
       {/* Labels row */}
       <div className="flex mb-1.5">
         {steps.map((n) => {
-          const done = n < current;
           const isCurrent = n === current;
+          const completed = n <= reached && !isCurrent;
           return (
             <span
               key={n}
               className={`flex-1 text-center text-[9px] font-semibold uppercase tracking-wide truncate px-0.5 ${
-                isCurrent ? "text-primary" : done ? "text-muted" : "text-muted-soft"
+                isCurrent ? "text-primary" : completed ? "text-muted" : "text-muted-soft"
               }`}
             >
               {labels[n - 1] ?? ""}
@@ -61,12 +70,13 @@ export function StepProgressBar({ current, total, labels, onStepClick }: StepPro
         </div>
 
         {steps.map((n) => {
-          const done = n < current;
           const isCurrent = n === current;
-          // Only completed bulk-ish steps (past, not the upload start) are jumpable.
-          const clickable = Boolean(onStepClick) && n < current && n > 1;
+          const completed = n <= reached && !isCurrent;
+          // Any completed step (except the upload start) is jumpable — forward
+          // to steps already reached as well as backward.
+          const clickable = Boolean(onStepClick) && completed && n > 1;
           const bubbleClass = `flex items-center justify-center size-5 rounded-full text-[10px] font-bold transition-colors ${
-            done
+            completed
               ? "bg-primary text-on-primary"
               : isCurrent
                 ? "bg-canvas text-primary border-2 border-primary"

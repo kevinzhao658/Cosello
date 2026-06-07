@@ -129,6 +129,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // Single-listing wizard has its own two-phase split (review → pickup) to
   // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
   const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
+  // High-water mark for the step bar: the furthest step reached this session.
+  // Lets the user jump forward again to steps they've already completed after
+  // navigating back. Reset to 1 on a fresh upload; rewound when a back-jump
+  // invalidates later steps (single flow dropping its generated item).
+  const [maxReachedStep, setMaxReachedStep] = useState(1);
   const [isCompressing, setIsCompressing] = useState(false);
   const [state, actions] = useSellWizard();
 
@@ -724,9 +729,19 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     bulkReviewPhase,
   });
 
-  // Jump back to a completed step from the progress bar. Bulk phases all share
-  // the same persisted data, so any backward jump is safe. Step 1 (upload) and
-  // forward steps aren't jumpable.
+  // Track the furthest step reached. A fresh upload (step 1) resets the mark;
+  // otherwise it only ever ratchets up. Back-jumps that invalidate later steps
+  // rewind it explicitly in handleStepJump rather than here.
+  const stepCurrent = wizardStep?.current ?? null;
+  useEffect(() => {
+    if (stepCurrent === null) return;
+    if (stepCurrent === 1) setMaxReachedStep(1);
+    else if (stepCurrent > maxReachedStep) setMaxReachedStep(stepCurrent);
+  }, [stepCurrent, maxReachedStep]);
+
+  // Jump to any completed step from the progress bar — backward OR forward to a
+  // step already reached. Bulk phases all share the same persisted data, so any
+  // jump among reached steps is safe. Step 1 (upload) is never jumpable.
   const handleStepJump = (step: number) => {
     // Bulk flow (steps 2-5 map to bulk phases).
     if (inWizardPhase) {
@@ -740,13 +755,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       if (target && target !== bulkReviewPhase) transitionToPhase(target);
       return;
     }
-    // Single flow (productDetails set): step 4 = Review form, step 5 = Pickup.
-    // Steps 2/3 jump back to the bulk grouping / reason — segmentation persists,
-    // so we drop the generated single (it can be re-run) and restore that phase.
+    // Single flow (productDetails set): step 4 = Review form, step 5 = Pickup —
+    // both jump freely since the generated item persists. Steps 2/3 jump back to
+    // the bulk grouping / reason: segmentation persists, so we drop the generated
+    // single (it can be re-run) and restore that phase. Dropping it invalidates
+    // steps 4-5, so rewind the high-water mark to the step we land on.
     if (productDetails) {
       if (step === 4) {
         setSinglePostPhase("review");
+      } else if (step === 5) {
+        setSinglePostPhase("pickup");
       } else if (step === 2 || step === 3) {
+        setMaxReachedStep(step);
         actions.setProductDetails(null);
         actions.setPhase(step === 2 ? "review" : "reason");
       }
@@ -794,6 +814,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           current={wizardStep.current}
           total={wizardStep.total}
           labels={wizardStep.labels}
+          maxReached={maxReachedStep}
           onStepClick={handleStepJump}
         />
       )}
