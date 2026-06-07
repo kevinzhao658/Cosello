@@ -802,7 +802,7 @@ export default function App() {
             <DraftsGallery
               userId={user?.id ?? null}
               onSelectDraft={(id) => setDraftRouteState({ kind: "load", id })}
-              onStartNew={() => setDraftRouteState({ kind: "new" })}
+              onStartNew={() => { newListing.setDraftName(""); setDraftRouteState({ kind: "new" }); }}
               refreshNonce={draftsRefreshNonce}
             />
           ) : (
@@ -810,9 +810,15 @@ export default function App() {
             {/* Breadcrumb + title + toolbar */}
             <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
               <div className="min-w-0">
-                <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
-                  New listing
-                </h1>
+                <input
+                  type="text"
+                  value={newListing.draftName}
+                  onChange={(e) => newListing.setDraftName(e.target.value)}
+                  placeholder="New listing"
+                  maxLength={80}
+                  aria-label="Listing name"
+                  className="w-full bg-transparent border-0 p-0 text-3xl font-extrabold tracking-display text-ink leading-[1.05] placeholder:text-muted-soft focus:outline-none focus:ring-0"
+                />
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -864,6 +870,8 @@ export default function App() {
                       // continues editing the loaded state without further loads.
                       setDraftRouteState({ kind: "new" });
                     }}
+                    draftName={newListing.draftName}
+                    onDraftNameLoaded={newListing.setDraftName}
                     onPublishedDraft={async (draftId) => {
                       if (draftId) {
                         await draftStorage.deleteDraft(draftId);
