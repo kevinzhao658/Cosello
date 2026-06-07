@@ -867,7 +867,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                              className="absolute top-1 right-1 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
