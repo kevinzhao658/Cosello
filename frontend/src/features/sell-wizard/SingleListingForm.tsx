@@ -1,11 +1,13 @@
-import { AlertTriangle, X } from "lucide-react";
+import { useRef } from "react";
+import { AlertTriangle, Plus, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
+import { SkeletonImage } from "../../components/ui/SkeletonImage";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
 import { CONDITIONS } from "../../lib/listings";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
-import type { ProductDetails } from "./useSellWizard";
+import type { ProductDetails, UploadedImage } from "./useSellWizard";
 
 interface SingleListingFormProps {
   productDetails: ProductDetails;
@@ -16,12 +18,19 @@ interface SingleListingFormProps {
   setNewTag: (v: string) => void;
   onContinue: () => void;
   isAuthenticated: boolean;
+  uploadedImages: UploadedImage[];
+  imageUrls: string[];
+  onAddPhotos: (files: FileList) => void;
+  onDeletePhoto: (index: number) => void;
 }
 
 export function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   newTag, setNewTag, onContinue, isAuthenticated,
+  uploadedImages, imageUrls, onAddPhotos, onDeletePhoto,
 }: SingleListingFormProps) {
+  const singlePhotoInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
       {productDetails.retrieval_fallback === true && (
@@ -33,6 +42,47 @@ export function SingleListingForm({
           </div>
         </div>
       )}
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        {uploadedImages.map((img, i) => {
+          const src = imageUrls[i] ?? img.preview ?? null;
+          return (
+            <div key={i} className="relative size-16 shrink-0 rounded-md border border-hairline">
+              <SkeletonImage src={src} alt="Photo" className="rounded-md" />
+              {uploadedImages.length > 1 && (
+                <button
+                  type="button"
+                  aria-label="Delete photo"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeletePhoto(i); }}
+                  className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => singlePhotoInputRef.current?.click()}
+          aria-label="Add more photos"
+          className="size-16 shrink-0 rounded-md border-2 border-dashed border-border-strong inline-flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          <Plus className="size-5" />
+        </button>
+        <input
+          ref={singlePhotoInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              onAddPhotos(e.target.files);
+              e.target.value = "";
+            }
+          }}
+        />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-muted">Brand</label>

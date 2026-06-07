@@ -26,7 +26,6 @@ export function SinglePickupStep({
       <TypedInstruction
         bulkReviewPhase="pickup"
         exiting={instructionExiting}
-        stepLabel="Step 4 of 4"
         onBack={onBack}
       />
       <div className="mt-8 space-y-5 max-w-md mx-auto">

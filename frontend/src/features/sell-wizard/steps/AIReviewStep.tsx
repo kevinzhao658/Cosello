@@ -3,7 +3,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { PriceInput } from "../../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../../components/CategoryFields";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { SkeletonImage } from "../../../components/ui/SkeletonImage";
 import { formatTitle } from "../../../lib/format";
@@ -30,13 +30,14 @@ export interface AIReviewStepProps {
   updateBulkItemField: (i: number, field: string, value: unknown) => void;
   regenerateBulkItem: (groupIdx: number) => void;
   addPhotoToBulkItem: (index: number, files: FileList) => void;
+  onDeletePhoto: (index: number) => void;
   onAdvance: () => void;
 }
 
 export function AIReviewStep({
   bulkItems, currentCardIndex, uploadedImages, imageUrls, categorySchemas, editingTitle, newTag,
   isGenerating, setEditingTitle, setNewTag, setCurrentCardIndex, deleteBulkItem,
-  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onAdvance,
+  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onDeletePhoto, onAdvance,
 }: AIReviewStepProps) {
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const activeThumbRef = useRef<HTMLButtonElement>(null);
@@ -119,11 +120,29 @@ export function AIReviewStep({
             // can drop blob URLs after backgrounding).
             const src = imageUrls?.[imgIdx] ?? uploadedImages[imgIdx]?.preview ?? null;
             return (
-              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline overflow-hidden">
-                <SkeletonImage src={src} alt="Item" />
+              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline">
+                <SkeletonImage src={src} alt="Item" className="rounded-md" />
+                {currentItem.imageIndices.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label="Delete photo"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeletePhoto(imgIdx); }}
+                    className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
               </div>
             );
           })}
+          <button
+            type="button"
+            onClick={() => bulkPhotoInputRef.current?.click()}
+            aria-label="Add more photos"
+            className="size-16 shrink-0 rounded-md border-2 border-dashed border-border-strong inline-flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          >
+            <Plus className="size-5" />
+          </button>
           <input
             ref={bulkPhotoInputRef}
             type="file"

@@ -26,6 +26,8 @@ import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
+import { StepProgressBar } from "./StepProgressBar";
+import { computeWizardStep } from "./wizardStep";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -127,6 +129,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // Single-listing wizard has its own two-phase split (review → pickup) to
   // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
   const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
+  // High-water mark for the step bar: the furthest step reached this session.
+  // Lets the user jump forward again to steps they've already completed after
+  // navigating back. Reset to 1 on a fresh upload; rewound when a back-jump
+  // invalidates later steps (single flow dropping its generated item).
+  const [maxReachedStep, setMaxReachedStep] = useState(1);
   const [isCompressing, setIsCompressing] = useState(false);
   const [state, actions] = useSellWizard();
 
@@ -715,6 +722,57 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     [bulkReviewPhase],
   );
 
+  const wizardStep = computeWizardStep({
+    mode,
+    productDetails,
+    singlePostPhase,
+    bulkReviewPhase,
+  });
+
+  // Track the furthest step reached. A fresh upload (step 1) resets the mark;
+  // otherwise it only ever ratchets up. Back-jumps that invalidate later steps
+  // rewind it explicitly in handleStepJump rather than here.
+  const stepCurrent = wizardStep?.current ?? null;
+  useEffect(() => {
+    if (stepCurrent === null) return;
+    if (stepCurrent === 1) setMaxReachedStep(1);
+    else if (stepCurrent > maxReachedStep) setMaxReachedStep(stepCurrent);
+  }, [stepCurrent, maxReachedStep]);
+
+  // Jump to any completed step from the progress bar — backward OR forward to a
+  // step already reached. Bulk phases all share the same persisted data, so any
+  // jump among reached steps is safe. Step 1 (upload) is never jumpable.
+  const handleStepJump = (step: number) => {
+    // Bulk flow (steps 2-5 map to bulk phases).
+    if (inWizardPhase) {
+      const phaseForStep: Record<number, "review" | "reason" | "cards" | "pickup"> = {
+        2: "review",
+        3: "reason",
+        4: "cards",
+        5: "pickup",
+      };
+      const target = phaseForStep[step];
+      if (target && target !== bulkReviewPhase) transitionToPhase(target);
+      return;
+    }
+    // Single flow (productDetails set): step 4 = Review form, step 5 = Pickup —
+    // both jump freely since the generated item persists. Steps 2/3 jump back to
+    // the bulk grouping / reason: segmentation persists, so we drop the generated
+    // single (it can be re-run) and restore that phase. Dropping it invalidates
+    // steps 4-5, so rewind the high-water mark to the step we land on.
+    if (productDetails) {
+      if (step === 4) {
+        setSinglePostPhase("review");
+      } else if (step === 5) {
+        setSinglePostPhase("pickup");
+      } else if (step === 2 || step === 3) {
+        setMaxReachedStep(step);
+        actions.setProductDetails(null);
+        actions.setPhase(step === 2 ? "review" : "reason");
+      }
+    }
+  };
+
   if (!isActive) return null;
 
   return (
@@ -751,6 +809,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           )}
         </div>
       )}
+      {wizardStep && (
+        <StepProgressBar
+          current={wizardStep.current}
+          total={wizardStep.total}
+          labels={wizardStep.labels}
+          maxReached={maxReachedStep}
+          onStepClick={handleStepJump}
+        />
+      )}
       {prunedCommunityCount > 0 && (
         <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
           <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
@@ -766,6 +833,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             <X className="size-3.5" />
           </button>
         </div>
+      )}
+      {bulkReviewPhase === null && (
+        <header className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink">Photos</h2>
+        </header>
       )}
       <UploadStep
         uploadedImagesCount={uploadedImages.length}
@@ -887,7 +959,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute top-1 right-1 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                              className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
@@ -943,18 +1015,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             >
               <div className="flex flex-wrap items-center gap-2">
                 {uploadedImages.map((img, index) => (
-                  <div key={index} className="relative size-[72px] rounded-md overflow-hidden border border-hairline bg-surface-soft">
+                  <div key={index} className="relative size-[72px] rounded-md border border-hairline bg-surface-soft">
                     <img
                       src={img.preview}
                       alt={`Upload ${index + 1}`}
-                      className="size-full object-cover"
+                      className="size-full object-cover rounded-md"
                     />
                     <button
                       type="button"
                       aria-label={`Delete photo ${index + 1}`}
                       onMouseDown={handleDeletePhotoMouseDown}
                       onClick={handleDeletePhotoClick(index)}
-                      className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-full bg-ink/70 text-on-dark text-xs hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                     >
                       <X className="size-3" />
                     </button>
@@ -1074,6 +1146,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             setSinglePostPhase("pickup");
           }}
           isAuthenticated={isAuthenticated}
+          uploadedImages={uploadedImages}
+          imageUrls={segmentation?.image_urls ?? []}
+          onAddPhotos={(files) => addImagesFromFiles(files)}
+          onDeletePhoto={deletePhoto}
         />
       )}
 
@@ -1117,6 +1193,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           updateBulkItemField={updateBulkItemField}
           regenerateBulkItem={regenerateBulkItem}
           addPhotoToBulkItem={addPhotoToBulkItem}
+          onDeletePhoto={deletePhoto}
           onAdvance={() => transitionToPhase("pickup")}
         />
       )}
