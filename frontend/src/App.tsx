@@ -829,11 +829,17 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
               {/* Left — form column */}
               <div className="space-y-6 min-w-0">
-                {/* Photos section eyebrow */}
+                {/* Photos section eyebrow — only during the upload step (step 1).
+                    Once AI segmentation starts (wizardPhase !== null) the wizard
+                    takes over its own headers, so this would otherwise persist
+                    incorrectly into step 2+. Manual mode keeps wizardPhase null,
+                    so the composer header stays as expected there. */}
                 <section>
-                  <header className="flex items-baseline justify-between mb-3">
-                    <h2 className="text-sm font-semibold text-ink">Photos</h2>
-                  </header>
+                  {newListing.wizardPhase === null && (
+                    <header className="flex items-baseline justify-between mb-3">
+                      <h2 className="text-sm font-semibold text-ink">Photos</h2>
+                    </header>
+                  )}
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
                       AI mode it expands into the full wizard flow. */}
