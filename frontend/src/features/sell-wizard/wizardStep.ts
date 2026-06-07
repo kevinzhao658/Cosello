@@ -7,16 +7,17 @@ export interface WizardStep {
   labels: string[];
 }
 
-const BULK_LABELS = ["Photos", "Items", "Reason", "Review", "Pickup"];
-const SINGLE_LABELS = ["Photos", "Review", "Pickup"];
+const STEP_LABELS = ["Photos", "Items", "Reason", "Review", "Pickup"];
 
 /**
  * Map the wizard's current phase state to a step indicator, or null when no bar
- * should show. Bulk AI flow = of 5; single AI flow = of 3; manual = no bar.
+ * should show. Both the bulk and single AI flows are 5 steps with the SAME
+ * labels — they share Upload → Items → Reason, then diverge at step 4 (the bulk
+ * cards vs the single listing form) and step 5 (pickup). Manual mode = no bar.
  *
- * Single vs bulk isn't known until the AI produces productDetails (single) or
- * bulkReviewPhase (bulk). Before that (the upload step) we default to bulk's
- * "1 of 5"; in the single case it resolves to "of 3" once productDetails exists.
+ * A single-item generation sets productDetails (steps 4-5 via singlePostPhase);
+ * the bulk path uses bulkReviewPhase (steps 2-5). Before either resolves (upload)
+ * we show step 1 of 5.
  */
 export function computeWizardStep(args: {
   mode: "ai" | "manual";
@@ -27,12 +28,13 @@ export function computeWizardStep(args: {
   const { mode, productDetails, singlePostPhase, bulkReviewPhase } = args;
   // Manual mode is a single-page form — no stepped progress.
   if (mode === "manual") return null;
-  // Single-listing AI flow (3 consecutive steps): Photos → Review → Pickup.
+  // Single-listing AI flow: review form = step 4, pickup = step 5 (of 5),
+  // keeping the same 5-step bar as bulk.
   if (productDetails) {
     return {
-      current: singlePostPhase === "pickup" ? 3 : 2,
-      total: 3,
-      labels: SINGLE_LABELS,
+      current: singlePostPhase === "pickup" ? 5 : 4,
+      total: 5,
+      labels: STEP_LABELS,
     };
   }
   // Bulk AI flow (5 steps).
@@ -46,5 +48,5 @@ export function computeWizardStep(args: {
           : bulkReviewPhase === "pickup"
             ? 5
             : 1; // Upload step / flow not yet determined.
-  return { current: bulkCurrent, total: 5, labels: BULK_LABELS };
+  return { current: bulkCurrent, total: 5, labels: STEP_LABELS };
 }

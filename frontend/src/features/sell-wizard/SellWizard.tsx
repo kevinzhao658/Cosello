@@ -725,9 +725,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   });
 
   // Jump back to a completed step from the progress bar. Bulk phases all share
-  // the same persisted data, so any backward jump is safe; the single flow only
-  // jumps back to Review. Step 1 (upload) and forward steps aren't jumpable.
+  // the same persisted data, so any backward jump is safe. Step 1 (upload) and
+  // forward steps aren't jumpable.
   const handleStepJump = (step: number) => {
+    // Bulk flow (steps 2-5 map to bulk phases).
     if (inWizardPhase) {
       const phaseForStep: Record<number, "review" | "reason" | "cards" | "pickup"> = {
         2: "review",
@@ -739,8 +740,16 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       if (target && target !== bulkReviewPhase) transitionToPhase(target);
       return;
     }
-    if (productDetails && step === 2 && singlePostPhase !== "review") {
-      setSinglePostPhase("review");
+    // Single flow (productDetails set): step 4 = Review form, step 5 = Pickup.
+    // Steps 2/3 jump back to the bulk grouping / reason — segmentation persists,
+    // so we drop the generated single (it can be re-run) and restore that phase.
+    if (productDetails) {
+      if (step === 4) {
+        setSinglePostPhase("review");
+      } else if (step === 2 || step === 3) {
+        actions.setProductDetails(null);
+        actions.setPhase(step === 2 ? "review" : "reason");
+      }
     }
   };
 
