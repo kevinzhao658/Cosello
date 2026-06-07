@@ -1139,7 +1139,7 @@ export default function App() {
         <section className="min-h-[calc(100vh-64px)] flex items-start justify-center px-4 sm:px-6 lg:px-8 pt-8 pb-16 sm:pt-12 sm:pb-16">
           <div className="w-full max-w-[760px]">
             <div className="mb-8">
-              <p className="text-[12px] font-semibold text-muted mb-5">
+              <p className="text-base sm:text-lg leading-relaxed text-muted mb-5">
                 {(() => {
                   const d = new Date();
                   const wk = d.toLocaleDateString("en-US", { weekday: "long" });
