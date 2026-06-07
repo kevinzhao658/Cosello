@@ -3,6 +3,7 @@ import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
+import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
@@ -126,6 +127,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // Single-listing wizard has its own two-phase split (review → pickup) to
   // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
   const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
+  const [isCompressing, setIsCompressing] = useState(false);
   const [state, actions] = useSellWizard();
 
   const {
@@ -311,10 +313,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
   const segmentPhotos = useCallback(async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
     if (files.length > 20) throw new Error("Maximum 20 photos per upload");
-    if (!token) throw new Error("Sign in to upload");
-    const urls = await uploadToStorage(files, token);
     const formData = new FormData();
-    formData.append("image_urls", JSON.stringify(urls));
+    if (token) {
+      // Authenticated path: pre-upload to Supabase Storage, then send URLs.
+      const urls = await uploadToStorage(files, token);
+      formData.append("image_urls", JSON.stringify(urls));
+    } else {
+      // Guest path: skip storage upload, send raw files directly as multipart.
+      // Backend saves them via _save_uploaded_images and returns image_urls.
+      for (const f of files) {
+        formData.append("images", f);
+      }
+    }
     const res = await apiFetch("/api/segment-photos", {
       method: "POST",
       body: formData,
@@ -336,7 +346,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     rationale: string;
     rationale_other: string;
   }): Promise<BulkItemDetails[]> => {
-    if (!token) throw new Error("Sign in to upload");
     const res = await apiFetch("/api/generate-listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -366,7 +375,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
       return;
     }
-    const newImages = incoming.map((file) => ({
+    setIsCompressing(true);
+    const compressed = await Promise.all(incoming.map(compressImage));
+    setIsCompressing(false);
+    const newImages = compressed.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -424,7 +436,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       deletePhoto(originalIndex);
     };
 
-  const addPhotoToBulkItem = (index: number, files: FileList) => {
+  const addPhotoToBulkItem = async (index: number, files: FileList) => {
     const remaining = 20 - uploadedImages.length;
     if (remaining <= 0) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
@@ -435,7 +447,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
       return;
     }
-    const newImages = incoming.map((file) => ({
+    setIsCompressing(true);
+    const compressed = await Promise.all(incoming.map(compressImage));
+    setIsCompressing(false);
+    const newImages = compressed.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -456,10 +471,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (uploadedImages.length === 0) return;
     if (uploadedImages.length > 20) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
-      return;
-    }
-    if (!token) {
-      actions.setSegmentationError("Sign in to upload");
       return;
     }
     actions.segmentationStart();
@@ -648,11 +659,16 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (incoming.length > remaining) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
     }
-    const newImages = trimmed.map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-    }));
-    actions.appendImages(newImages);
+    setIsCompressing(true);
+    void Promise.all(trimmed.map(compressImage))
+      .then((compressed) => {
+        const newImages = compressed.map((file) => ({
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        actions.appendImages(newImages);
+      })
+      .finally(() => setIsCompressing(false));
   }, [uploadedImages.length, actions]);
 
   useImperativeHandle(ref, () => ({
@@ -761,6 +777,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         onSwitchToBuy={onSwitchToBuy}
       />
 
+      {isCompressing && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-muted" aria-live="polite">
+          <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+          <span>Preparing photos…</span>
+        </div>
+      )}
+
       {uploadedImages.length > 0 && (
         <>
           {inWizardPhase && segmentation ? (
@@ -864,7 +887,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                              className="absolute top-1 right-1 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>

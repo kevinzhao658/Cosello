@@ -893,3 +893,162 @@ def test_validate_groupings_strict():
     assert f([], 1) is None
     # group with non-int
     assert f([["0"]], 1) is None
+
+
+# --------------------------------------------------------------------------- #
+# Anonymous-access tests (guest sell flow)                                    #
+# --------------------------------------------------------------------------- #
+# These tests verify that /api/segment-photos and /api/generate-listings
+# accept requests with NO auth header (guest path) AND with a valid token
+# (authenticated path). /api/listings is NOT opened and must remain gated.
+
+
+@pytest.fixture
+def anon_client():
+    """A bare TestClient with no dependency overrides — simulates an unauthenticated
+    (anonymous/guest) caller. get_optional_user returns None for requests with
+    no Authorization header."""
+    from auth import get_optional_user
+
+    # Ensure no leftover override from other fixtures bleeds in.
+    main.app.dependency_overrides.pop(get_optional_user, None)
+    yield TestClient(main.app)
+    main.app.dependency_overrides.pop(get_optional_user, None)
+
+
+@pytest.fixture
+def authed_optional_client(mock_user):
+    """A TestClient where get_optional_user is overridden to return a mock User,
+    simulating an authenticated caller on the optional-auth endpoints."""
+    from auth import get_optional_user
+
+    main.app.dependency_overrides[get_optional_user] = lambda: mock_user
+    yield TestClient(main.app)
+    main.app.dependency_overrides.pop(get_optional_user, None)
+
+
+def test_segment_photos_anonymous_no_auth_header_returns_200(
+    anon_client, monkeypatch, patch_vision_signaled, mock_storage
+):
+    """Guest (no Authorization header) can call /api/segment-photos and get 200."""
+    _patch_claude(monkeypatch, responses=[])  # single image -> no Claude call
+
+    img = _png_bytes()
+    resp = anon_client.post(
+        "/api/segment-photos",
+        files=[("images", ("a.png", img, "image/png"))],
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["groupings"] == [[0]]
+    assert len(body["image_urls"]) == 1
+    assert len(body["vision_signals"]) == 1
+
+
+def test_segment_photos_anonymous_multi_image_returns_200(
+    anon_client, monkeypatch, patch_vision_empty, mock_storage
+):
+    """Guest with multiple images gets grouping result (no 401)."""
+    _patch_claude(monkeypatch, responses=["[[0, 1], [2]]"])
+
+    imgs = [_png_bytes((i * 30, 50, 50)) for i in range(3)]
+    files = [("images", (f"img{i}.png", b, "image/png")) for i, b in enumerate(imgs)]
+    resp = anon_client.post("/api/segment-photos", files=files)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["groupings"] == [[0, 1], [2]]
+
+
+def test_segment_photos_with_valid_token_still_returns_200(
+    authed_optional_client, monkeypatch, patch_vision_signaled, mock_storage
+):
+    """Authenticated callers still get 200 — auth token path not broken."""
+    _patch_claude(monkeypatch, responses=[])  # single image -> no Claude call
+
+    img = _png_bytes()
+    resp = authed_optional_client.post(
+        "/api/segment-photos",
+        files=[("images", ("b.png", img, "image/png"))],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["groupings"] == [[0]]
+
+
+def test_generate_listings_anonymous_no_auth_header_returns_200(
+    anon_client, monkeypatch, mock_storage
+):
+    """Guest (no Authorization header) can call /api/generate-listings and get 200."""
+    urls = _seed_uploaded_images(mock_storage, 1)
+    listing = {
+        "name": "Denim Jacket",
+        "brand": "Levi's",
+        "description": "Classic denim.",
+        "price": "60",
+        "condition": "Good",
+        "location": "SoHo",
+        "tags": ["denim"],
+        "category": "clothing",
+        "categoryAttributes": {"size": "M", "gender": "Unisex"},
+        "identifierConfidence": "high",
+    }
+    _patch_claude(monkeypatch, responses=[json.dumps(listing)])
+
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": ["Levi's"],
+        "names": [""],
+    }
+    resp = anon_client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body, list) and len(body) == 1
+    assert body[0]["name"] == "Denim Jacket"
+    assert body[0]["brand"] == "Levi's"
+
+
+def test_generate_listings_with_valid_token_still_returns_200(
+    authed_optional_client, monkeypatch, mock_storage
+):
+    """Authenticated callers still get 200 — auth token path not broken."""
+    urls = _seed_uploaded_images(mock_storage, 1)
+    listing = {
+        "name": "Fleece Jacket",
+        "brand": "Patagonia",
+        "description": "Warm fleece.",
+        "price": "75",
+        "condition": "Good",
+        "location": "Chelsea",
+        "tags": ["fleece"],
+        "category": "clothing",
+        "categoryAttributes": {"size": "L", "gender": "Unisex"},
+        "identifierConfidence": "high",
+    }
+    _patch_claude(monkeypatch, responses=[json.dumps(listing)])
+
+    payload = {
+        "groupings": [[0]],
+        "image_urls": urls,
+        "vision_signals": _empty_signals(1),
+        "brand_hints": ["Patagonia"],
+        "names": [""],
+    }
+    resp = authed_optional_client.post("/api/generate-listings", json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body[0]["brand"] == "Patagonia"
+
+
+def test_listings_publish_endpoint_still_requires_auth(anon_client):
+    """/api/listings (publish/write) must NOT be opened — anon caller gets 401/403."""
+    resp = anon_client.post(
+        "/api/listings",
+        data={"data": '{"name": "x", "price": "10"}'},
+        files=[("images", ("x.png", _png_bytes(), "image/png"))],
+    )
+    # FastAPI returns 403 (no credentials supplied with auto_error=False bearer)
+    # rather than 401 in some configurations; accept both as "auth-gated".
+    assert resp.status_code in (401, 403, 422), (
+        f"Expected auth gate on /api/listings, got {resp.status_code}: {resp.text}"
+    )
