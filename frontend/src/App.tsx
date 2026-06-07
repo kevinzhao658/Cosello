@@ -53,6 +53,11 @@ export default function App() {
   const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
   const [pendingSignupUser, setPendingSignupUser] = useState<AuthUser | null>(null);
 
+  // Return-intent: when a guest hits Publish in the sell wizard they're sent to
+  // sign-in. This flag causes onSuccess/onComplete to route back to "newlisting"
+  // (where wizard state is still intact) instead of "home"/"account".
+  const [pendingSellPublish, setPendingSellPublish] = useState(false);
+
   const [homeSearch, setHomeSearch] = useState("");
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
 
@@ -91,12 +96,20 @@ export default function App() {
   }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
 
+  // Shared handler: guest taps Publish → set return-intent + go to sign-in.
+  // Both the manual-publish path (onRequireSignIn) and the AI/bulk publish path
+  // (SellWizard's onRequestSignIn) use this so the intent is always set.
+  const requestSignInForPublish = useCallback(() => {
+    setPendingSellPublish(true);
+    setPage("signin");
+  }, []);
+
   const newListing = useNewListingForm({
     sellWizardRef,
     isAuthenticated,
     user,
     page,
-    onRequireSignIn: () => setPage("signin"),
+    onRequireSignIn: requestSignInForPublish,
     onRequireAiConfirm: () => setShowPostConfirm(true),
   });
 
@@ -724,16 +737,26 @@ export default function App() {
           <SignInPage
             onSuccess={(newToken, userExists, newUser) => {
               if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
-                // Don't log in yet — hold token until profile is completed
+                // Don't log in yet — hold token until profile is completed.
+                // pendingSellPublish stays set so the signup onComplete can pick
+                // it up and route back to newlisting after registration.
                 setPendingSignupToken(newToken);
                 setPendingSignupUser(newUser);
                 setPage("signup");
               } else {
                 login(newToken, newUser);
-                setPage("home");
+                if (pendingSellPublish) {
+                  setPendingSellPublish(false);
+                  setPage("newlisting");
+                } else {
+                  setPage("home");
+                }
               }
             }}
-            onCancel={() => setPage("home")}
+            onCancel={() => {
+              setPendingSellPublish(false);
+              setPage("home");
+            }}
           />
         </Suspense>
       )}
@@ -747,7 +770,12 @@ export default function App() {
               login(pendingSignupToken, completedUser);
               setPendingSignupToken(null);
               setPendingSignupUser(null);
-              setPage("account");
+              if (pendingSellPublish) {
+                setPendingSellPublish(false);
+                setPage("newlisting");
+              } else {
+                setPage("account");
+              }
             }}
             onCancel={() => {
               // Sign out the Supabase session so the half-registered user
@@ -755,6 +783,7 @@ export default function App() {
               void logout().then(() => {
                 setPendingSignupToken(null);
                 setPendingSignupUser(null);
+                setPendingSellPublish(false);
                 setPage("home");
               });
             }}
@@ -817,7 +846,7 @@ export default function App() {
                     publicCommunities={publicCommunities}
                     privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
-                    onRequestSignIn={() => setPage("signin")}
+                    onRequestSignIn={requestSignInForPublish}
                     onPosted={() => {
                       newListing.reset();
                       setPage("market");
