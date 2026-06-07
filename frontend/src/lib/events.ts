@@ -11,7 +11,6 @@
  */
 
 export type ViewSource = "feed" | "search" | "profile" | "direct";
-export type InteractionAction = "hide" | "block_seller" | "not_interested";
 
 interface ViewPayload {
   listing_id: string;
@@ -22,11 +21,6 @@ interface ViewPayload {
 interface SearchPayload {
   query: string;
   filters?: Record<string, unknown>;
-}
-
-interface InteractionPayload {
-  listing_id: string;
-  action: InteractionAction;
 }
 
 function getAuthToken(): string | null {
@@ -71,8 +65,3 @@ export function logSearch(payload: SearchPayload): void {
   post("/api/events/search", body, token);
 }
 
-export function logInteraction(payload: InteractionPayload): void {
-  const token = getAuthToken();
-  if (!token) return;
-  post("/api/interactions", payload, token);
-}

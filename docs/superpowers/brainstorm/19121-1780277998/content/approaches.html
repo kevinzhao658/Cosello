@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carousel approaches</title>
+<style>
+  :root{color-scheme:light}*{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:36px 24px 90px}
+  h2{font-size:24px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+  .subtitle{font-size:14px;color:#555;line-height:1.6;margin:0 0 10px;max-width:760px}
+  .deck{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+  .pick{cursor:pointer;border-radius:14px;padding:16px;transition:all .15s ease;border:2px solid transparent;width:320px}
+  .pick:hover{background:#FAFAFA}.pick.selected{border-color:#00824C;background:#F4FBF7}
+  .tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#888;text-align:center;margin-bottom:12px;font-weight:600}
+  .frame{border:1px solid #E5E5E5;border-radius:10px;padding:12px;background:#fff;height:300px;display:flex;flex-direction:column;gap:8px}
+  .arrowbtn{width:26px;height:26px;border-radius:50%;border:1px solid #E5E5E5;display:inline-flex;align-items:center;justify-content:center;color:#555;font-size:13px;background:#fff;flex:none}
+  .thumb{width:34px;height:34px;border-radius:6px;background:#F0F0F0;flex:none}
+  .thumb.cur{outline:2px solid #00824C;outline-offset:1px}
+  .ph{background:#F5F5F5;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:11px}
+  .fldline{height:9px;border-radius:3px;background:#ECECEC}
+  .lblmini{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#aaa}
+  .cap{margin:14px 4px 0;font-size:12px;color:#555;line-height:1.55}
+  .cap b{color:#000}
+  .row{display:flex;align-items:center;gap:6px}
+  .pros{font-size:11px;color:#00824C;margin-top:6px}.cons{font-size:11px;color:#b00;}
+</style></head>
+<body><div class="wrap">
+  <h2>Three ways to flip through bulk items</h2>
+  <p class="subtitle">All keep the inline edit form for the focused item. They differ in how you move between items. Click the one that feels right.</p>
+  <div class="deck">
+
+    <!-- Approach 1: nav header + full editor -->
+    <div class="pick" data-choice="header-nav" onclick="toggleSelect(this)">
+      <div class="tag">1 · Nav header + editor</div>
+      <div class="frame">
+        <div class="row" style="justify-content:space-between">
+          <span class="arrowbtn">&#8249;</span>
+          <div class="row" style="gap:5px;overflow:hidden">
+            <span class="thumb"></span><span class="thumb cur"></span><span class="thumb"></span><span class="thumb"></span><span class="thumb"></span>
+          </div>
+          <span class="arrowbtn">&#8250;</span>
+        </div>
+        <div style="font-size:10px;color:#888;text-align:center">Item 2 of 5</div>
+        <div class="ph" style="height:84px">focused item photo</div>
+        <div class="lblmini">Title</div><div class="fldline" style="width:80%"></div>
+        <div class="lblmini">Price · Condition</div><div class="row" style="gap:8px"><div class="fldline" style="width:40%"></div><div class="fldline" style="width:40%"></div></div>
+        <div class="lblmini">Tags</div><div class="fldline" style="width:60%"></div>
+      </div>
+      <p class="cap"><b>Arrows + clickable thumbnail strip</b> on top; the existing full-width editor below. Jump to any item, swipe the photo to flip on mobile.
+      <span class="pros">+ lowest risk, keeps editor intact, great free navigation</span><br><span class="cons">– least "deck of cards" flair</span></p>
+    </div>
+
+    <!-- Approach 2: peek carousel -->
+    <div class="pick" data-choice="peek" onclick="toggleSelect(this)">
+      <div class="tag">2 · Peek carousel</div>
+      <div class="frame" style="flex-direction:row;align-items:stretch;gap:0;overflow:hidden;padding:12px 0">
+        <div style="width:18px;background:#F5F5F5;border-radius:0 8px 8px 0;flex:none"></div>
+        <div style="flex:1;margin:0 8px;border:1px solid #E5E5E5;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:7px">
+          <div class="row" style="justify-content:space-between"><span class="arrowbtn">&#8249;</span><span style="font-size:10px;color:#888">2 / 5</span><span class="arrowbtn">&#8250;</span></div>
+          <div class="ph" style="height:70px">photo</div>
+          <div class="lblmini">Title</div><div class="fldline" style="width:85%"></div>
+          <div class="lblmini">Price</div><div class="fldline" style="width:45%"></div>
+          <div class="lblmini">Tags</div><div class="fldline" style="width:65%"></div>
+        </div>
+        <div style="width:18px;background:#F5F5F5;border-radius:8px 0 0 8px;flex:none"></div>
+      </div>
+      <p class="cap"><b>Focused card centered, neighbors peek</b> at the edges; cards slide as you flip. Most literal carousel feel.
+      <span class="pros">+ strongest flip/deck feel</span><br><span class="cons">– editor squeezed into card width; swipe fights text fields</span></p>
+    </div>
+
+    <!-- Approach 3: thumbnail rail + editor -->
+    <div class="pick" data-choice="rail" onclick="toggleSelect(this)">
+      <div class="tag">3 · Rail + editor</div>
+      <div class="frame" style="flex-direction:row;gap:10px">
+        <div style="width:64px;display:flex;flex-direction:column;gap:6px;flex:none">
+          <span class="thumb" style="width:100%;height:40px"></span>
+          <span class="thumb cur" style="width:100%;height:40px"></span>
+          <span class="thumb" style="width:100%;height:40px"></span>
+          <span class="thumb" style="width:100%;height:40px"></span>
+          <span class="thumb" style="width:100%;height:40px"></span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+          <div class="ph" style="height:74px">focused item photo</div>
+          <div class="lblmini">Title</div><div class="fldline" style="width:80%"></div>
+          <div class="lblmini">Price · Condition</div><div class="row" style="gap:8px"><div class="fldline" style="width:40%"></div><div class="fldline" style="width:40%"></div></div>
+          <div class="lblmini">Tags</div><div class="fldline" style="width:60%"></div>
+        </div>
+      </div>
+      <p class="cap"><b>Vertical thumbnail rail</b> of all items beside the editor; click any to focus. Dashboard-like overview.
+      <span class="pros">+ best for many items, see everything at once</span><br><span class="cons">– less "flip", cramped on narrow mobile</span></p>
+    </div>
+
+  </div>
+</div></body></html>

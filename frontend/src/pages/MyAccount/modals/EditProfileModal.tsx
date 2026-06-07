@@ -20,6 +20,8 @@ export interface EditProfileModalProps {
   editIsValidNeighborhood: boolean;
   editProfileError: string;
   isUpdatingProfile: boolean;
+  isLoadingNeighborhoods: boolean;
+  neighborhoodsError: string | null;
   editNeighborhoodRef: React.RefObject<HTMLInputElement>;
   editSuggestionsRef: React.RefObject<HTMLDivElement>;
   setEditFirstName: (s: string) => void;
@@ -35,7 +37,8 @@ export interface EditProfileModalProps {
 export function EditProfileModal({
   open, editFirstName, editLastName, editPickupAddress, editNeighborhood, editZipCode,
   editShowSuggestions, editFilteredNeighborhoods, editIsValidNeighborhood,
-  editProfileError, isUpdatingProfile, editNeighborhoodRef, editSuggestionsRef,
+  editProfileError, isUpdatingProfile, isLoadingNeighborhoods, neighborhoodsError,
+  editNeighborhoodRef, editSuggestionsRef,
   setEditFirstName, setEditLastName, setEditPickupAddress, setEditNeighborhood,
   setEditZipCode, setEditShowSuggestions, onClose, onSubmit,
 }: EditProfileModalProps) {
@@ -97,50 +100,63 @@ export function EditProfileModal({
 
           <div className="relative">
             <label className={LABEL_CLASS}>Neighborhood</label>
-            <Input
-              ref={editNeighborhoodRef}
-              type="text"
-              placeholder="e.g., Chelsea"
-              value={editNeighborhood}
-              onChange={(e) => {
-                setEditNeighborhood(e.target.value);
-                setEditShowSuggestions(true);
-              }}
-              onFocus={() => setEditShowSuggestions(true)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && editIsValidNeighborhood) onSubmit();
-              }}
-            />
+            {isLoadingNeighborhoods ? (
+              <div className="text-sm text-muted py-2 flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                Loading neighborhoods…
+              </div>
+            ) : neighborhoodsError ? (
+              <div className="text-sm text-error py-2">
+                Couldn't load neighborhoods. Other fields still editable.
+              </div>
+            ) : (
+              <>
+                <Input
+                  ref={editNeighborhoodRef}
+                  type="text"
+                  placeholder="e.g., Chelsea"
+                  value={editNeighborhood}
+                  onChange={(e) => {
+                    setEditNeighborhood(e.target.value);
+                    setEditShowSuggestions(true);
+                  }}
+                  onFocus={() => setEditShowSuggestions(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && editIsValidNeighborhood) onSubmit();
+                  }}
+                />
 
-            {editShowSuggestions && editFilteredNeighborhoods.length > 0 && (
-              <div
-                ref={editSuggestionsRef}
-                className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-overlay"
-              >
-                {editFilteredNeighborhoods.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => {
-                      setEditNeighborhood(n);
-                      setEditShowSuggestions(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
-                      n.toLowerCase() === editNeighborhood.trim().toLowerCase()
-                        ? "text-primary font-semibold"
-                        : "text-ink"
-                    } ${FOCUS_RING}`}
+                {editShowSuggestions && editFilteredNeighborhoods.length > 0 && (
+                  <div
+                    ref={editSuggestionsRef}
+                    className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-overlay"
                   >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            )}
+                    {editFilteredNeighborhoods.map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => {
+                          setEditNeighborhood(n);
+                          setEditShowSuggestions(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
+                          n.toLowerCase() === editNeighborhood.trim().toLowerCase()
+                            ? "text-primary font-semibold"
+                            : "text-ink"
+                        } ${FOCUS_RING}`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-            {editShowSuggestions && editFilteredNeighborhoods.length === 0 && editNeighborhood.trim() && (
-              <div className="absolute z-50 mt-1 w-full rounded-md border border-hairline bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
-                No matching neighborhoods
-              </div>
+                {editShowSuggestions && editFilteredNeighborhoods.length === 0 && editNeighborhood.trim() && (
+                  <div className="absolute z-50 mt-1 w-full rounded-md border border-hairline bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
+                    No matching neighborhoods
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -174,7 +190,7 @@ export function EditProfileModal({
         <div className="border-t border-hairline px-6 py-4 flex items-center justify-end gap-2">
           <Button
             onClick={onSubmit}
-            disabled={isUpdatingProfile || !editIsValidNeighborhood || !editFirstName.trim() || !editLastName.trim()}
+            disabled={isUpdatingProfile || isLoadingNeighborhoods || (!neighborhoodsError && !editIsValidNeighborhood) || !editFirstName.trim() || !editLastName.trim()}
             size="sm"
           >
             {isUpdatingProfile ? <Loader2 className="size-4 motion-safe:animate-spin" /> : "Save Changes"}

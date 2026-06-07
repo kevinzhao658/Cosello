@@ -1,0 +1,128 @@
+<h2>Experiment: tuck Community under the item name</h2>
+<p class="subtitle">Collapses the table to 3 columns. Price and Status get more breathing room.</p>
+
+<style>
+  .row { display: grid; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; border-bottom-color: rgba(255,255,255,0.18); padding-top: 8px; padding-bottom: 8px; }
+  .thumb { width: 32px; height: 32px; background: rgba(255,255,255,0.12); border-radius: 4px; flex-shrink: 0; }
+  .item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .item-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .item-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item-sub { font-size: 10px; opacity: 0.7; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .community-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 6px; border-radius: 999px; background: rgba(80,200,120,0.12); color: #6ee7a8; }
+  .community-dot { width: 6px; height: 6px; border-radius: 50%; background: #6ee7a8; }
+  .pill { display: inline-block; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .price { font-weight: 700; }
+  .dim { opacity: 0.6; }
+  .grid-template { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; opacity: 0.55; padding: 0 12px 8px; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Previous winner — 4 cols, Community as its own column (pl-6)</h3>
+      <p>Community stays scannable as a column. Most parallel with Selling's existing shape.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span style="padding-left: 24px;">Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="dim" style="padding-left: 24px;">• West Village</span>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="dim" style="padding-left: 24px;">• Chelsea</span>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template">4 cols • Community is its own scannable column</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Tucked under name as a chip — 3 cols (Recommended for this experiment)</h3>
+      <p>Community renders as a small chip under the item name (mirrors the trust band on the card view). Item column gets more visual presence; Price and Status spread further apart. Loses Community as a sort/scan column.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="item-name">Vintage Levi's 501</span>
+                <span class="community-chip"><span class="community-dot"></span>West Village</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="item-name">Eames lounge chair replica</span>
+                <span class="community-chip"><span class="community-dot"></span>Chelsea</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template">3 cols • Community is a chip under the item name</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Tucked as plain subtitle — 3 cols, lighter</h3>
+      <p>No chip background — just the colored dot + community name as quiet text under the item name. Cleanest visually, but the trust signal is more subtle. (For Selling, this overwrites the existing location subtitle — decide which to keep below.)</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="item-name">Vintage Levi's 501</span>
+                <span class="item-sub"><span class="community-dot"></span>West Village</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="item-name">Eames lounge chair replica</span>
+                <span class="item-sub"><span class="community-dot"></span>Chelsea</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template">3 cols • Community as quiet subtitle (no chip)</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">If you pick B or C, applies to both Selling and Buying. Selling's existing "location" subtitle gets replaced by Community (or we keep both — let me know in chat).</p>

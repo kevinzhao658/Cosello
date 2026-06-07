@@ -29,13 +29,14 @@ from routers.events import router as events_router
 from routers.friends import router as friends_router
 from routers.notifications import router as notifications_router
 from routers.orders import router as orders_router
-from routers.punchlist import router as punchlist_router
+from routers.searches import router as searches_router
 from category_schemas import CATEGORY_SCHEMAS
 from services.google import vision
 from services.google.vision import VisionResult
 from services.evidence import build_evidence_block, _format_single_image_evidence
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 from services import storage
+from services.neighborhood import get_neighborhood_community
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ app.include_router(events_router)
 app.include_router(friends_router)
 app.include_router(notifications_router)
 app.include_router(orders_router)
-app.include_router(punchlist_router)
+app.include_router(searches_router)
 
 # Legacy local-disk uploads directory. Pre-Phase 3 listings stored images here;
 # everything new goes to Supabase Storage. On Vercel the runtime filesystem is
@@ -133,7 +134,11 @@ async def seed_listings(
             condition=item["condition"],
             location=current_user.neighborhood or random.choice(neighborhoods),
             tags=json.dumps(item["tags"]),
-            communities=json.dumps(["neighborhood"]),
+            communities=json.dumps(
+                [get_neighborhood_community(db, current_user.neighborhood).id]
+                if current_user.neighborhood
+                else []
+            ),
             visibility="public",
             image_url=image_urls[0],
             image_urls=json.dumps(image_urls),
@@ -341,11 +346,15 @@ def _segment_with_claude(image_bytes_list: list[bytes], vision_signals: list[Vis
     content.append({"type": "text", "text": _build_segmentation_prompt(n)})
 
     try:
+        # Haiku 4.5 is plenty for a "which photos belong together" classification
+        # task. Typically 3-5x faster than Sonnet for vision payloads, with
+        # accuracy that holds for this segmentation prompt (validated in
+        # listing_eval canary). Tight 25s timeout to fail fast.
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=256,
             messages=[{"role": "user", "content": content}],
-            timeout=45.0,
+            timeout=25.0,
         )
         raw = _strip_fences(response.content[0].text)
         parsed = json.loads(raw)
@@ -925,7 +934,14 @@ async def segment_photos(
             # (Tier 3 swap removed the pre-upload Pillow pass). Preprocess on
             # the way in so Vision + Claude see resized bytes under their
             # respective per-image size limits (Claude rejects >5 MB).
-            bytes_list = [_preprocess_image_bytes(storage.download_image(u)) for u in parsed_image_urls]
+            # Run the download + Pillow work in parallel — both are blocking
+            # I/O + CPU work, and serial execution was the dominant pre-Claude
+            # latency for bulk uploads (5-10 photos = 2-5s wasted).
+            def _download_and_preprocess(u: str) -> bytes:
+                return _preprocess_image_bytes(storage.download_image(u))
+            bytes_list = list(await asyncio.gather(*(
+                asyncio.to_thread(_download_and_preprocess, u) for u in parsed_image_urls
+            )))
             out_image_urls = parsed_image_urls
         else:
             bytes_list, out_image_urls = await _save_uploaded_images(images)
@@ -1046,7 +1062,7 @@ async def generate_listings(
     return results
 
 
-@app.post("/api/listings")
+@app.post("/api/listings", status_code=201)
 async def create_listing(
     images: list[UploadFile] = File(default_factory=list),
     data: str = Form(...),
@@ -1085,46 +1101,60 @@ async def create_listing(
     if len(parsed_draft_urls) + len(images) > 20:
         raise HTTPException(status_code=400, detail="At most 20 images allowed per listing")
 
-    # Parse community IDs the listing is posted to
-    community_ids: list = []
+    # Parse community IDs the listing is posted to.
+    # Post-PR-3: only integer IDs are recognized. Legacy "neighborhood" strings
+    # from older clients are silently dropped (they map to no community).
+    community_ids: list[int] = []
     if communities:
         for part in communities.split(","):
             part = part.strip()
-            if part == "neighborhood":
-                community_ids.append("neighborhood")
-            elif part:
-                try:
-                    community_ids.append(int(part))
-                except ValueError:
-                    pass
+            if not part:
+                continue
+            try:
+                community_ids.append(int(part))
+            except ValueError:
+                pass  # silently drop non-int values (incl. legacy "neighborhood")
 
-    # Validate community selection against visibility
-    if visibility == "public":
-        # Auto-attach user's public community memberships + neighborhood + private communities
-        community_ids = []
-        if current_user.neighborhood:
-            community_ids.append("neighborhood")
-        memberships = db.query(CommunityMember).filter(
-            CommunityMember.user_id == current_user.id
-        ).all()
-        for m in memberships:
-            comm = db.query(Community).filter(Community.id == m.community_id).first()
-            if comm:
-                community_ids.append(comm.id)
-    else:
-        if len(community_ids) == 0:
-            raise HTTPException(status_code=400, detail="Private listing must have at least one community")
-        for cid in community_ids:
-            if cid == "neighborhood":
-                raise HTTPException(status_code=400, detail="Neighborhood is a public community")
-            comm = db.query(Community).filter(Community.id == cid).first()
-            if not comm or comm.is_public:
-                raise HTTPException(status_code=400, detail=f"Community {cid} is not private")
-            if not db.query(CommunityMember).filter(
+    # Hard cap of 3 — enforced for both public and private listings.
+    if len(community_ids) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="At most 3 communities per listing",
+        )
+
+    # Validate each id: exists + user is a member.
+    for cid in community_ids:
+        comm = db.query(Community).filter(Community.id == cid).first()
+        if not comm:
+            raise HTTPException(status_code=400, detail=f"Community {cid} not found")
+        is_member = (
+            db.query(CommunityMember)
+            .filter(
                 CommunityMember.community_id == cid,
                 CommunityMember.user_id == current_user.id,
-            ).first():
-                raise HTTPException(status_code=400, detail=f"You are not a member of community {cid}")
+            )
+            .first()
+        )
+        if not is_member:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You are not a member of community {cid}",
+            )
+
+    # Private-listing extra rules: must have ≥1 community and all must be private.
+    if visibility != "public":
+        if len(community_ids) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Private listing must have at least one community",
+            )
+        for cid in community_ids:
+            comm = db.query(Community).filter(Community.id == cid).first()
+            if comm.is_public:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Community {cid} is not private",
+                )
 
     # Validate category slug
     category_slug = details.get("category", "other")
@@ -1291,7 +1321,7 @@ async def get_listings(
             return "public"
         for c in lc:
             nc = _ncid(c)
-            if nc == "neighborhood" or (isinstance(nc, int) and nc in all_public_ids):
+            if isinstance(nc, int) and nc in all_public_ids:
                 return "public"
         return "private"
 
@@ -1320,11 +1350,7 @@ async def get_listings(
             return 3
         for c in listing.get("communities", []):
             nc = _ncid(c)
-            if nc == "neighborhood":
-                poster = poster_map.get(listing.get("userId"))
-                if poster and my_neighborhood and poster.neighborhood == my_neighborhood:
-                    return 2
-            elif isinstance(nc, int) and nc in my_community_ids:
+            if isinstance(nc, int) and nc in my_community_ids:
                 return 2
         return 3
 
@@ -1336,22 +1362,15 @@ async def get_listings(
             lc = listing.get("communities", [])
             norm_cids = [_ncid(c) for c in lc]
             for part in parts:
-                if part == "neighborhood":
-                    if "neighborhood" in lc and neighborhood:
-                        poster = poster_map.get(listing.get("userId"))
-                        if poster and poster.neighborhood == neighborhood:
-                            filtered.append(listing)
-                            break
-                else:
-                    try:
-                        cid = int(part)
-                    except ValueError:
-                        continue
-                    if cid not in norm_cids:
-                        continue
-                    if cid in my_community_ids or cid in all_public_ids:
-                        filtered.append(listing)
-                        break
+                try:
+                    cid = int(part)
+                except ValueError:
+                    continue
+                if cid not in norm_cids:
+                    continue
+                if cid in my_community_ids or cid in all_public_ids:
+                    filtered.append(listing)
+                    break
         results = filtered
     else:
         results = [l for l in results if _is_visible(l)]
@@ -1428,7 +1447,7 @@ async def get_listings(
     community_info_map: dict[int, dict] = {}
     if all_community_ids_set:
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
-            community_info_map[c.id] = {"name": c.name, "is_public": c.is_public}
+            community_info_map[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
 
     enriched = []
     for l in results:
@@ -1443,15 +1462,7 @@ async def get_listings(
         all_comms = []
         mutual = []
         for cid in l.get("communities", []):
-            if cid == "neighborhood":
-                poster = poster_map.get(l.get("userId"))
-                hood_name = poster.neighborhood if poster and poster.neighborhood else l.get("location", "Neighborhood")
-                is_same_hood = bool(poster and my_neighborhood and poster.neighborhood == my_neighborhood)
-                hood_entry = {"name": hood_name, "is_public": True, "is_mutual": is_same_hood, "is_neighborhood": True}
-                all_comms.append(hood_entry)
-                if is_same_hood:
-                    mutual.append(hood_entry)
-            elif isinstance(cid, int) and cid in community_info_map:
+            if isinstance(cid, int) and cid in community_info_map:
                 info = community_info_map[cid]
                 is_mutual = cid in my_community_ids
                 # Private communities only visible to members — skip for non-members
@@ -1503,7 +1514,7 @@ async def get_public_listings(
         return any(
             isinstance(_ncid(c), int) and _ncid(c) in all_public_ids
             for c in lc
-        ) or "neighborhood" in lc
+        )
 
     if community and community != "All":
         parts = [c.strip() for c in community.split(",") if c.strip()]
@@ -1558,7 +1569,7 @@ async def get_public_listings(
     pub_info: dict[int, dict] = {}
     if all_community_ids_set:
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
-            pub_info[c.id] = {"name": c.name, "is_public": c.is_public}
+            pub_info[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
 
     pub_poster_ids = {l.get("userId") for l in results if l.get("userId")}
     pub_poster_map: dict[str, User] = {}
@@ -1576,11 +1587,7 @@ async def get_public_listings(
             listing_copy["location"] = poster.neighborhood
         all_comms = []
         for cid in l.get("communities", []):
-            if cid == "neighborhood":
-                poster = pub_poster_map.get(l.get("userId"))
-                hood_name = poster.neighborhood if poster and poster.neighborhood else l.get("location", "Neighborhood")
-                all_comms.append({"name": hood_name, "is_public": True, "is_mutual": False, "is_neighborhood": True})
-            elif isinstance(cid, int) and cid in pub_info:
+            if isinstance(cid, int) and cid in pub_info:
                 # Only show public communities on unauthenticated endpoint
                 if pub_info[cid].get("is_public", True):
                     all_comms.append({**pub_info[cid], "is_mutual": False})
@@ -1617,6 +1624,23 @@ async def get_my_listings(
         if o.listing_id not in latest_order_at or ts > latest_order_at[o.listing_id]:
             latest_order_at[o.listing_id] = ts
 
+    # Enrich each listing with `allCommunities` so the trust band on the
+    # MyAccount Listings cards can display the same community chip the
+    # marketplace feed does. Mirrors the enrichment in /api/listings.
+    all_community_ids_set: set[int] = set()
+    for l in my_listings:
+        for cid in l.get("communities", []):
+            if isinstance(cid, int):
+                all_community_ids_set.add(cid)
+    community_info_map: dict[int, dict] = {}
+    if all_community_ids_set:
+        for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
+            community_info_map[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
+    my_community_ids: set[int] = {
+        m.community_id
+        for m in db.query(CommunityMember).filter(CommunityMember.user_id == current_user.id).all()
+    }
+
     enriched = []
     for l in my_listings:
         listing_copy = dict(l)
@@ -1625,6 +1649,19 @@ async def get_my_listings(
             l["location"] = current_user.neighborhood
         listing_copy["pendingOrderCount"] = order_counts.get(l["id"], 0)
         listing_copy["latestOrderAt"] = latest_order_at.get(l["id"])
+
+        # Build allCommunities (same shape as /api/listings).
+        all_comms = []
+        for cid in l.get("communities", []):
+            if isinstance(cid, int) and cid in community_info_map:
+                info = community_info_map[cid]
+                is_mutual = cid in my_community_ids
+                if not info.get("is_public", True) and not is_mutual:
+                    continue
+                all_comms.append({**info, "is_mutual": is_mutual})
+        all_comms.sort(key=lambda c: (not c["is_mutual"], c["name"]))
+        listing_copy["allCommunities"] = all_comms
+
         enriched.append(listing_copy)
     return enriched
 

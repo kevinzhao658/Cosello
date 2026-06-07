@@ -46,7 +46,10 @@ from models import (
 
 
 # Mock UUID for in-memory `mock_user` fixture only (no DB insert).
-_MOCK_USER_UUID = "00000000-0000-0000-0000-000000000001"
+# Deliberately uses ...0002 (not ...0001) to avoid colliding with the Cosello
+# system user (services/neighborhood.py SYSTEM_USER_ID = ...0001). If a future
+# test accidentally persists mock_user, this guarantees no system-data overwrite.
+_MOCK_USER_UUID = "00000000-0000-0000-0000-000000000002"
 
 # FCC test-phone range. Pick from 60000-99999 so we don't collide with the
 # production-seeded test users (+15555550101-103 from seed_test_users.py).

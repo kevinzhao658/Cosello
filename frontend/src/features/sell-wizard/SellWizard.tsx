@@ -1,25 +1,30 @@
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, startTransition, forwardRef } from "react";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { PriceInput } from "../../components/ui/price-input";
-import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, startTransition, forwardRef } from "react";
 import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
-import { formatTitle } from "../../lib/format";
-import { CONDITIONS } from "../../lib/listings";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
+import { useDraftAutosave } from "./useDraftAutosave";
+import { usePostListing } from "./usePostListing";
 import {
   useSellWizard,
+  selectBulkPreview,
+  selectGroupsPreview,
+  selectUploadPreview,
+  type BulkPreview,
+  type BulkPreviewBase,
+  type PreviewStep,
   type BulkItemDetails,
   type ProductDetails,
   type SegmentationResult,
+  type SellWizardState,
 } from "./useSellWizard";
 import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
+import { SingleListingForm } from "./SingleListingForm";
+import { SinglePickupStep } from "./SinglePickupStep";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -30,6 +35,7 @@ export interface SellWizardHandle {
   getCoverImageUrl: () => string | null;
   setProductDetails: (details: ProductDetails) => void;
   setPostPickupLocation: (value: string) => void;
+  setBulkCardIndex: (index: number) => void;
 }
 
 export interface SellWizardProps {
@@ -43,39 +49,83 @@ export interface SellWizardProps {
   // no submit arrow, no downstream phases). Used by the #newlisting page where
   // the page owns the publish button.
   photosOnly?: boolean;
+  // The user's communities (from /mine). Used to pre-select the neighborhood
+  // community in the community selector and populate the picker.
+  publicCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
+  privateCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
   onSwitchToBuy: () => void;
   onPhaseChange?: (phase: "review" | "reason" | "cards" | "pickup" | null) => void;
+  onBulkPreviewChange?: (preview: BulkPreview | null) => void;
   onImagesChange?: (count: number) => void;
   onProductDetailsChange?: (details: ProductDetails | null) => void;
   onCoverImageChange?: (url: string | null) => void;
+  // Drafts. Parent sets pendingDraftId when the user taps a draft card; the
+  // wizard loads it on mount and clears the parent's state via onDraftLoaded.
+  pendingDraftId?: string | null;
+  onDraftLoaded?: () => void;
+  onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
+  onBackToDrafts?: () => void;
 }
 
-const priceStringToCents = (raw: string): number | null => {
-  const cleaned = raw.replace(/^\$/, "").trim();
-  if (cleaned === "") return null;
-  const dollars = Number.parseFloat(cleaned);
-  if (!Number.isFinite(dollars) || dollars < 0) return null;
-  return Math.round(dollars * 100);
-};
+// Returns a short relative-time string for the save-status indicator.
+// "just now" / "Ns ago" / "Nm ago" / "Nh ago".
+function relativeTime(ms: number): string {
+  const diff = Math.max(0, Date.now() - ms);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
+}
 
 export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function SellWizard({
   categorySchemas,
   isActive,
   mode = "ai",
   photosOnly = false,
+  publicCommunities = [],
+  privateCommunities = [],
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
   onSwitchToBuy,
   onPhaseChange,
+  onBulkPreviewChange,
   onImagesChange,
   onProductDetailsChange,
   onCoverImageChange,
+  pendingDraftId = null,
+  onDraftLoaded,
+  onPublishedDraft,
+  onBackToDrafts,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
+
+  // Drafts: identify which draft this wizard instance is editing.
+  // null = no draft yet (pre-first-photo).
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
+
+  // When a draft resumes with community IDs the user is no longer a member
+  // of, we drop them and show a one-time banner. Cleared on dismiss.
+  const [prunedCommunityCount, setPrunedCommunityCount] = useState(0);
+
+  // PR 3: seller picks up to 3 communities per listing. We pre-select the
+  // user's neighborhood community as a default; the seller can deselect it.
+  // The picker lives in PickupStep — see Task 7.
+  const availableCommunities = useMemo(
+    () => [...publicCommunities, ...privateCommunities],
+    [publicCommunities, privateCommunities],
+  );
+  const [selectedCommunityIds, setSelectedCommunityIds] = useState<number[]>([]);
+  const initializedFromNeighborhoodRef = useRef(false);
+  // Single-listing wizard has its own two-phase split (review → pickup) to
+  // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
+  const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
   const [state, actions] = useSellWizard();
 
   const {
@@ -84,6 +134,68 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     isGenerating, isPostingBulk, segmentationError, dragImageState, dragOverGroup, dragOverGap,
     newTag, editingTitle, instructionExiting,
   } = state;
+
+  // Reset the single-listing two-phase split whenever a new productDetails
+  // cycle begins (i.e. productDetails clears between submissions).
+  useEffect(() => {
+    if (productDetails === null) {
+      setSinglePostPhase("review");
+    }
+  }, [productDetails]);
+
+  // On phase transition (single-listing only), scroll to the top of the
+  // wizard area so the new step is visible. Otherwise iOS Safari preserves
+  // the scroll position of the previous step, which can leave the new
+  // (shorter) step off-screen — looking like a blank page to the user.
+  useEffect(() => {
+    if (!isActive) return;
+    if (!productDetails) return;
+    const id = requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [singlePostPhase, isActive, productDetails]);
+
+  const draft = useDraftAutosave({
+    state,
+    actions,
+    isAuthenticated,
+    user,
+    publicCommunities,
+    privateCommunities,
+    currentDraftId,
+    setCurrentDraftId,
+    selectedCommunityIds,
+    setSelectedCommunityIds,
+    singlePostPhase,
+    setSinglePostPhase,
+    setPrunedCommunityCount,
+    initializedFromNeighborhoodRef,
+    pendingDraftId,
+    onDraftLoaded,
+  });
+
+  const post = usePostListing({
+    state,
+    actions,
+    isAuthenticated,
+    currentDraftId,
+    setCurrentDraftId,
+    selectedCommunityIds,
+    onPosted,
+    onPublishedDraft,
+    onRequestSignIn,
+    clearDraftCreatedAt: draft.clearDraftCreatedAt,
+  });
+
+  // Auto-ticking "Saved · Xs ago" — bump every 15s while the indicator shows
+  // a `saved` state so the relative timestamp stays fresh.
+  const [, setSavedTick] = useState(0);
+  useEffect(() => {
+    if (draft.saveStatus.kind !== "saved") return;
+    const id = setInterval(() => setSavedTick((n) => n + 1), 15000);
+    return () => clearInterval(id);
+  }, [draft.saveStatus.kind]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wizardAnchorRef = useRef<HTMLDivElement>(null);
@@ -132,6 +244,34 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   useEffect(() => {
     onPhaseChange?.(bulkReviewPhase);
   }, [bulkReviewPhase, onPhaseChange]);
+
+  // Emit bulk preview snapshot on every index/edit change so App.tsx can render
+  // the live aside. Fires on bulkItems (new array on every updateBulkItem*) and
+  // currentCardIndex, which covers index flips, edits, generates, and deletes.
+  // Gated on mode === "ai" — manual mode is unaffected.
+  // Attaches step + communitySelected + pickupLocationSet so BulkPreviewAside
+  // can render step-aware checklist rows without needing wizard internals.
+  useEffect(() => {
+    let base: BulkPreviewBase | null = null;
+    let step: PreviewStep | null = null;
+    if (mode === "ai") {
+      if (bulkItems.length > 0) {
+        base = selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages);
+        step = bulkReviewPhase === "pickup" ? "pickup" : "review";
+      } else if (segmentation) {
+        base = selectGroupsPreview(segmentation, brandHints, names, currentCardIndex, uploadedImages);
+        step = "groups";
+      } else if (uploadedImages.length > 0) {
+        base = selectUploadPreview(uploadedImages, currentCardIndex);
+        step = "upload";
+      }
+    }
+    const communitySelected = selectedCommunityIds.length > 0;
+    const pickupLocationSet = bulkPickupLocation.trim() !== "";
+    const preview: BulkPreview | null =
+      base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
+    onBulkPreviewChange?.(preview);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -484,57 +624,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     actions.updateBulkItemField(index, field, value);
   }, [actions]);
 
-  const handlePostListing = useCallback(async (override?: { details: ProductDetails; pickupLocation: string }) => {
-    // Override path lets the New Listing page publish in Manual mode without
-    // waiting for setProductDetails to flush through React state.
-    const details = override?.details ?? productDetails;
-    const pickup = override?.pickupLocation ?? postPickupLocation;
-    if (!details || uploadedImages.length === 0) return;
-    if (!isAuthenticated) { onRequestSignIn(); return; }
-
-    const priceCents = priceStringToCents(details.price);
-    if (priceCents === null) { alert("Enter a valid price before posting."); return; }
-
-    try {
-      const formData = new FormData();
-      const draftUrls = segmentation
-        ? segmentation.image_urls.filter(
-            (url): url is string => typeof url === "string" && url.length > 0,
-          )
-        : [];
-      if (draftUrls.length > 0) {
-        formData.append("draft_urls", JSON.stringify(draftUrls));
-      } else {
-        uploadedImages.forEach((img) => formData.append("images", img.file));
-      }
-      const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = details;
-      void _; void _rf;
-      const postData = { ...rest, priceCents };
-      formData.append("data", JSON.stringify(postData));
-      formData.append("communities", "");
-      formData.append("visibility", "public");
-      formData.append("pickup_location", pickup);
-
-      const res = await apiFetch("/api/listings", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Failed to post listing");
-      await res.json();
-
-      // Cleanup: revoke blob URLs before resetting state.
-      for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
-      actions.postListingReset();
-      onPosted();
-    } catch (err) {
-      console.error("Post listing failed:", err);
-      alert(err instanceof Error ? err.message : "Something went wrong");
-    }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, actions, onPosted, onRequestSignIn]);
-
   const resetForLogout = useCallback(() => {
+    setCurrentDraftId(null);
+    draft.clearDraftCreatedAt();
+    setSelectedCommunityIds([]);
+    setSinglePostPhase("review");
+    setPrunedCommunityCount(0);
+    draft.resetSaveStatus();
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
     for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
     actions.resetToUpload();
-  }, [uploadedImages, actions]);
+  }, [uploadedImages, actions, draft]);
 
   const addImagesFromFiles = useCallback((files: FileList | File[]) => {
     const incoming = Array.from(files);
@@ -555,7 +656,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   }, [uploadedImages.length, actions]);
 
   useImperativeHandle(ref, () => ({
-    postSingleListing: handlePostListing,
+    postSingleListing: post.postSingleListing,
     resetForLogout,
     addImages: addImagesFromFiles,
     getImageCount: () => uploadedImagesRef.current.length,
@@ -563,93 +664,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     getCoverImageUrl: computeCoverImageUrl,
     setProductDetails: (details) => actions.setProductDetails(details),
     setPostPickupLocation: (value) => actions.setPostPickupLocation(value),
-  }), [handlePostListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
-
-  const handleBulkPostListing = async () => {
-    if (bulkItems.length === 0 || uploadedImages.length === 0) return;
-    if (!isAuthenticated) { onRequestSignIn(); return; }
-
-    const invalidIdx = bulkItems.findIndex((item) => priceStringToCents(item.price) === null);
-    if (invalidIdx !== -1) {
-      const offender = bulkItems[invalidIdx];
-      alert(`Enter a valid price for "${formatTitle(offender.brand, offender.name)}" before posting.`);
-      return;
-    }
-
-    actions.setPostingBulk(true);
-
-    try {
-      const trimmedBulkDefault = bulkPickupLocation.trim();
-      const fallbackPickup = trimmedBulkDefault !== "" ? trimmedBulkDefault : postPickupLocation;
-
-      const results = await Promise.allSettled(
-        bulkItems.map(async (item) => {
-          const formData = new FormData();
-          const draftUrlsForItem = segmentation
-            ? item.imageIndices
-                .map((i) => segmentation.image_urls[i])
-                .filter((url): url is string => typeof url === "string" && url.length > 0)
-            : [];
-          if (draftUrlsForItem.length > 0) {
-            formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
-          } else {
-            for (const imgIdx of item.imageIndices) {
-              if (uploadedImages[imgIdx]) {
-                formData.append("images", uploadedImages[imgIdx].file);
-              }
-            }
-          }
-          const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
-          void _indices; void _conf; void _rf; void _itemPickup;
-          const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };
-          formData.append("data", JSON.stringify(productData));
-          formData.append("communities", "");
-          formData.append("visibility", "public");
-          const itemPickup =
-            item.pickupLocation && item.pickupLocation.trim() !== ""
-              ? item.pickupLocation
-              : fallbackPickup;
-          formData.append("pickup_location", itemPickup);
-
-          const res = await apiFetch("/api/listings", { method: "POST", body: formData });
-          if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
-        }),
-      );
-
-      const failures = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-      if (failures.length > 0) {
-        const messages = failures
-          .map((f) => (f.reason instanceof Error ? f.reason.message : String(f.reason)))
-          .join("\n");
-        throw new Error(messages);
-      }
-
-      for (const img of uploadedImages) URL.revokeObjectURL(img.preview);
-      actions.postListingReset();
-      onPosted();
-    } catch (err) {
-      console.error("Bulk post failed:", err);
-      alert(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      actions.setPostingBulk(false);
-    }
-  };
-
-  const handleBulkPostFromPickupStep = async () => {
-    const trimmedDefault = bulkPickupLocation.trim();
-    if (trimmedDefault !== "") {
-      actions.setBulkItems(
-        bulkItems.map((item) => ({
-          ...item,
-          pickupLocation:
-            item.pickupLocation && item.pickupLocation.trim() !== ""
-              ? item.pickupLocation
-              : trimmedDefault,
-        })),
-      );
-    }
-    await handleBulkPostListing();
-  };
+    setBulkCardIndex: (index) => actions.setCurrentCardIndex(index),
+  }), [post.postSingleListing, resetForLogout, addImagesFromFiles, computeCoverImageUrl, actions]);
 
   const transitionToPhase = (next: "review" | "reason" | "cards" | "pickup") => {
     actions.setInstructionExiting(true);
@@ -687,6 +703,54 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
   return (
     <>
+      {draft.saveStatus.kind !== "idle" && (
+        <div className="flex justify-end items-center gap-1.5 px-4 pt-2 text-[11px] font-medium">
+          {draft.saveStatus.kind === "saving" && (
+            <>
+              <Loader2 className="size-3 animate-spin text-muted" aria-hidden />
+              <span className="text-muted">Saving…</span>
+            </>
+          )}
+          {draft.saveStatus.kind === "saved" && (
+            <>
+              <span className="size-1.5 rounded-full bg-primary shrink-0" aria-hidden />
+              <span className="text-muted">Saved · {relativeTime(draft.saveStatus.at)}</span>
+            </>
+          )}
+          {draft.saveStatus.kind === "failed" && draft.saveStatus.reason === "quota" && (
+            <button
+              type="button"
+              onClick={() => onBackToDrafts?.()}
+              className="inline-flex items-center gap-1.5 text-warning hover:underline"
+            >
+              <AlertTriangle className="size-3" aria-hidden />
+              <span>Save failed — storage full. Tap to manage drafts.</span>
+            </button>
+          )}
+          {draft.saveStatus.kind === "failed" && draft.saveStatus.reason === "unknown" && (
+            <>
+              <AlertTriangle className="size-3 text-warning" aria-hidden />
+              <span className="text-warning">Save failed — try again.</span>
+            </>
+          )}
+        </div>
+      )}
+      {prunedCommunityCount > 0 && (
+        <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
+          <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
+          <span className="flex-1">
+            We removed {prunedCommunityCount} communit{prunedCommunityCount === 1 ? "y" : "ies"} you're no longer a member of.
+          </span>
+          <button
+            type="button"
+            onClick={() => setPrunedCommunityCount(0)}
+            aria-label="Dismiss"
+            className="text-muted hover:text-ink shrink-0"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
       <UploadStep
         uploadedImagesCount={uploadedImages.length}
         isGenerating={isGenerating}
@@ -718,6 +782,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               wizardAnchorRef={wizardAnchorRef}
               onBackArrow={handleBackArrow}
               onAdvanceToReason={() => transitionToPhase("reason")}
+              onFillManually={() => actions.initBulkManual()}
               onGenerate={handleGenerateListings}
               setRationale={actions.setRationale}
               setRationaleOther={actions.setRationaleOther}
@@ -834,6 +899,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 </button>
               </div>
             </div>
+          ) : segmentation || productDetails ? (
+            // Post-segmentation / post-AI: the photos box was the upload-step
+            // UI. Once the wizard has moved past upload (segmentation ran or
+            // a single product was generated), hide it — the wizard's review
+            // and pickup steps own the surface from here.
+            null
           ) : (
             <div
               className="relative w-full bg-surface-card border border-hairline rounded-lg p-4 pb-14 mt-2 mb-2"
@@ -892,7 +963,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                 <span>Or drop more photos here</span>
               </button>
 
-              {mode !== "manual" && (
+              {/* Continue arrow only shows BEFORE segmentation has run.
+                  Once the wizard has segmented (bulk path) or generated a
+                  single listing (productDetails set), this button is no
+                  longer the right action — the user advances via the
+                  SingleListingForm's "Continue →" button or the bulk wizard's
+                  step controls. Without this guard, tapping the arrow on
+                  mobile while on the review step re-triggers segmentation
+                  and the wizard appears to blank out. */}
+              {mode !== "manual" && !segmentation && !productDetails && (
                 <button
                   type="button"
                   aria-label="Continue"
@@ -945,27 +1024,55 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onChange={actions.setBulkPickupLocation}
             onPost={() => {
               if (!isAuthenticated) { onRequestSignIn(); return; }
-              handleBulkPostFromPickupStep();
+              post.postBulkFromPickup();
             }}
+            availableCommunities={availableCommunities}
+            selectedCommunityIds={selectedCommunityIds}
+            onToggleCommunity={(id) => {
+              setSelectedCommunityIds((prev) =>
+                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+              );
+            }}
+            userNeighborhood={user?.neighborhood ?? null}
           />
         </div>
       )}
 
-      {productDetails && !isGenerating && !photosOnly && (
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "review" && (
         <SingleListingForm
           productDetails={productDetails}
           setProductDetails={actions.setProductDetails}
           categorySchemas={categorySchemas}
           setSingleCategory={setSingleCategory}
-          postPickupLocation={postPickupLocation}
-          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
           newTag={newTag}
           setNewTag={(v) => actions.setNewTag(v)}
+          onContinue={() => {
+            if (!isAuthenticated) { onRequestSignIn(); return; }
+            setSinglePostPhase("pickup");
+          }}
+          isAuthenticated={isAuthenticated}
+        />
+      )}
+
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && (
+        <SinglePickupStep
+          postPickupLocation={postPickupLocation}
+          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+          onBack={() => setSinglePostPhase("review")}
           onPost={() => {
             if (!isAuthenticated) { onRequestSignIn(); return; }
             onRequestSinglePostConfirm();
           }}
           isAuthenticated={isAuthenticated}
+          availableCommunities={availableCommunities}
+          selectedCommunityIds={selectedCommunityIds}
+          onToggleCommunity={(id) => {
+            setSelectedCommunityIds((prev) =>
+              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+            );
+          }}
+          userNeighborhood={user?.neighborhood ?? null}
+          instructionExiting={instructionExiting}
         />
       )}
 
@@ -974,6 +1081,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           bulkItems={bulkItems}
           currentCardIndex={currentCardIndex}
           uploadedImages={uploadedImages}
+          imageUrls={segmentation?.image_urls}
           categorySchemas={categorySchemas}
           editingTitle={editingTitle}
           newTag={newTag}
@@ -1000,172 +1108,3 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     </>
   );
 });
-
-// ─── Single Listing Form (extracted from inline JSX) ────────────────────────
-interface SingleListingFormProps {
-  productDetails: ProductDetails;
-  setProductDetails: (details: ProductDetails | null) => void;
-  categorySchemas: Record<string, CategorySchema>;
-  setSingleCategory: (slug: CategorySlug) => void;
-  postPickupLocation: string;
-  setPostPickupLocation: (v: string) => void;
-  newTag: string;
-  setNewTag: (v: string) => void;
-  onPost: () => void;
-  isAuthenticated: boolean;
-}
-
-function SingleListingForm({
-  productDetails, setProductDetails, categorySchemas, setSingleCategory,
-  postPickupLocation, setPostPickupLocation, newTag, setNewTag, onPost, isAuthenticated,
-}: SingleListingFormProps) {
-  return (
-    <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
-      {productDetails.retrieval_fallback === true && (
-        <div className="flex gap-3 p-3 rounded-md border border-warning/40 bg-warning/5 text-body">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-warning" />
-          <div className="text-xs">
-            <div className="font-semibold text-ink">Listing created with limited enrichment</div>
-            <div className="mt-1 text-muted">We couldn't reach our product lookup service, so this listing was generated from the photo alone. Double-check the brand, model, and price before posting.</div>
-          </div>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Brand</label>
-          <Input
-            value={productDetails.brand}
-            onChange={(e) => setProductDetails({ ...productDetails, brand: e.target.value })}
-            className="mt-1"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Name</label>
-          <Input
-            value={productDetails.name}
-            onChange={(e) => setProductDetails({ ...productDetails, name: e.target.value })}
-            className="mt-1"
-          />
-        </div>
-      </div>
-      <div>
-        <label className="text-xs text-muted uppercase tracking-wider">Description</label>
-        <textarea
-          value={productDetails.description}
-          onChange={(e) => setProductDetails({ ...productDetails, description: e.target.value })}
-          rows={3}
-          className="mt-1 w-full bg-canvas border border-border-strong text-ink rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 resize-none"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Price ($)</label>
-          <PriceInput
-            value={productDetails.price}
-            onChange={(next) => setProductDetails({ ...productDetails, price: next })}
-            className="mt-1"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Condition</label>
-          <select
-            value={productDetails.condition}
-            onChange={(e) => setProductDetails({ ...productDetails, condition: e.target.value })}
-            className="mt-1 w-full bg-canvas border border-border-strong text-ink rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 h-9"
-          >
-            {CONDITIONS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      {Object.keys(categorySchemas).length > 0 && (
-        <>
-          <CategorySelector
-            category={productDetails.category || "other"}
-            schemas={categorySchemas}
-            onChange={setSingleCategory}
-          />
-          <CategoryAttributeFields
-            category={productDetails.category || "other"}
-            schemas={categorySchemas}
-            attributes={productDetails.categoryAttributes || {}}
-            identifierConfidence={productDetails.identifierConfidence}
-            onChange={(key, value) => setProductDetails({
-              ...productDetails,
-              categoryAttributes: { ...(productDetails.categoryAttributes || {}), [key]: value },
-            })}
-          />
-        </>
-      )}
-      <div>
-        <label className="text-xs text-muted uppercase tracking-wider">Tags</label>
-        <div className="flex flex-wrap gap-2 mt-1">
-          {productDetails.tags.map((tag, index) => (
-            <span
-              key={index}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-primary-soft border border-primary/20 text-primary-active"
-            >
-              {tag}
-              <button
-                onClick={() =>
-                  setProductDetails({
-                    ...productDetails,
-                    tags: productDetails.tags.filter((_, i) => i !== index),
-                  })
-                }
-                className="hover:text-ink transition-colors"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const trimmed = newTag.trim();
-              if (trimmed && !productDetails.tags.includes(trimmed)) {
-                setProductDetails({
-                  ...productDetails,
-                  tags: [...productDetails.tags, trimmed],
-                });
-                setNewTag("");
-              }
-            }}
-            className="inline-flex"
-          >
-            <input
-              value={newTag}
-              onChange={(e) => setNewTag(e.target.value)}
-              placeholder="Add tag..."
-              className="w-24 px-2 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
-            />
-          </form>
-        </div>
-      </div>
-      <div className="mt-3">
-        <label className="text-xs text-muted uppercase tracking-wider">Pickup Location</label>
-        <div className="mt-1.5 flex items-center gap-2">
-          <MapPin className="size-3.5 text-primary shrink-0" />
-          <input
-            type="text"
-            value={postPickupLocation}
-            onChange={(e) => setPostPickupLocation(e.target.value)}
-            placeholder="Enter pickup location"
-            className="flex-1 bg-canvas border border-border-strong rounded-md px-3 py-2 text-sm text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary"
-          />
-        </div>
-        <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
-          Your address will not be shared until pickup is confirmed.
-        </p>
-      </div>
-
-      <Button
-        onClick={onPost}
-        className="w-full mt-2"
-      >
-        {isAuthenticated ? "Post Listing" : "Sign in to Post"}
-      </Button>
-    </div>
-  );
-}

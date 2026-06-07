@@ -1,0 +1,129 @@
+<h2>Push unread darker + read fainter</h2>
+<p class="subtitle">Title already #000 (can't go darker). Working levers: push body to ink, weight up the title, and/or drop read opacity below 50%.</p>
+
+<style>
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+
+  .panel { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 0; overflow: hidden; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; padding: 6px 14px; background: #FAFAFA; border-bottom: 1px solid #EFEFEF; }
+
+  .notif { display: flex; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #E5E5E5; position: relative; }
+  .notif-unread { background: #FFFFFF; }
+  .notif-read    { background: #F5F5F5; }
+  .notif:last-child { border-bottom: 0; }
+
+  .dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: #00824C; }
+  .icon-tile { width: 36px; height: 36px; background: #DCEEE4; color: #00824C; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; font-weight: 700; }
+  .body { flex: 1; min-width: 0; padding-right: 18px; }
+  .title { font-size: 13px; margin: 0; }
+  .text { font-size: 12px; margin-top: 2px; line-height: 1.4; }
+  .time { font-size: 10px; color: #888; margin-top: 4px; }
+
+  /* Variant A: unread title #000 semibold, body #000 normal; read opacity 0.45 */
+  .a-utitle { color: #000; font-weight: 600; }
+  .a-ubody  { color: #000; font-weight: 400; }
+  .a-wrap   { opacity: 0.45; }
+
+  /* Variant B: unread title #000 bold(700), body #000 medium; read opacity 0.4 */
+  .b-utitle { color: #000; font-weight: 700; }
+  .b-ubody  { color: #000; font-weight: 500; }
+  .b-wrap   { opacity: 0.4; }
+
+  /* Variant C: unread title #000 bold, body #1a1a1a medium; read opacity 0.35 */
+  .c-utitle { color: #000; font-weight: 700; }
+  .c-ubody  { color: #1a1a1a; font-weight: 500; }
+  .c-wrap   { opacity: 0.35; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Body → ink black, read opacity 0.45</h3>
+      <p>Unread body promoted from #333 to #000 — same darkness as title. Read content drops below half-strength.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title a-utitle">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text a-ubody">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body a-wrap">
+            <p class="title a-utitle">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text a-ubody">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Title bold-700, body ink + medium-500, read opacity 0.4 (Recommended)</h3>
+      <p>Bumps title to font-bold (700) and gives body more weight (medium-500) and ink color. Read content drops to 40% opacity — clear stratification.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title b-utitle">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text b-ubody">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body b-wrap">
+            <p class="title b-utitle">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text b-ubody">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Maximum contrast — title bold, body near-ink+medium, read opacity 0.35</h3>
+      <p>Strongest treatment. Unread has all the visual weight; read drops to barely-there 35%. Risk: aggressive bolding may feel heavy on a long feed.</p>
+      <div class="panel">
+        <div class="label">Unread</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title c-utitle">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text c-ubody">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+        <div class="label">Read</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body c-wrap">
+            <p class="title c-utitle">Maria offered $120 on your Filson Mile Marker tote</p>
+            <p class="text c-ubody">Pickup window: Today 5–7pm. Two reviewers, 5★ avg.</p>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click A / B / C. Want a different combination of weight + color + opacity? Describe in chat.</p>

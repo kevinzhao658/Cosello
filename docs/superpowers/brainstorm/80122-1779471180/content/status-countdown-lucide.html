@@ -1,0 +1,166 @@
+<h2>Pick the pickup icon (actual lucide-react glyphs)</h2>
+<p class="subtitle">These are the real lucide SVGs the implementation will use. Pill height adjusted so the icon sits cleanly with the text.</p>
+
+<style>
+  .row { display: grid; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr); }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; border-bottom-color: rgba(255,255,255,0.18); padding-top: 8px; padding-bottom: 8px; align-items: end; }
+  .thumb { width: 36px; height: 36px; background: rgba(255,255,255,0.12); border-radius: 4px; flex-shrink: 0; }
+  .item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .item-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .item-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .community-quiet { font-size: 10px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill-icon { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; line-height: 1; }
+  .pill-icon svg { width: 11px; height: 11px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .price { font-weight: 700; }
+  .grid-template { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; opacity: 0.55; padding: 0 12px 8px; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Hourglass</h3>
+      <p>Universal "time running out." Strong urgency.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>
+                2h 14m
+              </span>
+            </span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>
+                1d 3h
+              </span>
+            </span>
+          </div>
+        </div>
+        <div class="grid-template">&lt;Hourglass className="size-3" /&gt;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>MapPin</h3>
+      <p>Local-pickup semantic. Already imported in OrderConfirmSummaryModal.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                2h 14m
+              </span>
+            </span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                1d 3h
+              </span>
+            </span>
+          </div>
+        </div>
+        <div class="grid-template">&lt;MapPin className="size-3" /&gt;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Package</h3>
+      <p>"Your item is waiting to be picked up." Concrete object semantic.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                2h 14m
+              </span>
+            </span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                1d 3h
+              </span>
+            </span>
+          </div>
+        </div>
+        <div class="grid-template">&lt;Package className="size-3" /&gt;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Handshake</h3>
+      <p>Peer-to-peer meetup vibe. Distinct from logistics options.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">West Village</span><span class="item-name">Vintage Levi's 501</span></div></div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg>
+                2h 14m
+              </span>
+            </span>
+          </div>
+          <div class="row">
+            <div class="item"><div class="thumb"></div><div class="item-text"><span class="community-quiet">Chelsea</span><span class="item-name">Eames lounge chair replica</span></div></div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right">
+              <span class="pill-icon">
+                <svg viewBox="0 0 24 24"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg>
+                1d 3h
+              </span>
+            </span>
+          </div>
+        </div>
+        <div class="grid-template">&lt;Handshake className="size-3" /&gt;</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">These are the actual lucide-react SVGs at 11px. Pick A / B / C / D.</p>

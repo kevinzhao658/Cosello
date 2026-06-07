@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type ComponentType } from "react";
 import { Input } from "../../components/ui/input";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { Tooltip } from "../../components/ui/tooltip";
@@ -28,7 +28,6 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
-  Package,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
@@ -42,7 +41,7 @@ import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { ListingImage } from "../../components/ui/ListingImage";
-import { MANHATTAN_NEIGHBORHOODS } from "../../lib/neighborhoods";
+import { useNeighborhoods } from "../../lib/useNeighborhoods";
 import {
   getBuyerOrderViewState,
   getPickupCountdown,
@@ -118,13 +117,16 @@ interface PunchlistPickup {
   listing_title: string;
   listing_image: string | null;
   slot: string | null;
+  role: "seller" | "buyer";
+  pickup_expired: boolean;
+  countdown_label: string;
 }
 
 interface PunchlistResponse {
   pickups_to_confirm: PunchlistPickup[];
-  offers_to_review: unknown[];
+  offers_to_review: MyListing[];
   unread_messages: unknown[];
-  draft_listings: unknown[];
+  draft_listings: MyListing[];
 }
 
 type AccountTab = "overview" | "listings" | "saved" | "settings";
@@ -153,6 +155,9 @@ interface MyAccountPageProps {
 export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting, resetSettings } = useSettings();
+
+  const { list: neighborhoodsList, isLoading: isLoadingNeighborhoodsList, error: neighborhoodsListError } = useNeighborhoods();
+  const neighborhoods = neighborhoodsList ?? [];
 
   // ── Tab state (persisted) ──────────────────────────────
   const [accountTab, setAccountTab] = useState<AccountTab>(() => {
@@ -226,6 +231,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [editShowSuggestions, setEditShowSuggestions] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [editProfileError, setEditProfileError] = useState("");
+  const [showNeighborhoodChangeConfirm, setShowNeighborhoodChangeConfirm] = useState(false);
   const editSuggestionsRef = useRef<HTMLDivElement>(null);
   const editNeighborhoodRef = useRef<HTMLInputElement>(null);
 
@@ -348,10 +354,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [_wishlistFoldersLoaded, setWishlistFoldersLoaded] = useState(false);
   const [wishlistFoldersAvailable, setWishlistFoldersAvailable] = useState(true);
   const [wishlistItemsWithFolder, setWishlistItemsWithFolder] = useState<WishlistListingWithFolder[]>([]);
-
-  // Punchlist (R-5 new)
-  const [punchlist, setPunchlist] = useState<PunchlistResponse | null>(null);
-  const [punchlistLoaded, setPunchlistLoaded] = useState(false);
 
   // Initial-load gates for skeleton rendering. Each defaults to `true`
   // so the very first render of MyAccount shows skeletons rather than
@@ -513,7 +515,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         setRemovingListing(null);
         fetchMyListings();
         fetchAllOrders();
-        fetchPunchlist();
       } else {
         let message = "Failed to remove listing.";
         try {
@@ -731,24 +732,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setSelectedSavedIds(new Set());
   };
 
-  // ── Punchlist ──────────────────────────────────────────
-  const fetchPunchlist = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/me/punchlist");
-      if (res.ok) {
-        setPunchlist(await res.json());
-      } else if (res.status === 404) {
-        // Endpoint not shipped — leave punchlist empty (renders "All clear")
-        setPunchlist({ pickups_to_confirm: [], offers_to_review: [], unread_messages: [], draft_listings: [] });
-      }
-    } catch (err) {
-      console.error("Failed to fetch punchlist:", err);
-    } finally {
-      setPunchlistLoaded(true);
-    }
-  }, [token]);
-
   useEffect(() => {
     fetchCommunities();
     fetchStats();
@@ -756,8 +739,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     fetchAllOrders();
     fetchWishlistFolders();
     fetchWishlistWithFolders();
-    fetchPunchlist();
-  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders, fetchPunchlist]);
+  }, [fetchCommunities, fetchStats, fetchMyListings, fetchAllOrders, fetchWishlistFolders, fetchWishlistWithFolders]);
+
+  // Refetch local communities list whenever the user's neighborhood changes
+  // (set_user_neighborhood swap on the server adds/removes membership).
+  // Reactive — not called imperatively in doUpdateProfile — to avoid races
+  // with the AuthContext re-render triggered by updateUser(). App.tsx has its
+  // own neighborhood-watching effect for its publicCommunities state — keep
+  // those decoupled so the `onCommunitiesChanged` callback prop (which is
+  // recreated every App render) can't pull this effect into a render loop.
+  useEffect(() => {
+    if (!user?.neighborhood) return;
+    fetchCommunities();
+  }, [user?.neighborhood, fetchCommunities]);
 
   // Refetch when an OrderModalsProvider action settles (rating submit, slot
   // confirm, decline). The Supabase realtime channel below also catches the
@@ -767,9 +761,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     return subscribeAfterAction(() => {
       fetchAllOrders();
       fetchMyListings();
-      fetchPunchlist();
     });
-  }, [subscribeAfterAction, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+  }, [subscribeAfterAction, fetchAllOrders, fetchMyListings]);
 
   // History entries for confirmed sales fire through the same provider so
   // App-level openers (the `purchase` notification path) land in history
@@ -787,7 +780,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     });
   }, [subscribeListingSold, onAddToHistory]);
 
-  // Realtime: refresh orders + punchlist on purchase_orders changes
+  // Realtime: refresh orders on purchase_orders changes
   useEffect(() => {
     if (!user?.id) return;
     const channel = supabase
@@ -798,17 +791,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         () => {
           fetchAllOrders();
           fetchMyListings();
-          fetchPunchlist();
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, fetchAllOrders, fetchMyListings, fetchPunchlist]);
+  }, [user?.id, fetchAllOrders, fetchMyListings]);
 
   // When a notification routes the user here, force a fresh fetch of
-  // orders/listings/punchlist so the auto-open watcher below has up-to-date
+  // orders/listings so the auto-open watcher below has up-to-date
   // state. Without this, a buyer's just-created pending order may not be in
   // mySellerOrders/myListings yet (the Supabase realtime channel covers the
   // already-mounted case but not the navigate-from-elsewhere case where
@@ -817,9 +809,46 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     if (!pendingListingId) return;
     fetchAllOrders();
     fetchMyListings();
-    fetchPunchlist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingListingId]);
+
+  // Punchlist: derived client-side from loaded state — no server round-trip.
+  // Punchlist is derived client-side from already-loaded data; the unused backend /api/me/punchlist route was removed (see cleanup/hygiene-sweep).
+  const punchlist = useMemo<PunchlistResponse>(() => {
+    const mapOrderToPickup = (o: OrderData, role: "seller" | "buyer"): PunchlistPickup => {
+      const countdown = getPickupCountdown(o);
+      return {
+        order_id: o.id,
+        listing_id: o.listing_id,
+        listing_title: o.listing_title,
+        listing_image: o.listing_image ?? null,
+        slot: o.confirmed_time ?? null,
+        role,
+        pickup_expired: countdown.expired,
+        countdown_label: countdown.label,
+      };
+    };
+
+    // Seller and buyer both surface within 1 hour of pickup OR already expired.
+    // CTA stays muted ("Pickup in {label}") until expired; activates to
+    // "Confirm pickup" → openRatingModal post-expiry.
+    const sellerPickups = mySellerOrders
+      .filter((o) => o.status === "confirmed" && !o.seller_reviewed && getPickupCountdown(o).diff <= 3600000)
+      .map((o) => mapOrderToPickup(o, "seller"));
+
+    const buyerPickups = myPurchases
+      .filter((o) => o.status === "confirmed" && !o.buyer_reviewed && getPickupCountdown(o).diff <= 3600000)
+      .map((o) => mapOrderToPickup(o, "buyer"));
+
+    return {
+      pickups_to_confirm: [...sellerPickups, ...buyerPickups],
+      offers_to_review: myListings.filter((l) => (l.pendingOrderCount ?? 0) > 0),
+      draft_listings: myListings.filter((l) => l.status === "draft"),
+      unread_messages: [],
+    };
+  }, [mySellerOrders, myPurchases, myListings, getPickupCountdown, countdownTick]);
+
+  const punchlistLoaded = !isLoadingMyOrders && !isLoadingMyListings;
 
   // Auto-open order modal when routed from notification
   useEffect(() => {
@@ -1390,12 +1419,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setAddFriendsResults([]);
   };
 
-  const editIsValidNeighborhood = MANHATTAN_NEIGHBORHOODS.some(
+  const editIsValidNeighborhood = neighborhoods.some(
     (n) => n.toLowerCase() === editNeighborhood.trim().toLowerCase(),
   );
   const editFilteredNeighborhoods = editNeighborhood.trim()
-    ? MANHATTAN_NEIGHBORHOODS.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
-    : MANHATTAN_NEIGHBORHOODS;
+    ? neighborhoods.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
+    : neighborhoods;
 
   const openEditProfileModal = () => {
     const name = user?.display_name || "";
@@ -1410,15 +1439,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowEditProfileModal(true);
   };
 
-  const handleUpdateProfile = async () => {
-    if (!editFirstName.trim() || !editLastName.trim()) {
-      setEditProfileError("Please enter your first and last name");
-      return;
-    }
-    if (!editIsValidNeighborhood) {
-      setEditProfileError("Please select a valid Manhattan neighborhood");
-      return;
-    }
+  const isNeighborhoodChanging = editNeighborhood.trim() !== (user?.neighborhood ?? "");
+
+  const doUpdateProfile = async () => {
     setIsUpdatingProfile(true);
     setEditProfileError("");
     try {
@@ -1439,11 +1462,40 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       const updatedUser = await res.json();
       updateUser(updatedUser);
       setShowEditProfileModal(false);
+      // Communities refetch fires reactively via the `user?.neighborhood`
+      // useEffect below — see comment there for why.
     } catch (err) {
       setEditProfileError(err instanceof Error ? err.message : "Update failed");
     } finally {
       setIsUpdatingProfile(false);
     }
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!editFirstName.trim() || !editLastName.trim()) {
+      setEditProfileError("Please enter your first and last name");
+      return;
+    }
+    if (!editIsValidNeighborhood) {
+      setEditProfileError("Please select a valid Manhattan neighborhood");
+      return;
+    }
+    if (isNeighborhoodChanging) {
+      setShowEditProfileModal(false);
+      setShowNeighborhoodChangeConfirm(true);
+      return;
+    }
+    await doUpdateProfile();
+  };
+
+  const handleConfirmNeighborhoodChange = async () => {
+    setShowNeighborhoodChangeConfirm(false);
+    await doUpdateProfile();
+  };
+
+  const handleCancelNeighborhoodChange = () => {
+    setShowNeighborhoodChangeConfirm(false);
+    setShowEditProfileModal(true);
   };
 
   useClickOutside([createLocationRef, createLocationSuggestionsRef], () => setCreateShowLocationSuggestions(false), createShowLocationSuggestions);
@@ -1610,6 +1662,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 openOrderModal={openOrderManagement}
                 openConfirmedOrderSummary={openConfirmedOrderSummary}
                 openRatingModal={openRatingModal}
+                openListingDetail={openListingDetail}
                 getListingTimeInfo={getListingTimeInfo}
                 getPickupCountdown={getPickupCountdown}
                 onNavigate={onNavigate}
@@ -1617,10 +1670,12 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <PunchlistPanel
                 punchlist={punchlist}
                 punchlistLoaded={punchlistLoaded}
-                onConfirmPickup={(p) => {
-                  const listing = myListings.find((l) => l.id === p.listing_id);
-                  if (listing) openOrderManagement(listing);
-                }}
+                openOrderModal={openOrderManagement}
+                openEditListing={openEditListing}
+                openRatingModal={openRatingModal}
+                openConfirmedOrderSummary={openConfirmedOrderSummary}
+                mySellerOrders={mySellerOrders}
+                myPurchases={myPurchases}
               />
             </div>
           </div>
@@ -1650,6 +1705,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               openOrderModal={openOrderManagement}
               openConfirmedOrderSummary={openConfirmedOrderSummary}
               openRatingModal={openRatingModal}
+              openListingDetail={openListingDetail}
               handleRelist={handleRelist}
               relistingId={relistingId}
               getListingTimeInfo={getListingTimeInfo}
@@ -1798,6 +1854,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         editIsValidNeighborhood={editIsValidNeighborhood}
         editProfileError={editProfileError}
         isUpdatingProfile={isUpdatingProfile}
+        isLoadingNeighborhoods={isLoadingNeighborhoodsList}
+        neighborhoodsError={neighborhoodsListError}
         editNeighborhoodRef={editNeighborhoodRef}
         editSuggestionsRef={editSuggestionsRef}
         setEditFirstName={setEditFirstName}
@@ -1809,6 +1867,36 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         onClose={() => setShowEditProfileModal(false)}
         onSubmit={handleUpdateProfile}
       />
+
+      {showNeighborhoodChangeConfirm && (
+        <ModalShell open onClose={handleCancelNeighborhoodChange} z={60}>
+          <div className="bg-canvas border border-hairline rounded-md max-w-md w-full mx-4 p-6 shadow-overlay">
+            <h3 className="text-base font-semibold text-ink mb-2">Change neighborhood?</h3>
+            <p className="text-sm text-body leading-relaxed">
+              You'll leave the <strong>{user?.neighborhood ?? "—"}</strong> community
+              and join <strong>{editNeighborhood}</strong>. Your existing listings
+              stay tagged to {user?.neighborhood ?? "your previous neighborhood"}.
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={handleCancelNeighborhoodChange}
+                className={`h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold ${FOCUS_RING}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmNeighborhoodChange}
+                disabled={isUpdatingProfile}
+                className={`h-9 px-4 rounded-md bg-primary text-on-primary hover:bg-primary-hover text-sm font-semibold disabled:opacity-50 ${FOCUS_RING}`}
+              >
+                {isUpdatingProfile ? <Loader2 className="size-4 animate-spin" /> : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
 
       <AddFriendsModal
         open={showAddFriendsModal}
@@ -2290,12 +2378,12 @@ function OverviewCommunitiesRow({
       className="bg-canvas border border-hairline rounded-md p-4"
     >
       <div className="flex items-baseline justify-between gap-2 mb-3">
-        <h2 className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">
+        <h3 className={`text-base ${PANEL_TITLE}`}>
           Communities
           {!isEmpty && communitiesLoaded && (
-            <span className="text-muted font-normal ml-1">({communities.length})</span>
+            <span className="text-muted font-normal text-sm ml-1.5">({communities.length})</span>
           )}
-        </h2>
+        </h3>
       </div>
 
       {!communitiesLoaded ? (
@@ -2407,6 +2495,29 @@ function OverviewCommunitiesRow({
   );
 }
 
+// ── Selling row priority (for action-urgency sort) ──────────
+function getSellingRowPriority(
+  listing: MyListing,
+  mySellerOrders: OrderData[],
+  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string },
+  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number },
+): number {
+  const timeInfo = getListingTimeInfo(listing.postedAt);
+  const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
+  const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
+  const sellerReviewed = sellerOrder?.seller_reviewed ?? false;
+  const buyerReviewed = sellerOrder?.buyer_reviewed ?? false;
+  const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
+
+  if (sellerOrder?.status === "completed") return 5;
+  if (timeInfo.expired) return 5;
+  if (sellerOrder?.status === "confirmed" && sellerCountdown?.expired && !sellerReviewed) return 0; // pickup ready
+  if (sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired) return 1; // countdown
+  if (hasPendingOrders) return 2; // pending offers
+  if (sellerOrder?.status === "confirmed" && sellerCountdown?.expired && sellerReviewed && !buyerReviewed) return 3; // awaiting buyer
+  return 4; // live
+}
+
 // ── Overview: Your Listings Panel ───────────────────────────
 function OverviewListingsPanel({
   listingsTab,
@@ -2420,6 +2531,7 @@ function OverviewListingsPanel({
   openOrderModal,
   openConfirmedOrderSummary,
   openRatingModal,
+  openListingDetail,
   getListingTimeInfo,
   getPickupCountdown,
   onNavigate,
@@ -2435,14 +2547,15 @@ function OverviewListingsPanel({
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
   openRatingModal: (o: OrderData) => void;
+  openListingDetail?: (l: Listing) => void;
   getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
   getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
   onNavigate: (page: string) => void;
 }) {
   const sellingRows = [...myListings].sort((a, b) => {
-    const aOrders = a.pendingOrderCount ?? 0;
-    const bOrders = b.pendingOrderCount ?? 0;
-    if (aOrders !== bOrders) return bOrders - aOrders;
+    const pa = getSellingRowPriority(a, mySellerOrders, getListingTimeInfo, getPickupCountdown);
+    const pb = getSellingRowPriority(b, mySellerOrders, getListingTimeInfo, getPickupCountdown);
+    if (pa !== pb) return pa - pb; // lower priority number = higher in list
     const aTime = a.latestOrderAt || "";
     const bTime = b.latestOrderAt || "";
     if (aTime !== bTime) return bTime > aTime ? 1 : -1;
@@ -2474,10 +2587,10 @@ function OverviewListingsPanel({
       {listingsTab === "selling" ? (
         isLoadingMyListings && myListings.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <span>Price</span>
+              <span>Status</span>
             </div>
             {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
           </div>
@@ -2494,12 +2607,15 @@ function OverviewListingsPanel({
         ) : (
           <div className="flex-1 overflow-y-auto">
             {/* 3-col grid: Item (with community subtitle) / Price / Status.
+                Each value gets its own cell — no flex wrapper. Min-widths on
+                Price and Status lock the Status column's left edge at the same
+                x-position across all rows regardless of pill content length.
                 Identical to the Buying table below so the two read as one
                 visual system. */}
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <span>Price</span>
+              <span>Status</span>
             </div>
             <div>
               {sellingRows.map((listing) => {
@@ -2521,40 +2637,47 @@ function OverviewListingsPanel({
                 });
 
                 // Confirmed-and-still-ticking state renders the countdown label
-                // with a Package icon. Other states keep their existing labels.
+                // as text ("Pickup in Xh Ym"). Other states keep their existing labels.
                 const isConfirmedTicking = sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired;
 
-                const statusLabel = isCompleted
-                  ? "Completed"
-                  : isSellerPickupReady
-                    ? "Pickup ready"
-                    : isSellerWaitingForBuyer
-                      ? "Awaiting buyer"
-                      : isConfirmedTicking
-                        ? sellerCountdown.label
-                        : sellerOrder?.status === "confirmed"
-                          ? "Confirmed"
-                          : hasPendingOrders
-                            ? `${listing.pendingOrderCount} pending`
-                            : timeInfo.expired
-                              ? "Expired"
-                              : "Live";
+                const statusLabel = listing.status === "draft"
+                  ? "Draft"
+                  : listing.status === "sold"
+                    ? "Sold"
+                    : isCompleted
+                      ? "Completed"
+                      : isSellerPickupReady
+                        ? "Pickup ready"
+                        : isSellerWaitingForBuyer
+                          ? "Awaiting buyer"
+                          : isConfirmedTicking
+                            ? `Pickup in ${sellerCountdown.label}`
+                            : hasPendingOrders
+                              ? `${listing.pendingOrderCount} offers`
+                              : timeInfo.expired
+                                ? "Expired"
+                                : "Live";
 
-                const isClickable = !timeInfo.expired && !isSellerWaitingForBuyer;
+                // Terminal states (expired / completed / sold) open the
+                // product details modal. Awaiting-buyer falls through to the
+                // confirmed-order summary via the existing `sellerOrder`
+                // branch. Every row is clickable now.
+                const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
 
                 return (
                   <button
                     key={listing.id}
                     onClick={() => {
-                      if (timeInfo.expired) return;
+                      if (isTerminal) {
+                        openListingDetail?.(listing as Listing);
+                        return;
+                      }
                       if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
-                      else if (isSellerWaitingForBuyer) return;
                       else if (hasPendingOrders) openOrderModal(listing);
                       else if (sellerOrder) openConfirmedOrderSummary(listing.id);
                       else openEditListing(listing);
                     }}
-                    disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors cursor-pointer hover:bg-surface-soft ${FOCUS_RING}`}
                   >
                     {/* Item cell — thumb + community subtitle (muted) above title. */}
                     <div className="flex items-center gap-3 min-w-0">
@@ -2564,19 +2687,15 @@ function OverviewListingsPanel({
                         <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-ink tabular-nums text-right">${listing.price}</span>
-                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      cta === "expired" || isCompleted
+                    <span className="text-sm font-bold text-ink tabular-nums">${listing.price}</span>
+                    <span className={`justify-self-start text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                      statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
                         ? "bg-surface-strong text-muted"
-                        : cta === "default"
-                          ? "bg-primary-soft text-primary"
-                          : "bg-primary text-on-primary"
+                        : statusLabel === "Awaiting buyer"
+                          ? "bg-warning-soft text-warning"
+                          : "bg-primary-soft text-primary"
                     }`}>
-                      {isConfirmedTicking ? (
-                        <Package className="size-3" aria-hidden />
-                      ) : (
-                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      )}
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                       {statusLabel}
                     </span>
                   </button>
@@ -2588,10 +2707,10 @@ function OverviewListingsPanel({
       ) : (
         isLoadingMyOrders && myPurchases.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <span>Price</span>
+              <span>Status</span>
             </div>
             {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
           </div>
@@ -2609,10 +2728,10 @@ function OverviewListingsPanel({
           <div className="flex-1 overflow-y-auto">
             {/* 3-col grid: Item (with community subtitle) / Price / Status —
                 identical template to the Selling table above. */}
-            <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
               <span>Item</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Status</span>
+              <span>Price</span>
+              <span>Status</span>
             </div>
             <div>
               {myPurchases.map((order) => {
@@ -2630,7 +2749,7 @@ function OverviewListingsPanel({
                   : viewState === "cancelledBySeller" ? "Cancelled by seller"
                   : viewState === "waitingForOther" ? "Awaiting seller"
                   : viewState === "pickupReady" ? "Pickup ready"
-                  : isConfirmedTicking ? countdown.label
+                  : isConfirmedTicking ? `Pickup in ${countdown.label}`
                   : order.status === "completed" ? "Completed"
                   : "Pending";
                 const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "cancelledBySeller" || viewState === "waitingForOther");
@@ -2643,7 +2762,7 @@ function OverviewListingsPanel({
                       else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
                     }}
                     disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-4 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
+                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
                   >
                     {/* Item cell — thumb + community subtitle above title.
                         Seller @handle no longer rendered in the table; still
@@ -2655,19 +2774,15 @@ function OverviewListingsPanel({
                         <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-primary tabular-nums text-right">${order.listing_price}</span>
-                    <span className={`justify-self-end text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired"
+                    <span className="text-sm font-bold text-primary tabular-nums">${order.listing_price}</span>
+                    <span className={`justify-self-start text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || order.status === "completed"
                         ? "bg-surface-strong text-muted"
                         : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                          ? "bg-warning/10 text-warning"
-                          : "bg-primary text-on-primary"
+                          ? "bg-warning-soft text-warning"
+                          : "bg-primary-soft text-primary"
                     }`}>
-                      {isConfirmedTicking ? (
-                        <Package className="size-3" aria-hidden />
-                      ) : (
-                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      )}
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                       {statusLabel}
                     </span>
                   </button>
@@ -2685,20 +2800,71 @@ function OverviewListingsPanel({
 function PunchlistPanel({
   punchlist,
   punchlistLoaded,
-  onConfirmPickup,
+  openOrderModal,
+  openEditListing,
+  openRatingModal,
+  openConfirmedOrderSummary,
+  mySellerOrders,
+  myPurchases,
 }: {
   punchlist: PunchlistResponse | null;
   punchlistLoaded: boolean;
-  onConfirmPickup: (p: PunchlistPickup) => void;
+  openOrderModal: (l: MyListing) => void;
+  openEditListing: (l: MyListing) => void;
+  openRatingModal: (o: OrderData) => void;
+  openConfirmedOrderSummary: (listingId: string) => void;
+  mySellerOrders: OrderData[];
+  myPurchases: OrderData[];
 }) {
-  const cats = [
+  // Each cat entry uses a typed discriminated union so the render loop can
+  // dispatch without `any`. Pickups carry PunchlistPickup items; offers and
+  // drafts carry MyListing items; messages carry unknown[].
+  type PickupCat = {
+    id: "pickups";
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    items: PunchlistPickup[];
+    cta: string;
+    onAction: (item: PunchlistPickup) => void;
+  };
+  type ListingCat = {
+    id: "offers" | "drafts";
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    items: MyListing[];
+    cta: string;
+    onAction: (item: MyListing) => void;
+  };
+  type MessageCat = {
+    id: "messages";
+    label: string;
+    icon: ComponentType<{ className?: string }>;
+    items: unknown[];
+    cta: string;
+    onAction: () => void;
+  };
+  type PunchCat = PickupCat | ListingCat | MessageCat;
+
+  const cats: PunchCat[] = [
     {
       id: "pickups",
       label: "Confirm pickups",
       icon: CalendarCheck,
       items: punchlist?.pickups_to_confirm ?? [],
       cta: "Confirm slot",
-      onAction: (item: PunchlistPickup) => onConfirmPickup(item),
+      onAction: (item: PunchlistPickup) => {
+        // Disabled until slot passes — both roles.
+        if (!item.pickup_expired) return;
+
+        if (item.role === "seller") {
+          const order = mySellerOrders.find((o) => o.id === item.order_id);
+          if (order) openRatingModal(order);
+          return;
+        }
+        // Buyer side
+        const order = myPurchases.find((o) => o.id === item.order_id);
+        if (order) openRatingModal(order);
+      },
     },
     {
       id: "offers",
@@ -2706,7 +2872,7 @@ function PunchlistPanel({
       icon: Coins,
       items: punchlist?.offers_to_review ?? [],
       cta: "Review offer",
-      onAction: () => {},
+      onAction: (item: MyListing) => openOrderModal(item),
     },
     {
       id: "messages",
@@ -2722,23 +2888,40 @@ function PunchlistPanel({
       icon: Pencil,
       items: punchlist?.draft_listings ?? [],
       cta: "Resume draft",
-      onAction: () => {},
+      onAction: (item: MyListing) => openEditListing(item),
     },
   ];
 
   const totalTodo = cats.reduce((n, c) => n + c.items.length, 0);
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
-    const top = cats.reduce<(typeof cats)[number] | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
+    const top = cats.reduce<PunchCat | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
     return top && top.items.length > 0 ? { [top.id]: true } : {};
   });
   useEffect(() => {
     setOpen((cur) => {
       if (Object.values(cur).some(Boolean)) return cur;
-      const top = cats.reduce<(typeof cats)[number] | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
+      const top = cats.reduce<PunchCat | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
       return top && top.items.length > 0 ? { [top.id]: true } : cur;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [punchlist]);
+
+  const handleRowClick = (cat: { id: string }, item: unknown) => {
+    if (cat.id === "pickups") {
+      const pickup = item as PunchlistPickup;
+      openConfirmedOrderSummary(pickup.listing_id);
+      return;
+    }
+    if (cat.id === "offers") {
+      openOrderModal(item as MyListing);
+      return;
+    }
+    if (cat.id === "drafts") {
+      openEditListing(item as MyListing);
+      return;
+    }
+    // messages — no-op
+  };
 
   return (
     <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
@@ -2782,23 +2965,58 @@ function PunchlistPanel({
                   {cat.items.map((it, i) => {
                     const isPickup = cat.id === "pickups";
                     const pickup = isPickup ? (it as PunchlistPickup) : null;
+                    const listing = (cat.id === "offers" || cat.id === "drafts") ? (it as MyListing) : null;
+                    const itemTitle = pickup?.listing_title
+                      ?? (listing ? formatTitle(listing.brand, listing.name) : "Item");
+                    const itemImage = pickup?.listing_image ?? listing?.imageUrl ?? null;
                     return (
                       <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
-                        {pickup?.listing_image && (
-                          <ListingImage src={pickup.listing_image} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-ink truncate">
-                            {pickup ? pickup.listing_title : "Item"}
-                          </p>
-                          {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
-                        </div>
                         <button
-                          onClick={() => isPickup && pickup && cat.onAction(pickup)}
-                          className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                          type="button"
+                          onClick={() => handleRowClick(cat, it)}
+                          className="flex-1 flex items-center gap-3 text-left cursor-pointer hover:bg-surface-soft transition-colors rounded-md px-2 -mx-2 py-1 -my-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          {cat.cta}
+                          {itemImage && (
+                            <ListingImage src={itemImage} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-ink leading-snug line-clamp-2">
+                              {itemTitle}
+                            </p>
+                            {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
+                          </div>
                         </button>
+                        {cat.id === "pickups" && pickup ? (
+                          !pickup.pickup_expired ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center justify-center h-7 px-3 rounded-md bg-surface-strong text-muted text-[11px] font-semibold cursor-not-allowed"
+                            >
+                              Pickup in {pickup.countdown_label}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); cat.onAction(pickup); }}
+                              className={`inline-flex items-center justify-center h-7 px-3 rounded-md bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                            >
+                              Confirm pickup
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (cat.id === "offers" && listing) cat.onAction(listing);
+                              else if (cat.id === "drafts" && listing) cat.onAction(listing);
+                            }}
+                            className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
+                          >
+                            {cat.cta}
+                          </button>
+                        )}
                       </li>
                     );
                   })}
@@ -2835,6 +3053,7 @@ function ListingsTabContent({
   openOrderModal,
   openConfirmedOrderSummary,
   openRatingModal,
+  openListingDetail,
   handleRelist,
   relistingId,
   getListingTimeInfo,
@@ -2866,6 +3085,7 @@ function ListingsTabContent({
   openOrderModal: (l: MyListing) => void;
   openConfirmedOrderSummary: (id: string) => void;
   openRatingModal: (o: OrderData) => void;
+  openListingDetail?: (l: Listing) => void;
   handleRelist: (id: string) => void;
   relistingId: string | null;
   getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
@@ -2998,24 +3218,53 @@ function ListingsTabContent({
               const isSellerPickupReady = !!(sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed);
               const isSellerWaitingForBuyer = !!(sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed);
               const isCompleted = sellerOrder?.status === "completed";
+              const isConfirmedTicking = !!(sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired);
 
-              const statusLabel = isCompleted
-                ? "Completed"
-                : timeInfo.expired
-                  ? "Expired"
-                  : listing.status === "draft"
-                    ? "Draft"
-                    : listing.status === "sold"
-                      ? "Sold"
-                      : "Live";
-              const statusClass = isCompleted || timeInfo.expired || listing.status === "sold"
+              const statusLabel = listing.status === "draft"
+                ? "Draft"
+                : listing.status === "sold"
+                  ? "Sold"
+                  : isCompleted
+                    ? "Completed"
+                    : isSellerPickupReady
+                      ? "Pickup ready"
+                      : isSellerWaitingForBuyer
+                        ? "Awaiting buyer"
+                        : isConfirmedTicking
+                          ? `Pickup in ${sellerCountdown.label}`
+                          : hasPendingOrders
+                            ? `${listing.pendingOrderCount} offers`
+                            : timeInfo.expired
+                              ? "Expired"
+                              : "Live";
+              const statusClass = statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
                 ? "bg-surface-strong text-muted"
-                : listing.status === "draft"
-                  ? "bg-warning/10 text-warning"
-                  : "bg-primary text-on-primary";
+                : statusLabel === "Awaiting buyer"
+                  ? "bg-warning-soft text-warning"
+                  : "bg-primary-soft text-primary";
+
+              // Cards in terminal states (expired / completed / sold) and the
+              // awaiting-buyer transient state get a card-level click handler
+              // routed to detail / order summary. Active states leave the
+              // article without onClick — inner buttons drive the interactions.
+              const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
+              const isCardClickable = isTerminal || isSellerWaitingForBuyer;
+              const onCardClick = isCardClickable
+                ? () => {
+                    if (isSellerWaitingForBuyer && sellerOrder) {
+                      openConfirmedOrderSummary(listing.id);
+                      return;
+                    }
+                    openListingDetail?.(listing as Listing);
+                  }
+                : undefined;
 
               return (
-                <article key={listing.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
+                <article
+                  key={listing.id}
+                  onClick={onCardClick}
+                  className={`bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col ${isCardClickable ? "cursor-pointer" : ""}`}
+                >
                   {/* Trust band — mirrors marketplace card.
                       MyListing payload omits allCommunities; falls back to
                       PLACEHOLDER_COMMUNITY until the sell-flow community
@@ -3039,7 +3288,7 @@ function ListingsTabContent({
                     <div className="flex items-center gap-1.5 mt-2">
                       {timeInfo.expired ? (
                         <button
-                          onClick={() => handleRelist(listing.id)}
+                          onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
                           disabled={relistingId === listing.id}
                           className={`flex-1 inline-flex items-center justify-center gap-1 h-8 px-3 rounded-md bg-primary-soft text-primary text-xs font-semibold hover:bg-primary-tint transition-colors disabled:opacity-50 ${FOCUS_RING}`}
                         >
@@ -3049,7 +3298,7 @@ function ListingsTabContent({
                         <>
                           <Tooltip content="Edit listing">
                             <button
-                              onClick={() => openEditListing(listing)}
+                              onClick={(e) => { e.stopPropagation(); openEditListing(listing); }}
                               className={`inline-flex items-center justify-center size-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
                               aria-label="Edit listing"
                             >
@@ -3058,14 +3307,14 @@ function ListingsTabContent({
                           </Tooltip>
                           {hasPendingOrders ? (
                             <button
-                              onClick={() => openOrderModal(listing)}
+                              onClick={(e) => { e.stopPropagation(); openOrderModal(listing); }}
                               className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
                             >
                               Review {listing.pendingOrderCount} {listing.pendingOrderCount === 1 ? "offer" : "offers"}
                             </button>
                           ) : isSellerPickupReady && sellerOrder ? (
                             <button
-                              onClick={() => openRatingModal(sellerOrder)}
+                              onClick={(e) => { e.stopPropagation(); openRatingModal(sellerOrder); }}
                               className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
                             >
                               Confirm pickup
@@ -3076,7 +3325,7 @@ function ListingsTabContent({
                             </span>
                           ) : sellerOrder?.status === "confirmed" && sellerCountdown ? (
                             <button
-                              onClick={() => openConfirmedOrderSummary(listing.id)}
+                              onClick={(e) => { e.stopPropagation(); openConfirmedOrderSummary(listing.id); }}
                               className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
                             >
                               {sellerCountdown.label} to pickup
@@ -3087,7 +3336,7 @@ function ListingsTabContent({
                           {listing.status !== "sold" && (
                             <Tooltip content="Remove listing">
                               <button
-                                onClick={() => openRemoveListing(listing)}
+                                onClick={(e) => { e.stopPropagation(); openRemoveListing(listing); }}
                                 className={`inline-flex items-center justify-center size-8 rounded-md border border-error/30 text-error bg-canvas hover:bg-error/5 hover:text-error transition-colors ${FOCUS_RING}`}
                                 aria-label="Remove listing"
                               >
@@ -3129,14 +3378,14 @@ function ListingsTabContent({
                 : viewState === "cancelledBySeller" ? "Cancelled by seller"
                 : viewState === "waitingForOther" ? "Awaiting seller"
                 : viewState === "pickupReady" ? "Pickup ready"
-                : viewState === "confirmedCountdown" ? "Confirmed"
+                : viewState === "confirmedCountdown" ? `Pickup in ${countdown.label}`
                 : order.status === "completed" ? "Completed"
                 : "Pending";
               const statusClass = ["declined", "withdrawn", "expired"].includes(viewState) || order.status === "completed"
                 ? "bg-surface-strong text-muted"
                 : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                  ? "bg-warning/10 text-warning"
-                  : "bg-primary text-on-primary";
+                  ? "bg-warning-soft text-warning"
+                  : "bg-primary-soft text-primary";
 
               // Pending buyer-side orders get the distinct "Pending" overlay
               // (uppercase tracking-widest jade pill) mirroring the marketplace

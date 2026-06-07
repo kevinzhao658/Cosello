@@ -6,11 +6,19 @@ export type CategorySlug =
   | "collectibles"
   | "other";
 
+export interface CommunitySummary {
+  id: number;
+  name: string;
+  neighborhood?: string;
+  is_public?: boolean;
+}
+
 export interface ListingCommunity {
   name: string;
   is_public: boolean;
   is_mutual: boolean;
   is_neighborhood?: boolean;
+  image?: string | null;
 }
 
 export interface MutualCommunity {

@@ -1,0 +1,138 @@
+<h2>Community above the item name — pick the treatment</h2>
+<p class="subtitle">All three drop location, replace with community, and put community on top of the item name. Difference is how much visual weight the community gets.</p>
+
+<style>
+  .row { display: grid; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; border-bottom-color: rgba(255,255,255,0.18); padding-top: 8px; padding-bottom: 8px; align-items: end; }
+  .thumb { width: 36px; height: 36px; background: rgba(255,255,255,0.12); border-radius: 4px; flex-shrink: 0; }
+  .item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .item-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .item-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .community-quiet { font-size: 10px; opacity: 0.7; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .community-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #6ee7a8; display: inline-flex; align-items: center; gap: 6px; }
+  .community-dot { width: 6px; height: 6px; border-radius: 50%; background: #6ee7a8; flex-shrink: 0; }
+  .community-bar { display: flex; align-items: center; gap: 6px; padding: 3px 8px; background: rgba(80,200,120,0.10); border-left: 2px solid #6ee7a8; border-radius: 2px; font-size: 10px; color: #6ee7a8; font-weight: 600; align-self: flex-start; }
+  .pill { display: inline-block; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .price { font-weight: 700; }
+  .grid-template { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; opacity: 0.55; padding: 0 12px 8px; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Quiet flip — community on top, muted (Recommended)</h3>
+      <p>Mirror of the previous C, just rotated. Community sits above the name in the same quiet muted style with the colored dot. Item name remains the dominant element. Cleanest, least visually noisy.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="community-quiet"><span class="community-dot"></span>West Village</span>
+                <span class="item-name">Vintage Levi's 501</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="community-quiet"><span class="community-dot"></span>Chelsea</span>
+                <span class="item-name">Eames lounge chair replica</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template">subtitle muted, dot + name only</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Trust label — uppercase, colored</h3>
+      <p>Community renders as a small uppercase label in the trust color (matches the .superpowers brutalist palette accent). Stronger affordance that "this is a trust signal," but the row gets visually busier.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="community-label"><span class="community-dot"></span>WEST VILLAGE</span>
+                <span class="item-name">Vintage Levi's 501</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="community-label"><span class="community-dot"></span>CHELSEA</span>
+                <span class="item-name">Eames lounge chair replica</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template">uppercase trust label, colored</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Trust bar — community as a left-anchored tag</h3>
+      <p>Community renders as a small chip with a left accent bar (echoes the card-view trust band, line 2953). Most prominent of the three. Implies the community IS the row's primary identity, with the item name as descriptive text.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="community-bar"><span class="community-dot"></span>West Village</span>
+                <span class="item-name">Vintage Levi's 501</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item">
+              <div class="thumb"></div>
+              <div class="item-text">
+                <span class="community-bar"><span class="community-dot"></span>Chelsea</span>
+                <span class="item-name">Eames lounge chair replica</span>
+              </div>
+            </div>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template">left-anchored trust bar tag</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Confirmed: location is replaced by community on both Selling and Buying. Pick the visual weight.</p>

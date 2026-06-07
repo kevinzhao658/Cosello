@@ -1,14 +1,18 @@
 import { Skeleton } from "./ui/Skeleton";
 
+// Mirrors ListingCard: community byline → rounded photo → title/location/price.
 export function ListingCardSkeleton() {
   return (
-    <div className="flex gap-5 p-4 bg-white/5 rounded-lg border border-white/10">
-      <Skeleton className="w-28 h-28 shrink-0" />
-      <div className="flex-1 min-w-0 space-y-2">
-        <Skeleton className="h-5 w-3/4" />
-        <Skeleton className="h-4 w-16" />
-        <Skeleton className="h-4 w-1/2" />
-        <Skeleton className="h-4 w-24" />
+    <div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Skeleton className="size-5 rounded-full shrink-0" />
+        <Skeleton className="h-3 flex-1 max-w-[50%]" />
+      </div>
+      <Skeleton className="aspect-square w-full rounded-lg" />
+      <div className="pt-2 space-y-1.5">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-3 w-1/2" />
+        <Skeleton className="h-4 w-12" />
       </div>
     </div>
   );

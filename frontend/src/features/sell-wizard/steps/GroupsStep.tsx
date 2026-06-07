@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
-import { ChevronRight, Loader2, Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { formatTitle } from "../../../lib/format";
 import { GroupCard } from "../GroupCard";
 import { TypedInstruction } from "../TypedInstruction";
@@ -31,6 +31,7 @@ export interface GroupsStepProps {
   wizardAnchorRef: React.RefObject<HTMLDivElement>;
   onBackArrow: () => void;
   onAdvanceToReason: () => void;
+  onFillManually: () => void;
   onGenerate: () => void;
   setRationale: (v: string) => void;
   setRationaleOther: (v: string) => void;
@@ -55,33 +56,15 @@ export function GroupsStep({
   bulkReviewPhase, segmentation, uploadedImages, bulkItems, brandHints, names,
   rationale, rationaleOther, isGenerating, instructionExiting, currentCardIndex,
   dragImageState, dragOverGroup, dragOverGap, wizardAnchorRef,
-  onBackArrow, onAdvanceToReason, onGenerate, setRationale, setRationaleOther,
+  onBackArrow, onAdvanceToReason, onFillManually, onGenerate, setRationale, setRationaleOther,
   setDragOverGap, setDragOverGroup, onDropNewGroup, onDragOver, onDragLeave, onDrop,
   onDragStart, onDragEnd, onDeleteMouseDown, onDeleteClick, onBrandChange, onNameChange,
   onCardSelect, fileInputRef, onClearAll,
 }: GroupsStepProps) {
   return (
     <>
-      <div ref={wizardAnchorRef} className="mt-3 flex items-center justify-center gap-2 text-xs text-muted uppercase tracking-wider">
-        <button
-          type="button"
-          onClick={onBackArrow}
-          aria-label="Back"
-          className="size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <ChevronRight className="size-3.5 rotate-180" />
-        </button>
-        <span>
-          {bulkReviewPhase === "review"
-            ? "Step 2 of 5 — Optional"
-            : bulkReviewPhase === "reason"
-              ? "Step 3 of 5 — Optional"
-              : bulkReviewPhase === "cards"
-                ? "Step 4 of 5 — Review"
-                : "Step 5 of 5 — Pickup Location"}
-        </span>
-      </div>
-      <TypedInstruction bulkReviewPhase={bulkReviewPhase} exiting={instructionExiting} />
+      <div ref={wizardAnchorRef} />
+      <TypedInstruction bulkReviewPhase={bulkReviewPhase} exiting={instructionExiting} onBack={onBackArrow} />
       <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "reason" || bulkReviewPhase === "pickup" ? "opacity-30" : "opacity-100"}`}>
         {segmentation.groupings.map((group, groupIdx) => (
           <React.Fragment key={groupIdx}>
@@ -165,16 +148,29 @@ export function GroupsStep({
           style={{ animation: "wizardStepIn 300ms ease-out both" }}
         >
           {bulkReviewPhase === "review" ? (
-            <Button
-              onClick={onAdvanceToReason}
-              disabled={
-                segmentation.groupings.length === 0 ||
-                segmentation.groupings.some((g) => g.length === 0)
-              }
-              className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            >
-              {`Continue (${segmentation.groupings.length} ${segmentation.groupings.length === 1 ? "item" : "items"})`}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                onClick={onAdvanceToReason}
+                disabled={
+                  segmentation.groupings.length === 0 ||
+                  segmentation.groupings.some((g) => g.length === 0)
+                }
+                className="flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                {`Generate with AI (${segmentation.groupings.length})`}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onFillManually}
+                disabled={
+                  segmentation.groupings.length === 0 ||
+                  segmentation.groupings.some((g) => g.length === 0)
+                }
+                className="flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                Fill in manually
+              </Button>
+            </div>
           ) : (
             <div className="p-6 bg-surface-card rounded-md border border-hairline shadow-card space-y-4 text-left">
               <div className="space-y-2">

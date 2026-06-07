@@ -1,15 +1,9 @@
-import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, Check, ImagePlus, ArrowRight } from "lucide-react";
+import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, ImagePlus, ArrowRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
 import { Tooltip } from "./components/ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "./components/ui/dropdown-menu";
+
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import { useOrderModals } from "./contexts/OrderModalsContext";
@@ -21,29 +15,38 @@ const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
 import { EditListingModal } from "./components/EditListingModal";
 import { ListingImage } from "./components/ui/ListingImage";
 import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
+import { ListingCard } from "./components/ListingCard";
+import { MobileNavMenu } from "./components/MobileNavMenu";
+import { DraftsGallery } from "./components/DraftsGallery";
+import * as draftStorage from "./lib/draftStorage";
 import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
-import { BuyModal, type EditingOrderSeed } from "./features/orders/BuyModal";
-import { ListingDetailModal, type SellerProfile } from "./features/listings/ListingDetailModal";
+import { BuyModal } from "./features/orders/BuyModal";
+import { ListingDetailModal } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
-import type { ProductDetails } from "./features/sell-wizard/useSellWizard";
+import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
+import { TopSearches } from "./components/TopSearches";
+import { BulkPreviewAside } from "./components/BulkPreviewAside";
+import { ListingChecklist } from "./components/ListingChecklist";
 import { useMediaQuery } from "./hooks/useMediaQuery";
-import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
 import { CategoryAttributeFields } from "./components/CategoryFields";
 import { useClickOutside } from "./hooks/useClickOutside";
+import { useChangeLocation } from "./hooks/useChangeLocation";
+import { useNewListingForm } from "./hooks/useNewListingForm";
+import { useWishlist } from "./hooks/useWishlist";
+import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
+import { useListingDetail } from "./hooks/useListingDetail";
+import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
-import { formatTitle } from "./lib/format";
-import { logView, logSearch, type ViewSource } from "./lib/events";
-import type { CategorySlug, Listing, ListingUpdatePatch, CategorySchema, OrderData } from "./lib/types";
-import type { Notification } from "./lib/notifications";
-
-const SIDEBAR_STORAGE_KEY = "cosello.marketSidebar.collapsed";
+import { formatPriceDisplay } from "./lib/price";
+import { logSearch } from "./lib/events";
+import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
-  const { isAuthenticated, user, token, needsRegistration, login, logout } = useAuth();
+  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser } = useAuth();
   const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
@@ -58,47 +61,25 @@ export default function App() {
   // tracks the current phase so the home-page hero + nav logo can collapse
   // while the wizard is in a deep step.
   const sellWizardRef = useRef<SellWizardHandle | null>(null);
-  const [wizardPhase, setWizardPhase] = useState<"review" | "reason" | "cards" | "pickup" | null>(null);
-  // Mirror of wizard.uploadedImages.length so the #newlisting page can react
-  // (preview cover, checklist, photo counter). The wizard fires onImagesChange
-  // on every state.uploadedImages change.
-  const [wizardImageCount, setWizardImageCount] = useState(0);
-  // Mirrors of wizard-internal state for the right-column preview on
-  // #newlisting. The wizard fires onProductDetailsChange whenever its AI-generated
-  // productDetails updates, and onCoverImageChange whenever the first
-  // upload/segmentation thumb resolves. Both are read-only views — App.tsx
-  // never writes back through these.
-  const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
-  const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
-
-  // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
-  // flow and a blank-form manual flow. Manual form fields live here so the page
-  // owns the publish payload; the wizard owns the photo state and the publish
-  // network call (called via the imperative handle after seeding productDetails).
-  const [newListingMode, setNewListingMode] = useState<"ai" | "manual">("ai");
-  // Below lg: the preview/checklist column collapses into a floating overlay
-  // that the user opens via a jade circle button — keeps mid-flow vertical
-  // space clear and stops the preview from pushing the form below the fold.
-  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false);
-  const previewToggleRef = useRef<HTMLButtonElement | null>(null);
-  const previewCloseRef = useRef<HTMLButtonElement | null>(null);
-  const [manualBrand, setManualBrand] = useState("");
-  const [manualName, setManualName] = useState("");
-  const [manualDescription, setManualDescription] = useState("");
-  const [manualPrice, setManualPrice] = useState("");
-  const [manualCondition, setManualCondition] = useState<string>("Good");
-  const [manualCategory, setManualCategory] = useState<CategorySlug>("other");
-  const [manualPickup, setManualPickup] = useState("");
-  const [manualTags, setManualTags] = useState<string[]>([]);
-  const [manualTagInput, setManualTagInput] = useState("");
-  const [manualCategoryAttributes, setManualCategoryAttributes] = useState<Record<string, string>>({});
-  const [isPublishingManual, setIsPublishingManual] = useState(false);
 
   const [page, setPage] = useState<Page>(() => {
     const hash = window.location.hash.replace("#", "");
     const validPages: Page[] = ["home", "market", "terms", "signin", "signup", "account", "help", "mission", "newlisting"];
     return validPages.includes(hash as Page) ? (hash as Page) : "home";
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Drafts: the Sell page shows the gallery first, then mounts the wizard
+  // when the user starts new or taps an existing draft.
+  // `pendingDraftId` is non-null when we want the wizard to load a specific
+  // draft on mount; "new" means start fresh.
+  const [draftRouteState, setDraftRouteState] = useState<
+    | { kind: "gallery" }
+    | { kind: "new" }
+    | { kind: "load"; id: string }
+  >({ kind: "gallery" });
+  const [draftsRefreshNonce, setDraftsRefreshNonce] = useState(0);
+
   // Bumped each time a nav element wants to land on a specific MyAccount tab.
   // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
   // target (e.g. Settings → Settings) still re-applies the tab even when the
@@ -109,81 +90,49 @@ export default function App() {
     setPage("account");
   }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
+
+  const newListing = useNewListingForm({
+    sellWizardRef,
+    isAuthenticated,
+    user,
+    page,
+    onRequireSignIn: () => setPage("signin"),
+    onRequireAiConfirm: () => setShowPostConfirm(true),
+  });
+
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [listingsLoaded, setListingsLoaded] = useState(false);
-  const [marketSearch, setMarketSearch] = useState("");
-  const debouncedMarketSearch = useDebouncedValue(marketSearch, 300);
-  const [selectedMarketCommunities, setSelectedMarketCommunities] = useState<string[]>([]);
-  // R-3.1: new tri-mode sort. `recommended` and `trending` both fall through
-  // to backend `sort=newest` (FYP path kicks in when no community is selected
-  // and no search is active) until dedicated backend sort modes ship.
-  type MarketSort = "recommended" | "trending" | "newest";
-  const [marketSort, setMarketSort] = useState<MarketSort>("recommended");
-  // Distance is purely a visual placeholder for now — no backend filter, no
-  // distance data on the listing payload. Hooked to local state so the slider
-  // is interactive; will start filtering once Listing carries lat/long.
-  const [distanceMiles, setDistanceMiles] = useState<number>(5);
-  // Client-side pagination: backend returns the full feed, we reveal in
-  // chunks (24 initial, +18 per IO trigger).
-  const [visibleCount, setVisibleCount] = useState<number>(24);
-  const [publicCommunities, setPublicCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
-  const [privateCommunities, setPrivateCommunities] = useState<{ id: string | number; name: string; neighborhood?: string; is_public?: boolean }[]>([]);
+  const [publicCommunities, setPublicCommunities] = useState<CommunitySummary[]>([]);
+  const [privateCommunities, setPrivateCommunities] = useState<CommunitySummary[]>([]);
   const filterCommunities = useMemo(() => [...publicCommunities, ...privateCommunities], [publicCommunities, privateCommunities]);
   // Post To state
   const [postPickupLocation, setPostPickupLocation] = useState("");
   const [categorySchemas, setCategorySchemas] = useState<Record<string, CategorySchema>>({});
-  const [selectedCategories, setSelectedCategories] = useState<CategorySlug[]>([]);
-  const [showMyListings, setShowMyListings] = useState(false);
 
   const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const [marketSidebarCollapsed, setMarketSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    if (!window.matchMedia("(min-width: 1024px)").matches) return true;
-    return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
-  });
-  useEffect(() => {
-    if (!isDesktop) return;
-    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(marketSidebarCollapsed));
-  }, [marketSidebarCollapsed, isDesktop]);
-  useEffect(() => {
-    if (isDesktop) {
-      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
-      setMarketSidebarCollapsed(stored === "true");
-    } else {
-      setMarketSidebarCollapsed(true);
-    }
-  }, [isDesktop]);
-  const toggleMarketSidebar = useCallback(() => setMarketSidebarCollapsed((c) => !c), []);
-  const handleToggleMarketCommunity = useCallback((cid: string) => {
-    setSelectedMarketCommunities((prev) =>
+
+  const market = useMarketplaceBrowse({ page, isAuthenticated, token, isDesktop, userNeighborhood: user?.neighborhood });
+
+  const handleToggleMarketCommunity = useCallback((cid: number) => {
+    market.setSelectedCommunities((prev) =>
       prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]
     );
-  }, []);
+  }, [market.setSelectedCommunities]);
   const handleToggleCategory = useCallback((slug: CategorySlug) => {
-    setSelectedCategories((prev) =>
+    market.setSelectedCategories((prev) =>
       prev.includes(slug) ? prev.filter((c) => c !== slug) : [...prev, slug]
     );
-  }, []);
-  const handleToggleMyListings = useCallback(() => setShowMyListings((v) => !v), []);
+  }, [market.setSelectedCategories]);
+  const handleToggleMyListings = useCallback(() => market.setShowMyListings((v) => !v), [market.setShowMyListings]);
 
   // Wishlist state
-  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-  // Listings currently playing the one-shot save-pulse animation. Items are
-  // added when the heart toggles unsaved → saved and cleared onAnimationEnd
-  // so each save plays the pulse exactly once.
-  const [pulseSavedIds, setPulseSavedIds] = useState<Set<string>>(new Set());
-  const [wishlistItems, setWishlistItems] = useState<Listing[]>([]);
+  const wishlist = useWishlist(token, page);
 
   // Profile dropdown state (custom, not Radix)
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
-  // Notifications state
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // Notifications data + server-sync
+  const notif = useNotifications({ isAuthenticated, token });
 
   // Pending listing ID for routing to order management from notification
   const [pendingListingId, setPendingListingId] = useState<string | null>(null);
@@ -206,301 +155,25 @@ export default function App() {
     });
   };
 
-  // User profile overlay state
-  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
+  const detail = useListingDetail({
+    token,
+    user,
+    isAuthenticated,
+    page,
+    addToHistory,
+    refetchListings: market.refetch,
+    registerViewUserHandler,
+  });
 
-  // Listing detail modal state
-  const [showListingDetailModal, setShowListingDetailModal] = useState(false);
-  const [listingDetailData, setListingDetailData] = useState<Listing | null>(null);
-  const [listingDetailSellerProfile, setListingDetailSellerProfile] = useState<SellerProfile | null>(null);
-  const [isLoadingListingDetail, setIsLoadingListingDetail] = useState(false);
+  // Quick-change location modal — opened from the Settings icon next to the
+  // marketplace location header. Edits zip + neighborhood only; full profile
+  // edits still go through MyAccount → Edit Profile.
+  const changeLocation = useChangeLocation(user, updateUser);
 
-  // Buy confirmation modal state
-  const [buyerOrderStatus, setBuyerOrderStatus] = useState<{ status: string | null; order_id?: number } | null>(null);
-  const [myOrderStatuses, setMyOrderStatuses] = useState<Record<string, { status: string; orderId: number }>>({});
-  const [showBuyModal, setShowBuyModal] = useState(false);
-  const [buyEditingOrder, setBuyEditingOrder] = useState<EditingOrderSeed | null>(null);
-
-  // Edit listing modal trigger. All field state lives inside EditListingModal;
-  // App.tsx only owns the open flag and the save handler.
-  const [showEditListingModal, setShowEditListingModal] = useState(false);
-
-  // Reset the New Listing form back to defaults — called after a successful
-  // publish so a follow-up listing starts blank.
-  const resetNewListingForm = useCallback(() => {
-    setNewListingMode("ai");
-    setManualBrand("");
-    setManualName("");
-    setManualDescription("");
-    setManualPrice("");
-    setManualCondition("Good");
-    setManualCategory("other");
-    setManualPickup("");
-    setManualTags([]);
-    setManualTagInput("");
-    setManualCategoryAttributes({});
-    setWizardImageCount(0);
-    setAiProductDetails(null);
-    setAiCoverImageUrl(null);
-  }, []);
-
-  // Manual-mode publish. Seeds the wizard's productDetails from the page-level
-  // form fields, then calls the wizard's existing single-publish handler (which
-  // already wires images + categories + pickup + auth gates correctly).
-  const handlePublishNewListing = useCallback(async () => {
-    if (!isAuthenticated) {
-      setPage("signin");
-      return;
-    }
-    if (newListingMode === "ai") {
-      // AI mode publish happens via the wizard's own flow — Publish in the
-      // page toolbar is disabled until the wizard has produced a productDetails
-      // (single) or bulkItems (multi). For single, we route through the same
-      // confirm modal the home flow uses.
-      setShowPostConfirm(true);
-      return;
-    }
-    if (wizardImageCount === 0) {
-      alert("Add at least one photo before publishing.");
-      return;
-    }
-    const priceNumber = Number.parseInt(manualPrice, 10);
-    if (!Number.isFinite(priceNumber) || priceNumber <= 0) {
-      alert("Enter a valid price before publishing.");
-      return;
-    }
-    if (!manualBrand.trim() && !manualName.trim()) {
-      alert("Add a brand or item name before publishing.");
-      return;
-    }
-    const wizard = sellWizardRef.current;
-    if (!wizard) return;
-
-    setIsPublishingManual(true);
-    try {
-      const details = {
-        brand: manualBrand.trim(),
-        name: manualName.trim(),
-        description: manualDescription.trim(),
-        price: manualPrice,
-        condition: manualCondition,
-        location: user?.neighborhood || "",
-        tags: manualTags,
-        category: manualCategory,
-        categoryAttributes: manualCategoryAttributes,
-        identifierConfidence: "high" as const,
-        retrieval_fallback: false,
-      };
-      const pickup = manualPickup.trim() || user?.pickup_address || "";
-      await wizard.postSingleListing({ details, pickupLocation: pickup });
-      resetNewListingForm();
-    } finally {
-      setIsPublishingManual(false);
-    }
-  }, [isAuthenticated, newListingMode, wizardImageCount, manualBrand, manualName, manualDescription, manualPrice, manualCondition, manualCategory, manualCategoryAttributes, manualPickup, manualTags, user, resetNewListingForm]);
-
-  const handleSaveListingFromMarket = async (patch: ListingUpdatePatch) => {
-    if (!listingDetailData || !token) return;
-    const formData = new FormData();
-    formData.append("data", JSON.stringify(patch));
-    const res = await apiFetch(`/api/listings/${listingDetailData.id}`, {
-      method: "PUT",
-      body: formData,
-    });
-    if (res.ok) {
-      setShowEditListingModal(false);
-      setShowListingDetailModal(false);
-      setListingDetailData(null);
-      fetchListings();
-    }
-  };
-
-  const openUserDashboard = useCallback((userId: string) => {
-    if (!token || userId === user?.id) return;
-    setViewingUserId(userId);
-  }, [token, user?.id]);
-
-  // Register openUserDashboard with the OrderModalsProvider so the lifted
-  // OrderManagementModal's buyer-avatar click can navigate to the buyer
-  // profile from any page. The provider lives in main.tsx (outside App), so
-  // it can't take this as a prop — the register-on-mount pattern keeps the
-  // wiring shallow.
-  useEffect(() => {
-    registerViewUserHandler(openUserDashboard);
-    return () => registerViewUserHandler(null);
-  }, [registerViewUserHandler, openUserDashboard]);
-
-  const listingViewSourceRef = useRef<ViewSource>("direct");
-
-  // Infinite-scroll sentinel for the marketplace grid.
-  const marketSentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (page !== "market") return;
-    const el = marketSentinelRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((v) => Math.min(v + 18, listings.length));
-        }
-      },
-      { rootMargin: "400px 0px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [page, listings.length, visibleCount]);
-
-  const openListingDetail = async (listing: Listing, source: ViewSource = "direct") => {
-    listingViewSourceRef.current = source;
-    setShowListingDetailModal(true);
-    setListingDetailData(listing);
-    setListingDetailSellerProfile(null);
-    setBuyerOrderStatus(null);
-    addToHistory({ id: listing.id, title: formatTitle(listing.brand, listing.name), imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "viewed" });
-    if (token && listing.userId) {
-      setIsLoadingListingDetail(true);
-      try {
-        const [profileRes, orderStatusRes] = await Promise.all([
-          apiFetch(`/api/friends/profile/${listing.userId}`),
-          listing.userId !== user?.id
-            ? apiFetch(`/api/orders/status/${listing.id}`)
-            : Promise.resolve(null),
-        ]);
-        if (profileRes.ok) setListingDetailSellerProfile(await profileRes.json());
-        if (orderStatusRes && orderStatusRes.ok) setBuyerOrderStatus(await orderStatusRes.json());
-      } catch { /* ignore */ }
-      finally { setIsLoadingListingDetail(false); }
-    }
-  };
-
-  // Dwell-time tracking for the listing detail view.
-  //
-  // Fires logView exactly once per "view session" — the period from when the
-  // detail modal opens to when it closes (cleanup), the listing changes
-  // (cleanup with a new id), the route changes (cleanup because page in deps
-  // forces re-run), or the tab is hidden (visibilitychange).
-  //
-  // The fired guard prevents double-firing: visibilitychange may flush first,
-  // then cleanup runs on unmount and is a no-op.
-  useEffect(() => {
-    if (!showListingDetailModal || !listingDetailData) return;
-    const listingId = listingDetailData.id;
-    const source = listingViewSourceRef.current;
-    const startTs = performance.now();
-    let fired = false;
-
-    const flush = () => {
-      if (fired) return;
-      fired = true;
-      logView({
-        listing_id: listingId,
-        source,
-        dwell_ms: Math.max(0, Math.round(performance.now() - startTs)),
-      });
-    };
-
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      flush();
-    };
-  }, [showListingDetailModal, listingDetailData?.id, page]);
-
-  const openEditPickupSlots = (listing: Listing, orderId: number, existingSlots: { date: string; time: string }[]) => {
-    setListingDetailData(listing);
-    setBuyEditingOrder({ id: orderId, existingSlots });
-    setShowBuyModal(true);
-  };
-
-  const handleBuyConfirmed = (orderId: number, listing: Listing) => {
-    addToHistory({ id: listing.id, title: formatTitle(listing.brand, listing.name), imageUrl: listing.imageUrls?.[0] || listing.imageUrl, price: listing.price, type: "purchased" });
-    setBuyerOrderStatus({ status: "pending", order_id: orderId });
-    setMyOrderStatuses((prev) => ({ ...prev, [listing.id]: { status: "pending", orderId } }));
-    setShowBuyModal(false);
-    setShowListingDetailModal(false);
-    setListingDetailData(null);
-    setListingDetailSellerProfile(null);
-    fetchListings();
-  };
-
-  const handleBuyUpdated = () => {
-    setShowBuyModal(false);
-    setBuyEditingOrder(null);
-  };
+  // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.
 
   // Close profile dropdown on outside click
   useClickOutside(profileRef, () => setProfileOpen(false), profileOpen);
-
-  // Fetch unread notification count periodically
-  const fetchUnreadCount = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/notifications/unread-count");
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadCount(data.count);
-      }
-    } catch { /* ignore */ }
-  };
-
-  const fetchNotifications = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/notifications");
-      if (res.ok) {
-        setNotifications(await res.json());
-      }
-    } catch { /* ignore */ } finally {
-      setNotificationsLoaded(true);
-    }
-  };
-
-  const handleMarkAllRead = async () => {
-    if (!token) return;
-    try {
-      await apiFetch("/api/notifications/mark-read", {
-        method: "POST",
-      });
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-    } catch { /* ignore */ }
-  };
-
-  const handleNotificationAction = async (notificationId: number, action: "accept" | "reject") => {
-    if (!token) return;
-    try {
-      const res = await apiFetch(`/api/notifications/${notificationId}/${action}`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        setNotifications((prev) =>
-          prev.map((n) =>
-            n.id === notificationId
-              ? { ...n, join_request_status: action === "accept" ? "accepted" : "rejected" }
-              : n
-          )
-        );
-      }
-    } catch (err) {
-      console.error(`Failed to ${action} request:`, err);
-    }
-  };
-
-  const notificationsRef = useRef(notifications);
-  useEffect(() => { notificationsRef.current = notifications; }, [notifications]);
-
-  const markNotificationRead = useCallback((notificationId: number) => {
-    const target = notificationsRef.current.find((n) => n.id === notificationId);
-    if (!target || target.is_read) return;
-    setNotifications((prev) => prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n)));
-    setUnreadCount((u) => Math.max(0, u - 1));
-    // Server endpoint is idempotent — fire-and-forget; UI is already optimistic.
-    apiFetch(`/api/notifications/${notificationId}/read`, { method: "POST" }).catch(() => {});
-  }, []);
 
   const handleNotifClick = useCallback((notificationId: number, type: string, listingId: string | null) => {
     const withListing = ["purchase","order_withdrawn","order_updated","order_confirmed","pickup_ready","review_submitted","address_released","order_completed"].includes(type);
@@ -510,7 +183,7 @@ export default function App() {
     // request_accepted is terminal (informational) — clear it on click even
     // though it has no listing_id to route to.
     if (withListing || noListing || type === "request_accepted") {
-      markNotificationRead(notificationId);
+      notif.markOneRead(notificationId);
     }
     // Confirmation-flow notifications open the OrderConfirmSummary modal in
     // place. The modal's "Confirm pickup" CTA leads into the attestation +
@@ -520,7 +193,7 @@ export default function App() {
     // the user happened to be when the notification landed.
     const inPlaceTypes = ["order_confirmed", "pickup_ready", "address_released", "order_completed", "review_submitted"];
     if (inPlaceTypes.includes(type) && listingId) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       openOrderConfirmSummary(listingId);
       return;
     }
@@ -532,7 +205,7 @@ export default function App() {
     // populates. After-action subscribers (MyAccountPage when mounted)
     // refetch on success; otherwise next mount picks up fresh state.
     if (type === "purchase" && listingId) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       (async () => {
         try {
           const res = await apiFetch("/api/orders");
@@ -563,29 +236,21 @@ export default function App() {
     // `order_updated` (buyer/seller mutual updates) and other listing-bearing
     // notifs keep their existing /account routing.
     if (withListing && listingId) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       setPendingListingId(listingId);
       setPage("account");
     } else if (noListing) {
-      setNotificationsOpen(false);
+      notif.setOpen(false);
       setPage("account");
     }
-  }, [markNotificationRead, openOrderConfirmSummary, openOrderManagement]);
+  }, [notif.markOneRead, notif.setOpen, openOrderConfirmSummary, openOrderManagement]);
 
   const handleNotifConfirmPickup = useCallback((listingId: string | null) => {
-    setNotificationsOpen(false);
+    notif.setOpen(false);
     // The "Confirm pickup" inline CTA on the address_released notification —
     // route through the same in-place modal flow as a click on the body.
     if (listingId) openOrderConfirmSummary(listingId);
-  }, [openOrderConfirmSummary]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !token) return;
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, token]);
-
+  }, [notif.setOpen, openOrderConfirmSummary]);
 
   const handleLogout = async () => {
     setProfileOpen(false);
@@ -597,23 +262,18 @@ export default function App() {
       // ignore
     }
     await logout();
-    setListings([]);
-    setListingsLoaded(false);
-    setNotifications([]);
-    setNotificationsLoaded(false);
-    setUnreadCount(0);
-    setWishlist(new Set());
-    setWishlistItems([]);
+    market.reset();
+    notif.reset();
+    wishlist.reset();
     setHistoryItems([]);
     localStorage.removeItem("ge_history");
     setPublicCommunities([]);
     setPrivateCommunities([]);
-    setSelectedMarketCommunities([]);
+    market.setSelectedCommunities([]);
     setHomeSearch("");
-    setMarketSearch("");
+    market.setSearch("");
     setTradeMode("buy");
-    setMarketSort("newest");
-    setMyOrderStatuses({});
+    market.setSort("newest");
     sellWizardRef.current?.resetForLogout();
     setPage("home");
   };
@@ -621,11 +281,12 @@ export default function App() {
   const fetchFilterCommunities = async () => {
     if (!token) return;
     try {
-      const res = await apiFetch("/api/communities/mine-with-neighborhood");
+      const res = await apiFetch("/api/communities/mine");
       if (res.ok) {
-        const data = await res.json();
-        setPublicCommunities(data.public || []);
-        setPrivateCommunities(data.private || []);
+        const all: { id: number; name: string; neighborhood?: string; is_public: boolean }[] =
+          await res.json();
+        setPublicCommunities(all.filter((c) => c.is_public));
+        setPrivateCommunities(all.filter((c) => !c.is_public));
       }
     } catch (err) {
       console.error("Failed to fetch communities:", err);
@@ -634,7 +295,11 @@ export default function App() {
 
   useEffect(() => {
     if (isAuthenticated) fetchFilterCommunities();
-  }, [isAuthenticated, page]);
+    // user?.neighborhood is in deps so the marketplace filter sidebar refreshes
+    // after a neighborhood swap (set_user_neighborhood adds/removes membership)
+    // without needing an imperative callback from MyAccountPage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, page, user?.neighborhood]);
 
   useEffect(() => {
     apiFetch("/api/categories")
@@ -643,121 +308,8 @@ export default function App() {
       .catch((err) => console.error("Failed to fetch category schemas:", err));
   }, []);
 
-  const fetchListings = async () => {
-    if (showMyListings && isAuthenticated && token) {
-      try {
-        const res = await apiFetch(`/api/listings/mine`);
-        if (res.ok) setListings(await res.json());
-      } catch (err) {
-        console.error("Failed to fetch my listings:", err);
-      } finally {
-        setListingsLoaded(true);
-      }
-      return;
-    }
-
-    const params = new URLSearchParams();
-    if (debouncedMarketSearch) params.set("search", debouncedMarketSearch);
-    // Map the new UI sort labels onto backend modes. `recommended` and
-    // `trending` both ride the existing `sort=newest` request — when no
-    // community is selected and no search is active, the backend falls into
-    // its FYP scoring path, which is the current proxy for "recommended".
-    // TODO: add a real `trending` sort backend-side (view count window).
-    const backendSort = marketSort === "newest" ? "newest" : "newest";
-    params.set("sort", backendSort);
-    if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
-
-    if (isAuthenticated && token) {
-      if (selectedMarketCommunities.length > 0) {
-        params.set("community", selectedMarketCommunities.join(","));
-        if (selectedMarketCommunities.includes("neighborhood") && user?.neighborhood) {
-          params.set("neighborhood", user.neighborhood);
-        }
-      } else {
-        // Default feed: no community filter → backend returns tier-ranked results
-        if (user?.neighborhood) params.set("neighborhood", user.neighborhood);
-      }
-      try {
-        const res = await apiFetch(`/api/listings?${params}`);
-        if (res.ok) setListings(await res.json());
-      } catch (err) {
-        console.error("Failed to fetch listings:", err);
-      } finally {
-        setListingsLoaded(true);
-      }
-    } else {
-      try {
-        const res = await apiFetch(`/api/listings/public?${params}`);
-        if (res.ok) setListings(await res.json());
-      } catch (err) {
-        console.error("Failed to fetch public listings:", err);
-      } finally {
-        setListingsLoaded(true);
-      }
-    }
-  };
-
-  const fetchWishlist = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/wishlist");
-      if (res.ok) {
-        const ids: string[] = await res.json();
-        setWishlist(new Set(ids));
-      }
-    } catch (err) {
-      console.error("Failed to fetch wishlist:", err);
-    }
-  };
-
-  const fetchWishlistItems = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/wishlist/listings");
-      if (res.ok) {
-        const data: Listing[] = await res.json();
-        setWishlistItems(data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch wishlist listings:", err);
-    }
-  };
-
-  const toggleWishlist = async (listingId: string) => {
-    if (!token) return;
-    try {
-      const res = await apiFetch(`/api/wishlist/${listingId}`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        const { wishlisted } = await res.json();
-        setWishlist((prev) => {
-          const next = new Set(prev);
-          wishlisted ? next.add(listingId) : next.delete(listingId);
-          return next;
-        });
-        if (wishlisted) {
-          setPulseSavedIds((prev) => {
-            const next = new Set(prev);
-            next.add(listingId);
-            return next;
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Failed to toggle wishlist:", err);
-    }
-  };
-
-  useEffect(() => {
-    if (page === "market") fetchListings();
-  }, [page, debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, isAuthenticated, showMyListings]);
-
-  // Reset the visible window whenever the underlying feed changes so the user
-  // doesn't land deep into a now-shorter list.
-  useEffect(() => {
-    setVisibleCount(24);
-  }, [debouncedMarketSearch, selectedMarketCommunities, marketSort, selectedCategories, showMyListings]);
+  // fetchListings, infinite-scroll observer, market-fetch effect, and
+  // visible-count-reset effect all live in useMarketplaceBrowse.
 
   // Keep the URL hash in sync with the current page so a browser refresh
   // preserves where the user was. The initializer above reads from the hash
@@ -771,32 +323,32 @@ export default function App() {
     }
   }, [page]);
 
+  // /newlisting routing:
+  //   - Leaving the page: reset to gallery so the next entry re-evaluates.
+  //   - Entering the page: if the user has zero drafts (or is logged out),
+  //     skip the gallery and drop them directly into the wizard. Otherwise
+  //     show the gallery first.
+  //   - Also re-evaluates after a draft is added/deleted (draftsRefreshNonce).
   useEffect(() => {
-    if (token) fetchWishlist();
-  }, [token]);
-
-  useEffect(() => {
-    if (page === "account" && token) fetchWishlistItems();
-  }, [page, token]);
-
-  const fetchMyOrderStatuses = async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/orders");
-      if (res.ok) {
-        const orders: { id: number; listing_id: string; status: string; role: string; selected_pickup_slots: { date: string; time: string }[] }[] = await res.json();
-        const statuses: Record<string, { status: string; orderId: number }> = {};
-        for (const o of orders) {
-          if (o.role === "buyer") statuses[o.listing_id] = { status: o.status, orderId: o.id };
-        }
-        setMyOrderStatuses(statuses);
-      }
-    } catch { /* ignore */ }
-  };
-
-  useEffect(() => {
-    if (token) fetchMyOrderStatuses();
-  }, [token]);
+    if (page !== "newlisting") {
+      setDraftRouteState({ kind: "gallery" });
+      return;
+    }
+    if (!user?.id) {
+      setDraftRouteState({ kind: "new" });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const list = await draftStorage.listDrafts(user.id);
+      if (cancelled) return;
+      // Only override "gallery" — don't yank the user out of an active edit.
+      setDraftRouteState((prev) =>
+        prev.kind === "gallery" && list.length === 0 ? { kind: "new" } : prev,
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [page, user?.id, draftsRefreshNonce]);
 
   // Redirect to home if user logs out while on a protected page
   useEffect(() => {
@@ -815,31 +367,6 @@ export default function App() {
     }
   }, [needsRegistration, pendingSignupToken]);
 
-  // Preview overlay (New Listing, below lg:) — ESC closes, focus moves to the
-  // close button on open and back to the toggle on close. Effect short-circuits
-  // when the overlay isn't open so the listeners don't sit live on other pages.
-  useEffect(() => {
-    if (!previewOverlayOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPreviewOverlayOpen(false);
-    };
-    window.addEventListener("keydown", handleKey);
-    const focusFrame = requestAnimationFrame(() => {
-      previewCloseRef.current?.focus();
-    });
-    return () => {
-      window.removeEventListener("keydown", handleKey);
-      cancelAnimationFrame(focusFrame);
-      previewToggleRef.current?.focus();
-    };
-  }, [previewOverlayOpen]);
-
-  // Auto-close the preview overlay when leaving the New Listing page so it
-  // doesn't reopen with stale state next time the user lands there.
-  useEffect(() => {
-    if (page !== "newlisting" && previewOverlayOpen) setPreviewOverlayOpen(false);
-  }, [page, previewOverlayOpen]);
-
   const userInitials = (() => {
     const name = user?.display_name?.trim();
     if (!name) return "";
@@ -853,113 +380,123 @@ export default function App() {
       active ? "text-primary font-semibold" : "text-muted hover:text-ink"
     }`;
 
-  // Preview card + "Before you publish" checklist for the New Listing page.
+  // Preview card + "Listing checklist" for the New Listing page.
   // Rendered both inside the lg:+ sticky aside and inside the below-lg:
   // floating drawer so the two share a single source of truth.
-  const newListingPreviewContent = (
-    <>
-      <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
-      <article className="bg-canvas border border-hairline rounded-md overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-          <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-        </div>
-        <div className="relative aspect-square bg-surface-soft">
-          {aiCoverImageUrl ? (
-            <img
-              src={aiCoverImageUrl}
-              alt="Listing cover preview"
-              className="absolute inset-0 size-full object-cover"
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
-              <ImagePlus className="size-8" aria-hidden="true" />
-              <span className="text-[11px]">Photo preview after publish</span>
-            </div>
-          )}
-        </div>
-        <div className="p-3 space-y-1">
-          <p className="text-sm font-medium text-ink line-clamp-1">
-            {(() => {
-              if (newListingMode === "manual") {
-                const brand = manualBrand.trim();
-                const name = manualName.trim();
+  //
+  // Mode selection:
+  //   newListing.imageCount === 0     → TopSearches (no photos yet)
+  //   newListing.bulkPreview !== null → BulkPreviewAside (AI bulk mode, ≥1 item)
+  //   else                            → single-item preview (manual or AI single)
+  const newListingPreviewContent = (() => {
+    if (newListing.imageCount === 0) {
+      return <TopSearches />;
+    }
+
+    if (newListing.bulkPreview !== null) {
+      return (
+        <BulkPreviewAside
+          preview={newListing.bulkPreview}
+          onPrev={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index - 1)}
+          onNext={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index + 1)}
+        />
+      );
+    }
+
+    // Single-item preview (manual or AI single mode) — unchanged.
+    return (
+      <>
+        <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+        <article>
+          {/* Community byline — above the photo */}
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span
+              aria-hidden="true"
+              className="size-5 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[9px] font-bold"
+            >
+              {PLACEHOLDER_COMMUNITY.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="text-xs font-medium text-body line-clamp-1">{PLACEHOLDER_COMMUNITY.name}</span>
+          </div>
+          <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
+            {newListing.aiCoverImageUrl ? (
+              <img
+                src={newListing.aiCoverImageUrl}
+                alt="Listing cover preview"
+                className="absolute inset-0 size-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-soft">
+                <ImagePlus className="size-8" aria-hidden="true" />
+                <span className="text-[11px]">Photo preview after publish</span>
+              </div>
+            )}
+          </div>
+          <div className="pt-2 space-y-0.5">
+            <p className="text-sm font-medium text-ink line-clamp-1">
+              {(() => {
+                if (newListing.mode === "manual") {
+                  const brand = newListing.brand.trim();
+                  const name = newListing.name.trim();
+                  if (brand && name) return `${brand} — ${name}`;
+                  return brand || name || "Untitled";
+                }
+                const brand = newListing.aiProductDetails?.brand?.trim() ?? "";
+                const name = newListing.aiProductDetails?.name?.trim() ?? "";
                 if (brand && name) return `${brand} — ${name}`;
                 return brand || name || "Untitled";
-              }
-              const brand = aiProductDetails?.brand?.trim() ?? "";
-              const name = aiProductDetails?.name?.trim() ?? "";
-              if (brand && name) return `${brand} — ${name}`;
-              return brand || name || "Untitled";
-            })()}
-          </p>
-          <p className="text-xs text-muted line-clamp-1">
-            {(() => {
-              const location = newListingMode === "manual"
-                ? (manualPickup.trim() || user?.neighborhood || "West Village")
-                : (aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
-              const condition = newListingMode === "manual"
-                ? manualCondition
-                : (aiProductDetails?.condition?.trim() ?? "");
-              return condition ? `${location} · ${condition}` : location;
-            })()}
-          </p>
-          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">
-            {(() => {
-              if (newListingMode === "manual") {
-                return manualPrice ? `$${manualPrice}` : "$—";
-              }
-              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
-              const num = raw ? Number.parseFloat(raw) : NaN;
-              return Number.isFinite(num) && num > 0 ? `$${raw}` : "$—";
-            })()}
-          </p>
-        </div>
-      </article>
+              })()}
+            </p>
+            <p className="text-xs text-muted line-clamp-1">
+              {(() => {
+                const location = newListing.mode === "manual"
+                  ? (newListing.pickup.trim() || user?.neighborhood || "West Village")
+                  : (newListing.aiProductDetails?.location?.trim() || user?.neighborhood || "West Village");
+                const condition = newListing.mode === "manual"
+                  ? newListing.condition
+                  : (newListing.aiProductDetails?.condition?.trim() ?? "");
+                return condition ? `${location} · ${condition}` : location;
+              })()}
+            </p>
+            <p className="text-base font-semibold text-ink leading-none pt-0.5">
+              {newListing.mode === "manual"
+                ? (newListing.price ? `$${newListing.price}` : "$—")
+                : formatPriceDisplay(newListing.aiProductDetails?.price ?? "")}
+            </p>
+          </div>
+        </article>
 
-      <div className="bg-canvas border border-hairline rounded-md p-4">
-        <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Before you publish</p>
-        <ul className="space-y-2">
-          {(() => {
-            const isManual = newListingMode === "manual";
+        <ListingChecklist
+          heading="Listing checklist"
+          rows={(() => {
+            const isManual = newListing.mode === "manual";
             const hasBrandOrName = isManual
-              ? (manualBrand.trim().length > 0 || manualName.trim().length > 0)
-              : Boolean(aiProductDetails?.brand?.trim() || aiProductDetails?.name?.trim());
+              ? (newListing.brand.trim().length > 0 || newListing.name.trim().length > 0)
+              : Boolean(newListing.aiProductDetails?.brand?.trim() || newListing.aiProductDetails?.name?.trim());
             const hasPrice = (() => {
               if (isManual) {
-                return /^[0-9]+$/.test(manualPrice) && Number.parseInt(manualPrice, 10) > 0;
+                // integer-only by design (whole-dollar prices); see lib/price.ts for the float-based preview helpers
+                return /^[0-9]+$/.test(newListing.price) && Number.parseInt(newListing.price, 10) > 0;
               }
-              const raw = aiProductDetails?.price?.replace(/^\$/, "").trim();
+              const raw = newListing.aiProductDetails?.price?.replace(/^\$/, "").trim();
               const num = raw ? Number.parseFloat(raw) : NaN;
               return Number.isFinite(num) && num > 0;
             })();
             const hasDescription = isManual
-              ? manualDescription.trim().length >= 20
-              : (aiProductDetails?.description?.trim().length ?? 0) >= 20;
+              ? newListing.description.trim().length >= 20
+              : (newListing.aiProductDetails?.description?.trim().length ?? 0) >= 20;
             const rows: ReadonlyArray<readonly [string, boolean]> = [
-              ["At least one photo", wizardImageCount > 0],
+              ["At least one photo", newListing.imageCount > 0],
               ["Brand or name", hasBrandOrName],
               ["Price set", hasPrice],
               ["Description 20+ chars", hasDescription],
             ];
             return rows;
-          })().map(([label, done]) => (
-            <li key={label} className="flex items-center gap-2.5 text-sm">
-              <span
-                aria-hidden="true"
-                className={`inline-flex items-center justify-center size-4 rounded-full border ${
-                  done ? "bg-primary border-primary text-on-primary" : "bg-canvas border-hairline text-transparent"
-                }`}
-              >
-                <Check className="size-3" />
-              </span>
-              <span className={done ? "text-muted line-through" : "text-body"}>{label}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
-  );
+          })()}
+        />
+      </>
+    );
+  })();
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -1015,8 +552,11 @@ export default function App() {
               </button>
             </div>
 
-            {/* Right Side */}
-            <div className="flex items-center gap-2">
+            {/* Right Side — `justify-self-end` keeps the cluster pinned to
+                the right edge on mobile, where the hidden md-only center
+                col is removed from grid auto-placement and would otherwise
+                let the right cluster fall back into the 1fr middle cell. */}
+            <div className="flex items-center gap-2 justify-self-end">
               {isAuthenticated ? (
                 <>
                 {/* Message (placeholder — no route) */}
@@ -1033,11 +573,11 @@ export default function App() {
                   <button
                     aria-label="Notifications"
                     onClick={() => {
-                      setNotificationsOpen((prev) => {
+                      notif.setOpen((prev) => {
                         if (!prev) {
-                          fetchNotifications();
+                          notif.fetchNotifications();
                         } else {
-                          if (unreadCount > 0) handleMarkAllRead();
+                          if (notif.unreadCount > 0) notif.markAllRead();
                         }
                         return !prev;
                       });
@@ -1045,7 +585,7 @@ export default function App() {
                     className="relative inline-flex items-center justify-center size-9 rounded-full bg-transparent text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
                   >
                     <Bell className="size-[18px]" />
-                    {unreadCount > 0 && (
+                    {notif.unreadCount > 0 && (
                       <span
                         aria-hidden="true"
                         className="absolute top-1.5 right-2 size-2 rounded-full bg-primary ring-2 ring-canvas"
@@ -1054,19 +594,19 @@ export default function App() {
                   </button>
 
                   <NotificationsPanel
-                    open={notificationsOpen}
+                    open={notif.open}
                     onClose={() => {
-                      setNotificationsOpen(false);
-                      if (unreadCount > 0) handleMarkAllRead();
+                      notif.setOpen(false);
+                      if (notif.unreadCount > 0) notif.markAllRead();
                     }}
-                    notifications={notifications}
-                    notificationsLoaded={notificationsLoaded}
-                    unreadCount={unreadCount}
-                    onMarkAllRead={handleMarkAllRead}
-                    onAction={handleNotificationAction}
+                    notifications={notif.notifications}
+                    notificationsLoaded={notif.notificationsLoaded}
+                    unreadCount={notif.unreadCount}
+                    onMarkAllRead={notif.markAllRead}
+                    onAction={notif.act}
                     onNotifClick={handleNotifClick}
                     onConfirmPickup={handleNotifConfirmPickup}
-                    onOpenUserDashboard={openUserDashboard}
+                    onOpenUserDashboard={detail.openUserDashboard}
                   />
                 </div>
 
@@ -1150,110 +690,26 @@ export default function App() {
                 </Button>
               )}
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="md:hidden"
-                    aria-label="Open menu"
-                  >
-                    <Menu className="size-5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  sideOffset={8}
-                  collisionPadding={8}
-                  className="w-56 bg-canvas border border-hairline shadow-overlay rounded-md p-1 z-[60]"
-                >
-                  <DropdownMenuItem
-                    onSelect={() => setPage("home")}
-                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                  >
-                    Home
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => setPage("market")}
-                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                  >
-                    Marketplace
-                  </DropdownMenuItem>
-                  {/* Not `disabled` — Radix DropdownMenuItem sets pointer-events:none
-                      when disabled, which suppresses the Tooltip trigger.
-                      Style as disabled, no-op the select, keep hover events. */}
-                  <Tooltip content="Coming soon" side="right">
-                    <DropdownMenuItem
-                      onSelect={(e) => e.preventDefault()}
-                      aria-disabled="true"
-                      className="text-ink opacity-50 cursor-not-allowed focus:bg-transparent focus:text-ink data-[highlighted]:bg-transparent"
-                    >
-                      Communities
-                    </DropdownMenuItem>
-                  </Tooltip>
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      if (!isAuthenticated) { setPage("signin"); return; }
-                      setPage("account");
-                    }}
-                    className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                  >
-                    My account
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() => { setPage("newlisting"); }}
-                    className="text-primary font-semibold hover:bg-surface-soft focus:bg-surface-soft focus:text-primary"
-                  >
-                    Sell
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {isAuthenticated ? (
-                    <>
-                      <DropdownMenuItem
-                        onSelect={() => setPage("account")}
-                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                      >
-                        <User className="size-3.5" />
-                        Profile
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => goToAccountTab("settings")}
-                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                      >
-                        <Settings className="size-3.5" />
-                        Settings
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => setPage("help")}
-                        className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                      >
-                        <HelpCircle className="size-3.5" />
-                        Help & Support
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => { void handleLogout(); }}
-                        className="text-error hover:bg-surface-soft focus:bg-surface-soft focus:text-error"
-                      >
-                        <LogOut className="size-3.5" />
-                        Log Out
-                      </DropdownMenuItem>
-                    </>
-                  ) : (
-                    <DropdownMenuItem
-                      onSelect={() => setPage("signin")}
-                      className="text-ink hover:bg-surface-soft focus:bg-surface-soft focus:text-ink"
-                    >
-                      Sign in
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+                aria-expanded={mobileMenuOpen}
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+              >
+                {mobileMenuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
+              </Button>
             </div>
           </div>
         </div>
       </nav>
+      <MobileNavMenu
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        isAuthenticated={isAuthenticated}
+        onNavigate={(target) => setPage(target)}
+      />
 
       {/* Sign In Page */}
       {page === "signin" && (
@@ -1302,23 +758,18 @@ export default function App() {
       */}
       {page === "newlisting" && (
         <section className="min-h-[calc(100vh-64px)] bg-canvas">
+          {draftRouteState.kind === "gallery" ? (
+            <DraftsGallery
+              userId={user?.id ?? null}
+              onSelectDraft={(id) => setDraftRouteState({ kind: "load", id })}
+              onStartNew={() => setDraftRouteState({ kind: "new" })}
+              refreshNonce={draftsRefreshNonce}
+            />
+          ) : (
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             {/* Breadcrumb + title + toolbar */}
             <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
               <div className="min-w-0">
-                <nav aria-label="Breadcrumb" className="text-xs text-muted flex items-center gap-1.5 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => { if (!isAuthenticated) { setPage("signin"); return; } setPage("account"); }}
-                    className="hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded"
-                  >
-                    My account
-                  </button>
-                  <span aria-hidden="true">·</span>
-                  <span>Drafts</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-ink font-medium">New listing</span>
-                </nav>
                 <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
                   New listing
                 </h1>
@@ -1326,24 +777,11 @@ export default function App() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => {
-                    // Drafts API isn't wired yet — flagged in backlog.md.
-                    alert("Drafts are coming soon. For now, finish the listing and publish it.");
-                  }}
+                  onClick={() => setDraftRouteState({ kind: "gallery" })}
                   className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-border-strong text-sm font-semibold text-ink bg-canvas hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >
-                  Save draft
+                  Drafts
                 </button>
-                {newListingMode === "manual" && (
-                  <button
-                    type="button"
-                    disabled={isPublishingManual || wizardImageCount === 0}
-                    onClick={handlePublishNewListing}
-                    className="inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                  >
-                    {isPublishingManual ? "Publishing…" : "Publish listing"}
-                  </button>
-                )}
               </div>
             </div>
 
@@ -1355,9 +793,6 @@ export default function App() {
                 <section>
                   <header className="flex items-baseline justify-between mb-3">
                     <h2 className="text-sm font-semibold text-ink uppercase tracking-wider">Photos</h2>
-                    <span className={`text-xs ${wizardImageCount > 0 ? "text-primary" : "text-muted"}`}>
-                      {wizardImageCount}/20 — first photo becomes the cover
-                    </span>
                   </header>
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
@@ -1366,62 +801,82 @@ export default function App() {
                     ref={sellWizardRef}
                     categorySchemas={categorySchemas}
                     isActive={true}
-                    mode={newListingMode}
-                    photosOnly={newListingMode === "manual"}
+                    mode={newListing.mode}
+                    photosOnly={newListing.mode === "manual"}
+                    publicCommunities={publicCommunities}
+                    privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={() => setPage("signin")}
                     onPosted={() => {
-                      resetNewListingForm();
+                      newListing.reset();
                       setPage("market");
-                      fetchListings();
+                      market.refetch();
+                      setDraftsRefreshNonce((n) => n + 1);
                     }}
                     onRequestSinglePostConfirm={() => setShowPostConfirm(true)}
-                    onPhaseChange={setWizardPhase}
-                    onImagesChange={setWizardImageCount}
-                    onProductDetailsChange={setAiProductDetails}
-                    onCoverImageChange={setAiCoverImageUrl}
+                    onPhaseChange={newListing.setWizardPhase}
+                    onImagesChange={newListing.setImageCount}
+                    onProductDetailsChange={newListing.setAiProductDetails}
+                    onCoverImageChange={newListing.setAiCoverImageUrl}
+                    pendingDraftId={draftRouteState.kind === "load" ? draftRouteState.id : null}
+                    onDraftLoaded={() => {
+                      // Once the wizard loads the draft we don't want to keep
+                      // re-triggering it. Park the routing in "new" so the wizard
+                      // continues editing the loaded state without further loads.
+                      setDraftRouteState({ kind: "new" });
+                    }}
+                    onPublishedDraft={async (draftId) => {
+                      if (draftId) {
+                        await draftStorage.deleteDraft(draftId);
+                        setDraftsRefreshNonce((n) => n + 1);
+                      }
+                    }}
+                    onBackToDrafts={() => setDraftRouteState({ kind: "gallery" })}
+                    onBulkPreviewChange={newListing.setBulkPreview}
                   />
                 </section>
 
                 {/* AI / Manual toggle — green callout */}
-                <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
-                  <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={newListingMode === "ai"}
-                      onClick={() => setNewListingMode("ai")}
-                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                        newListingMode === "ai"
-                          ? "bg-primary text-on-primary"
-                          : "bg-transparent text-primary hover:bg-primary/10"
-                      }`}
-                    >
-                      AI Drafted
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={newListingMode === "manual"}
-                      onClick={() => setNewListingMode("manual")}
-                      className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                        newListingMode === "manual"
-                          ? "bg-primary text-on-primary"
-                          : "bg-transparent text-primary hover:bg-primary/10"
-                      }`}
-                    >
-                      Manual
-                    </button>
+                {newListing.wizardPhase === null && (
+                  <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
+                    <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={newListing.mode === "ai"}
+                        onClick={() => newListing.setMode("ai")}
+                        className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                          newListing.mode === "ai"
+                            ? "bg-primary text-on-primary"
+                            : "bg-transparent text-primary hover:bg-primary/10"
+                        }`}
+                      >
+                        AI Drafted
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={newListing.mode === "manual"}
+                        onClick={() => newListing.setMode("manual")}
+                        className={`h-10 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
+                          newListing.mode === "manual"
+                            ? "bg-primary text-on-primary"
+                            : "bg-transparent text-primary hover:bg-primary/10"
+                        }`}
+                      >
+                        Manual
+                      </button>
+                    </div>
+                    <p className="text-xs text-body mt-3 leading-relaxed">
+                      {newListing.mode === "ai"
+                        ? "Upload as many items and we'll take care of the rest."
+                        : "Fill out the product details, description, and pricing below to publish your listing."}
+                    </p>
                   </div>
-                  <p className="text-xs text-body mt-3 leading-relaxed">
-                    {newListingMode === "ai"
-                      ? "Upload as many items and we'll take care of the rest."
-                      : "Fill out the product details, description, and pricing below to publish your listing."}
-                  </p>
-                </div>
+                )}
 
                 {/* Manual form sections */}
-                {newListingMode === "manual" && (
+                {newListing.mode === "manual" && (
                   <>
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
                       <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Product details</h3>
@@ -1429,8 +884,8 @@ export default function App() {
                         <label className="block">
                           <span className="text-xs text-muted uppercase tracking-wider">Brand</span>
                           <Input
-                            value={manualBrand}
-                            onChange={(e) => setManualBrand(e.target.value)}
+                            value={newListing.brand}
+                            onChange={(e) => newListing.setBrand(e.target.value)}
                             placeholder="Olivetti, Eames, Le Creuset…"
                             className="mt-1"
                           />
@@ -1438,8 +893,8 @@ export default function App() {
                         <label className="block">
                           <span className="text-xs text-muted uppercase tracking-wider">Name / model</span>
                           <Input
-                            value={manualName}
-                            onChange={(e) => setManualName(e.target.value)}
+                            value={newListing.name}
+                            onChange={(e) => newListing.setName(e.target.value)}
                             placeholder="Lettera 32, LCW chair, 5.5qt dutch oven…"
                             className="mt-1"
                           />
@@ -1459,17 +914,17 @@ export default function App() {
                                 { slug: "other", label: "Other" },
                               ] as { slug: CategorySlug; label: string }[])
                           ).map((c) => {
-                            const active = manualCategory === c.slug;
+                            const active = newListing.category === c.slug;
                             return (
                               <button
                                 key={c.slug}
                                 type="button"
                                 onClick={() => {
-                                  setManualCategory(c.slug);
+                                  newListing.setCategory(c.slug);
                                   // Different category → different schema. Drop
                                   // stale attribute values so they don't ship
                                   // alongside fields the new category doesn't have.
-                                  setManualCategoryAttributes({});
+                                  newListing.setCategoryAttributes({});
                                 }}
                                 aria-pressed={active}
                                 className={getChipClass(active)}
@@ -1485,10 +940,10 @@ export default function App() {
                         {Object.keys(categorySchemas).length > 0 && (
                           <div className="mt-3">
                             <CategoryAttributeFields
-                              category={manualCategory}
+                              category={newListing.category}
                               schemas={categorySchemas}
-                              attributes={manualCategoryAttributes}
-                              onChange={(key, value) => setManualCategoryAttributes((prev) => ({ ...prev, [key]: value }))}
+                              attributes={newListing.categoryAttributes}
+                              onChange={(key, value) => newListing.setCategoryAttributes((prev) => ({ ...prev, [key]: value }))}
                             />
                           </div>
                         )}
@@ -1497,14 +952,14 @@ export default function App() {
                         <span className="text-xs text-muted uppercase tracking-wider">Condition</span>
                         <div role="radiogroup" aria-label="Condition" className="flex flex-wrap gap-2 mt-2">
                           {CONDITIONS.map((c) => {
-                            const active = manualCondition === c;
+                            const active = newListing.condition === c;
                             return (
                               <button
                                 key={c}
                                 type="button"
                                 role="radio"
                                 aria-checked={active}
-                                onClick={() => setManualCondition(c)}
+                                onClick={() => newListing.setCondition(c)}
                                 className={getChipClass(active)}
                               >
                                 {c}
@@ -1518,13 +973,13 @@ export default function App() {
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
                       <header className="flex items-baseline justify-between">
                         <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
-                        <span className={`text-xs ${manualDescription.length >= 20 ? "text-primary" : "text-muted"}`}>
-                          {manualDescription.length} / 20+ chars
+                        <span className={`text-xs ${newListing.description.length >= 20 ? "text-primary" : "text-muted"}`}>
+                          {newListing.description.length} / 20+ chars
                         </span>
                       </header>
                       <textarea
-                        value={manualDescription}
-                        onChange={(e) => setManualDescription(e.target.value)}
+                        value={newListing.description}
+                        onChange={(e) => newListing.setDescription(e.target.value)}
                         rows={5}
                         placeholder="Tell the story. Where you got it, what you used it for, any flaws worth calling out."
                         className="w-full min-h-32 bg-surface-soft border border-hairline rounded-md p-3 text-sm text-ink placeholder:text-muted-soft resize-y focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
@@ -1532,13 +987,13 @@ export default function App() {
                       <div>
                         <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          {manualTags.map((t) => (
+                          {newListing.tags.map((t) => (
                             <span key={t} className={getChipClass(true)}>
                               {t}
                               <button
                                 type="button"
                                 aria-label={`Remove ${t}`}
-                                onClick={() => setManualTags((prev) => prev.filter((x) => x !== t))}
+                                onClick={() => newListing.setTags((prev) => prev.filter((x) => x !== t))}
                                 className="text-on-primary/80 hover:text-on-primary transition-colors"
                               >
                                 <X className="size-3" />
@@ -1546,17 +1001,17 @@ export default function App() {
                             </span>
                           ))}
                           <input
-                            value={manualTagInput}
-                            onChange={(e) => setManualTagInput(e.target.value)}
+                            value={newListing.tagInput}
+                            onChange={(e) => newListing.setTagInput(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key !== "Enter") return;
                               e.preventDefault();
-                              const trimmed = manualTagInput.trim();
-                              if (!trimmed || manualTags.includes(trimmed)) return;
-                              setManualTags((prev) => [...prev, trimmed]);
-                              setManualTagInput("");
+                              const trimmed = newListing.tagInput.trim();
+                              if (!trimmed || newListing.tags.includes(trimmed)) return;
+                              newListing.setTags((prev) => [...prev, trimmed]);
+                              newListing.setTagInput("");
                             }}
-                            placeholder={manualTags.length ? "Add another…" : "typewriter, 1960s…"}
+                            placeholder={newListing.tags.length ? "Add another…" : "typewriter, 1960s…"}
                             className="flex-1 min-w-32 max-w-xs px-2.5 py-1 rounded-full text-xs bg-canvas border border-border-strong text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors"
                           />
                         </div>
@@ -1581,8 +1036,8 @@ export default function App() {
                               type="text"
                               inputMode="numeric"
                               pattern="[0-9]*"
-                              value={manualPrice}
-                              onChange={(e) => setManualPrice(e.target.value.replace(/\D/g, ""))}
+                              value={newListing.price}
+                              onChange={(e) => newListing.setPrice(e.target.value.replace(/\D/g, ""))}
                               placeholder="0"
                               className="flex-1 min-w-0 bg-transparent border-0 outline-none text-3xl font-extrabold tracking-display text-ink placeholder:text-muted-soft"
                             />
@@ -1594,8 +1049,8 @@ export default function App() {
                             <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
                             <input
                               type="text"
-                              value={manualPickup}
-                              onChange={(e) => setManualPickup(e.target.value)}
+                              value={newListing.pickup}
+                              onChange={(e) => newListing.setPickup(e.target.value)}
                               placeholder={user?.neighborhood || "West Village"}
                               className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-muted-soft"
                             />
@@ -1606,6 +1061,14 @@ export default function App() {
                         Your address will not be shared until pickup is confirmed.
                       </p>
                     </section>
+                    <button
+                      type="button"
+                      disabled={newListing.isPublishing || newListing.imageCount === 0}
+                      onClick={newListing.publish}
+                      className="w-full inline-flex items-center justify-center h-11 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      {newListing.isPublishing ? "Publishing…" : "Publish listing"}
+                    </button>
                   </>
                 )}
               </div>
@@ -1622,19 +1085,19 @@ export default function App() {
                 via the effect above. lg:hidden on both keeps the desktop
                 experience untouched. */}
             <button
-              ref={previewToggleRef}
+              ref={newListing.toggleRef}
               type="button"
-              onClick={() => setPreviewOverlayOpen(true)}
+              onClick={() => newListing.setOverlayOpen(true)}
               aria-label="Show listing preview"
               aria-haspopup="dialog"
-              aria-expanded={previewOverlayOpen}
-              className={`lg:hidden fixed bottom-5 right-5 z-30 size-12 rounded-full bg-primary text-on-primary shadow-card hover:bg-primary-hover transition-colors flex items-center justify-center ${FOCUS_RING} ${previewOverlayOpen ? "hidden" : ""}`}
+              aria-expanded={newListing.overlayOpen}
+              className={`lg:hidden fixed bottom-5 right-5 z-30 size-12 rounded-full bg-primary text-on-primary shadow-card hover:bg-primary-hover transition-colors flex items-center justify-center ${FOCUS_RING} ${newListing.overlayOpen ? "hidden" : ""}`}
             >
               <Eye className="size-5" aria-hidden="true" />
             </button>
-            {previewOverlayOpen && (
+            {newListing.overlayOpen && (
               <div
-                className="lg:hidden fixed inset-0 z-40"
+                className="lg:hidden fixed inset-0 z-[60]"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Listing preview"
@@ -1643,22 +1106,22 @@ export default function App() {
                   type="button"
                   aria-label="Close preview"
                   tabIndex={-1}
-                  onClick={() => setPreviewOverlayOpen(false)}
+                  onClick={() => newListing.setOverlayOpen(false)}
                   className="absolute inset-0 bg-ink/30 backdrop-blur-sm"
                 />
                 <div
                   className="absolute inset-y-0 right-0 w-[min(380px,100vw)] bg-canvas border-l border-hairline shadow-overlay h-full overflow-y-auto motion-safe:transition-transform"
                 >
-                  <div className="sticky top-0 bg-canvas border-b border-hairline px-5 py-3 flex items-center justify-between">
+                  <div className="sticky top-0 bg-canvas border-b border-hairline px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] flex items-center justify-between">
                     <p className="text-sm font-semibold text-ink">Preview</p>
                     <button
-                      ref={previewCloseRef}
+                      ref={newListing.closeRef}
                       type="button"
-                      onClick={() => setPreviewOverlayOpen(false)}
+                      onClick={() => newListing.setOverlayOpen(false)}
                       aria-label="Close preview"
-                      className={`inline-flex items-center justify-center size-8 rounded-md text-muted hover:text-ink hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
+                      className={`inline-flex items-center justify-center size-10 rounded-full border border-hairline bg-canvas text-ink shadow-sm hover:bg-surface-soft active:bg-surface-soft transition-colors ${FOCUS_RING}`}
                     >
-                      <X className="size-4" aria-hidden="true" />
+                      <X className="size-5" aria-hidden="true" />
                     </button>
                   </div>
                   <div className="p-5 space-y-4">
@@ -1668,11 +1131,12 @@ export default function App() {
               </div>
             )}
           </div>
+          )}
         </section>
       )}
 
       {page === "home" && (
-        <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-16">
+        <section className="min-h-[calc(100vh-64px)] flex items-start justify-center px-4 sm:px-6 lg:px-8 pt-8 pb-16 sm:pt-12 sm:pb-16">
           <div className="w-full max-w-[760px]">
             <div className="mb-8">
               <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
@@ -1719,31 +1183,33 @@ export default function App() {
                     onSubmit={(e) => {
                       e.preventDefault();
                       const query = homeSearch.trim();
-                      setMarketSearch(homeSearch);
+                      market.setSearch(homeSearch);
                       setPage("market");
                       if (query) {
                         const filters: Record<string, unknown> = {};
-                        if (selectedCategories.length > 0) filters.categories = selectedCategories;
-                        if (selectedMarketCommunities.length > 0) filters.communities = selectedMarketCommunities;
-                        if (marketSort && marketSort !== "newest") filters.sort = marketSort;
+                        if (market.selectedCategories.length > 0) filters.categories = market.selectedCategories;
+                        if (market.selectedCommunities.length > 0) filters.communities = market.selectedCommunities;
+                        if (market.sort && market.sort !== "newest") filters.sort = market.sort;
                         logSearch({ query, filters });
                       }
                     }}
-                    className="flex items-center gap-2 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card"
+                    className="flex items-center gap-2 h-12 sm:h-16 bg-canvas border border-hairline rounded-full pl-4 sm:pl-6 pr-1.5 sm:pr-2 shadow-card"
                   >
                     <Search className="size-[18px] text-muted shrink-0" />
                     <input
                       type="text"
                       value={homeSearch}
                       onChange={(e) => setHomeSearch(e.target.value)}
-                      placeholder="Search for vintage furniture, books, anything..."
+                      placeholder="Search anything…"
                       className="flex-1 bg-transparent border-0 outline-none text-base text-ink placeholder:text-muted-soft min-w-0"
                     />
                     <button
                       type="submit"
-                      className="h-12 px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      aria-label="Search"
+                      className="h-9 sm:h-12 px-3 sm:px-6 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors shrink-0 inline-flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
-                      Search
+                      <Search className="size-4 sm:hidden" aria-hidden />
+                      <span className="hidden sm:inline">Search</span>
                     </button>
                   </form>
 
@@ -1762,24 +1228,23 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                // R-4.1: Home Sell composer is a thin entry point — photos
-                // drop only on the dedicated #newlisting surface to keep the
-                // wizard state plumbing simple (Option B). Click submit →
-                // navigate to the New Listing page.
-                <button
-                  type="button"
-                  onClick={() => setPage("newlisting")}
-                  className="group w-full flex items-center gap-3 h-16 bg-canvas border border-hairline rounded-full pl-6 pr-2 shadow-card text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                >
-                  <ImagePlus className="size-[18px] text-primary shrink-0" />
-                  <span className="flex-1 text-base text-muted">Tell us what you're selling…</span>
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-on-primary group-hover:bg-primary-hover transition-colors shrink-0"
-                  >
-                    <ArrowRight className="size-[18px]" />
-                  </span>
-                </button>
+                // Homepage Sell tab embeds the drafts gallery so users can
+                // resume an in-progress draft directly from home — or start
+                // fresh. Both paths route into /newlisting with the
+                // appropriate draftRouteState pre-set; the page-change
+                // effect respects "load"/"new" kinds and won't override.
+                <DraftsGallery
+                  userId={user?.id ?? null}
+                  onSelectDraft={(id) => {
+                    setDraftRouteState({ kind: "load", id });
+                    setPage("newlisting");
+                  }}
+                  onStartNew={() => {
+                    setDraftRouteState({ kind: "new" });
+                    setPage("newlisting");
+                  }}
+                  refreshNonce={draftsRefreshNonce}
+                />
               )}
             </div>
           </div>
@@ -1790,24 +1255,24 @@ export default function App() {
       {page === "market" && (
         <section className="relative min-h-[calc(100vh-64px)] flex">
           <MarketplaceSidebar
-            collapsed={marketSidebarCollapsed}
-            onToggleCollapsed={toggleMarketSidebar}
+            collapsed={market.sidebarCollapsed}
+            onToggleCollapsed={market.toggleSidebar}
             isMobile={!isDesktop}
-            marketSearch={marketSearch}
-            onMarketSearchChange={setMarketSearch}
+            marketSearch={market.search}
+            onMarketSearchChange={market.setSearch}
             isAuthenticated={isAuthenticated}
             filterCommunities={filterCommunities}
-            selectedMarketCommunities={selectedMarketCommunities}
+            selectedMarketCommunities={market.selectedCommunities}
             onToggleCommunity={handleToggleMarketCommunity}
             categorySchemas={categorySchemas}
-            selectedCategories={selectedCategories}
+            selectedCategories={market.selectedCategories}
             onToggleCategory={handleToggleCategory}
-            distanceMiles={distanceMiles}
-            onDistanceChange={setDistanceMiles}
-            showMyListings={showMyListings}
+            distanceMiles={market.distanceMiles}
+            onDistanceChange={market.setDistanceMiles}
+            showMyListings={market.showMyListings}
             onToggleMyListings={handleToggleMyListings}
           />
-          <main className="flex-1 min-w-0 px-6 lg:px-8 pt-8 pb-20">
+          <main className="flex-1 min-w-0 px-6 lg:px-8 pt-14 lg:pt-8 pb-20">
             {/* Header: neighborhood + sort */}
             <header className="flex flex-wrap items-end justify-between gap-4 mb-2">
               <div className="min-w-0">
@@ -1819,6 +1284,7 @@ export default function App() {
                     <button
                       type="button"
                       aria-label="Change location"
+                      onClick={changeLocation.openModal}
                       className="size-9 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >
                       <Settings className="size-4" />
@@ -1827,7 +1293,7 @@ export default function App() {
                 </div>
                 <p className="text-sm text-muted mt-1">
                   {user?.zip_code ? `${user.zip_code} · ` : ""}
-                  {listings.length} {listings.length === 1 ? "item" : "items"} near you
+                  {market.listings.length} {market.listings.length === 1 ? "item" : "items"} near you
                 </p>
               </div>
               <div role="tablist" aria-label="Sort by" className="inline-flex items-center p-1 bg-surface-soft border border-hairline rounded-full">
@@ -1836,14 +1302,14 @@ export default function App() {
                   ["trending", "Trending"],
                   ["newest", "Newest"],
                 ] as const).map(([id, label]) => {
-                  const active = marketSort === id;
+                  const active = market.sort === id;
                   return (
                     <button
                       key={id}
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => setMarketSort(id)}
+                      onClick={() => market.setSort(id)}
                       className={`h-8 px-4 text-sm font-semibold rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
                         active
                           ? "bg-canvas text-ink shadow-card"
@@ -1858,110 +1324,49 @@ export default function App() {
             </header>
 
             {/* Grid */}
-            {!listingsLoaded && listings.length === 0 ? (
+            {!market.listingsLoaded && market.listings.length === 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <ListingCardSkeleton key={i} />
                 ))}
               </div>
-            ) : listings.length === 0 ? (
+            ) : market.listings.length === 0 ? (
               <div className="text-center text-muted py-12 mt-7">
-                {marketSearch || selectedMarketCommunities.length > 0 || selectedCategories.length > 0 || showMyListings
+                {market.search || market.selectedCommunities.length > 0 || market.selectedCategories.length > 0 || market.showMyListings
                   ? "No listings match your filters."
                   : "No listings yet."}
               </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
-                  {listings.slice(0, visibleCount).map((listing, idx) => {
-                    const images = listing.imageUrls && listing.imageUrls.length > 0
-                      ? listing.imageUrls
-                      : [listing.imageUrl];
+                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => {
                     const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
                       ?? listing.allCommunities?.[0]
                       ?? PLACEHOLDER_COMMUNITY;
-                    const isOwn = isAuthenticated && listing.userId === user?.id;
-                    const isWishlisted = wishlist.has(listing.id);
                     return (
-                      <article
+                      <ListingCard
                         key={listing.id}
-                        onClick={() => openListingDetail(listing, marketSearch ? "search" : "direct")}
-                        className="group bg-canvas border border-hairline rounded-md overflow-hidden cursor-pointer hover:shadow-hover transition-shadow motion-safe:animate-mkt-card-in"
-                        style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
-                      >
-                        {/* Trust band — always renders community shape.
-                            Falls back to PLACEHOLDER_COMMUNITY until the
-                            sell-flow community selector lands (backlog.md). */}
-                        <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                          <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                          <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
-                          {listing.seller_name && (
-                            <>
-                              <span className="text-muted">·</span>
-                              <span className="text-muted truncate">@{listing.seller_name}</span>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Photo */}
-                        <div className="relative aspect-square bg-surface-soft">
-                          <ListingImage
-                            src={images[0]}
-                            alt={formatTitle(listing.brand, listing.name)}
-                            size="card"
-                            priority={idx < 4}
-                            className="absolute inset-0 size-full object-cover"
-                          />
-                          {!isOwn && isAuthenticated && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleWishlist(listing.id); }}
-                              aria-label={isWishlisted ? "Remove from saves" : "Save"}
-                              aria-pressed={isWishlisted}
-                              className={`absolute top-2 right-2 size-8 rounded-full backdrop-blur-sm border border-hairline inline-flex items-center justify-center transition-[transform,box-shadow,background-color,color] duration-150 ease-out hover:shadow-card hover:scale-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${
-                                isWishlisted
-                                  ? "bg-primary-soft/80 text-primary hover:bg-primary-soft"
-                                  : "bg-canvas/90 text-muted hover:bg-canvas hover:text-primary"
-                              }`}
-                            >
-                              <Heart
-                                className={`size-4 ${isWishlisted ? "fill-primary" : ""} ${
-                                  pulseSavedIds.has(listing.id) ? "motion-safe:animate-save-pulse" : ""
-                                }`}
-                                onAnimationEnd={() => {
-                                  if (!pulseSavedIds.has(listing.id)) return;
-                                  setPulseSavedIds((prev) => {
-                                    const next = new Set(prev);
-                                    next.delete(listing.id);
-                                    return next;
-                                  });
-                                }}
-                              />
-                            </button>
-                          )}
-                          {listing.status === "sold" && (
-                            <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
-                              Sold
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-3 space-y-1">
-                          <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand, listing.name)}</p>
-                          <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
-                          <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
-                        </div>
-                      </article>
+                        listing={listing}
+                        heroCommunity={heroCommunity}
+                        isOwn={isAuthenticated && listing.userId === user?.id}
+                        isAuthenticated={isAuthenticated}
+                        isWishlisted={wishlist.ids.has(listing.id)}
+                        isPulsing={wishlist.isPulsing(listing.id)}
+                        priority={idx < 4}
+                        animationDelayMs={Math.min(idx, 11) * 30}
+                        onOpen={() => detail.openListingDetail(listing, market.search ? "search" : "direct")}
+                        onToggleWishlist={() => wishlist.toggle(listing.id)}
+                        onPulseEnd={() => wishlist.clearPulse(listing.id)}
+                      />
                     );
                   })}
                 </div>
 
                 {/* End sentinel — also drives the IntersectionObserver. */}
-                <div ref={marketSentinelRef} className="text-center py-8 text-sm text-muted italic">
-                  {visibleCount < listings.length
+                <div ref={market.sentinelRef} className="text-center py-8 text-sm text-muted italic">
+                  {market.visibleCount < market.listings.length
                     ? "Loading more nearby…"
-                    : `You've reached the end · ${listings.length} ${listings.length === 1 ? "item" : "items"}`}
+                    : `You've reached the end · ${market.listings.length} ${market.listings.length === 1 ? "item" : "items"}`}
                 </div>
               </>
             )}
@@ -2300,7 +1705,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlistItems} wishlist={wishlist} onToggleWishlist={(id) => { toggleWishlist(id).then(() => fetchWishlistItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={openListingDetail} onViewUser={openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlist.items} wishlist={wishlist.ids} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={detail.openListingDetail} onViewUser={detail.openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 
@@ -2377,68 +1782,128 @@ export default function App() {
 
       {/* Listing Detail Modal */}
       <ListingDetailModal
-        open={showListingDetailModal}
-        onClose={() => { setShowListingDetailModal(false); setListingDetailData(null); setListingDetailSellerProfile(null); }}
-        listing={listingDetailData}
+        open={detail.detailOpen}
+        onClose={detail.closeDetail}
+        listing={detail.listing}
         isAuthenticated={isAuthenticated}
         currentUserId={user?.id}
-        sellerProfile={listingDetailSellerProfile}
-        isLoadingSeller={isLoadingListingDetail}
-        buyerOrderStatus={buyerOrderStatus}
+        sellerProfile={detail.sellerProfile}
+        isLoadingSeller={detail.isLoadingSeller}
+        buyerOrderStatus={detail.buyerOrderStatus}
         categorySchemas={categorySchemas}
-        onOpenUserDashboard={openUserDashboard}
-        onOpenEdit={() => setShowEditListingModal(true)}
-        onOpenBuy={() => { setBuyEditingOrder(null); setShowBuyModal(true); }}
-        onEditPickupSlots={() => {
-          if (buyerOrderStatus?.order_id && listingDetailData) {
-            (async () => {
-              try {
-                const res = await apiFetch(`/api/orders/status/${listingDetailData.id}`);
-                if (res.ok) {
-                  const data = await res.json();
-                  openEditPickupSlots(listingDetailData, data.order_id, data.selected_pickup_slots || []);
-                }
-              } catch { /* ignore */ }
-            })();
-          }
-        }}
-        onSignInPrompt={() => { setShowListingDetailModal(false); setPage("signin"); }}
+        onOpenUserDashboard={detail.openUserDashboard}
+        onOpenEdit={detail.openEdit}
+        onOpenBuy={detail.openBuy}
+        onEditPickupSlots={detail.editPickupSlots}
+        onSignInPrompt={() => { detail.dismissDetail(); setPage("signin"); }}
       />
 
       {/* Buy Confirmation Modal */}
       <BuyModal
-        open={showBuyModal}
-        onClose={() => { setShowBuyModal(false); setBuyEditingOrder(null); }}
-        listing={listingDetailData}
-        editingOrder={buyEditingOrder}
-        onConfirmed={handleBuyConfirmed}
-        onUpdated={handleBuyUpdated}
-        onNavigateToTerms={() => { setShowBuyModal(false); setPage("terms"); }}
+        open={detail.buyOpen}
+        onClose={detail.closeBuy}
+        listing={detail.listing}
+        editingOrder={detail.buyEditingOrder}
+        onConfirmed={detail.onBuyConfirmed}
+        onUpdated={detail.onBuyUpdated}
+        onNavigateToTerms={() => { detail.dismissBuy(); setPage("terms"); }}
       />
 
       {/* Edit Listing Modal (from marketplace detail) */}
-      {showEditListingModal && listingDetailData && (
+      {detail.editOpen && detail.listing && (
         <EditListingModal
           open
-          onClose={() => setShowEditListingModal(false)}
-          listing={listingDetailData}
-          location={user?.neighborhood || listingDetailData.location || ""}
-          onSave={handleSaveListingFromMarket}
+          onClose={detail.closeEdit}
+          listing={detail.listing}
+          location={user?.neighborhood || detail.listing.location || ""}
+          onSave={detail.saveListingEdit}
           categorySchemas={categorySchemas}
           z={260}
         />
       )}
 
       {/* User Profile Overlay */}
-      {viewingUserId && (
+      {detail.viewingUserId && (
         <Suspense fallback={null}>
           <UserProfileOverlay
-            userId={viewingUserId}
-            onClose={() => setViewingUserId(null)}
-            onViewUser={(id) => setViewingUserId(id)}
-            openListingDetail={openListingDetail}
+            userId={detail.viewingUserId}
+            onClose={detail.closeUserDashboard}
+            onViewUser={(id) => detail.setViewingUserId(id)}
+            openListingDetail={detail.openListingDetail}
           />
         </Suspense>
+      )}
+
+      {/* Quick change-location modal — opened from the Settings icon next
+          to the marketplace location header. Edits neighborhood + zip only;
+          full profile edits live in MyAccount → Edit Profile. */}
+      {changeLocation.open && (
+        <ModalShell open onClose={changeLocation.close} z={210}>
+          <div className="relative bg-canvas border border-hairline rounded-md w-full max-w-sm mx-4 p-6 shadow-overlay">
+            <button
+              type="button"
+              onClick={changeLocation.close}
+              aria-label="Close"
+              className="absolute top-3 right-3 size-8 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <X className="size-4" />
+            </button>
+            <h2 className="text-lg font-extrabold text-ink mb-1">Change location</h2>
+            <p className="text-sm text-muted mb-4">
+              Updates what you see in the marketplace.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                  Neighborhood
+                </label>
+                <input
+                  id="cl-neighborhood"
+                  type="text"
+                  value={changeLocation.neighborhood}
+                  onChange={(e) => changeLocation.setNeighborhood(e.target.value)}
+                  placeholder="e.g. Chinatown"
+                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <div>
+                <label htmlFor="cl-zip" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                  Zip code
+                </label>
+                <input
+                  id="cl-zip"
+                  type="text"
+                  inputMode="numeric"
+                  value={changeLocation.zip}
+                  onChange={(e) => changeLocation.setZip(e.target.value)}
+                  placeholder="10013"
+                  maxLength={10}
+                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              {changeLocation.error && (
+                <p className="text-sm text-error">{changeLocation.error}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={changeLocation.close}
+                className="h-9 px-4 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={changeLocation.submit}
+                disabled={changeLocation.isSubmitting || !changeLocation.neighborhood.trim()}
+                className="h-9 px-4 rounded-md bg-primary hover:bg-primary-hover text-on-primary text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >
+                {changeLocation.isSubmitting ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
       )}
     </div>
   );

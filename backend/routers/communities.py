@@ -2,7 +2,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/communities", tags=["communities"])
 # ---------- Response schemas ----------
 
 class CommunityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: Optional[str] = None
@@ -31,22 +33,18 @@ class CommunityOut(BaseModel):
     member_count: int = 0
     role: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
 
 class JoinByCodeRequest(BaseModel):
     invite_code: str
 
 
 class UserSearchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     display_name: Optional[str] = None
     neighborhood: Optional[str] = None
     profile_picture: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 
 class InviteRequest(BaseModel):
@@ -101,6 +99,18 @@ def _community_to_out(community: Community, db: Session, user_id: str) -> dict:
 
 
 # ---------- Endpoints ----------
+
+
+@router.get("/neighborhoods")
+async def list_neighborhoods():
+    """Return the curated list of canonical Manhattan neighborhood names.
+
+    Used by the FE onboarding picker. Single source of truth lives in
+    backend/constants/neighborhoods.py — extend that list to add new
+    neighborhoods. No auth required (the list is public).
+    """
+    from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
+    return sorted(MANHATTAN_NEIGHBORHOODS)
 
 
 @router.get("/search")
@@ -220,44 +230,6 @@ async def create_community(
 
     return _community_to_out(community, db, current_user.id)
 
-
-@router.get("/mine-with-neighborhood")
-async def my_communities_with_neighborhood(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    public_list: list[dict] = []
-    private_list: list[dict] = []
-
-    # Virtual "My Neighborhood" community (always public)
-    if current_user.neighborhood:
-        public_list.append({
-            "id": "neighborhood",
-            "name": "My Neighborhood",
-            "neighborhood": current_user.neighborhood,
-            "is_public": True,
-        })
-
-    # Real communities partitioned by is_public
-    memberships = (
-        db.query(CommunityMember)
-        .filter(CommunityMember.user_id == current_user.id)
-        .all()
-    )
-    for m in memberships:
-        community = db.query(Community).filter(Community.id == m.community_id).first()
-        if community:
-            entry = {
-                "id": community.id,
-                "name": community.name,
-                "neighborhood": community.neighborhood,
-                "is_public": community.is_public,
-            }
-            if community.is_public:
-                public_list.append(entry)
-            else:
-                private_list.append(entry)
-    return {"public": public_list, "private": private_list}
 
 
 @router.get("/mine", response_model=list[CommunityOut])

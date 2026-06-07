@@ -1,0 +1,87 @@
+<h2>Combined notification anatomy — v2 (title text explicitly #000)</h2>
+<p class="subtitle">Every text element in the unread notification is pure ink black except <code>$120</code>, which stays jade.</p>
+
+<style>
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+
+  .panel { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 0; overflow: hidden; margin-top: 10px; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; padding: 6px 14px; background: #FAFAFA; border-bottom: 1px solid #EFEFEF; }
+
+  .notif { display: flex; gap: 12px; padding: 14px 14px; border-bottom: 1px solid #E5E5E5; position: relative; }
+  .notif-unread { background: #FFFFFF; }
+  .notif-read    { background: #F5F5F5; }
+  .notif:last-child { border-bottom: 0; }
+
+  .dot { position: absolute; top: 14px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: #00824C; }
+  .icon-tile { width: 36px; height: 36px; background: #DCEEE4; color: #00824C; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; font-weight: 700; }
+  .body { flex: 1; min-width: 0; padding-right: 18px; color: #000 !important; }
+  .body * { color: #000 !important; }
+  .body .price { color: #00824C !important; }
+  .body .time { color: #888 !important; }
+
+  .title { font-size: 13px; font-weight: 700; margin: 0; line-height: 1.35; }
+  .pickup-wrap { margin-top: 8px; }
+  .pickup-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; display: block; margin-bottom: 2px; }
+  .pickup-times { font-size: 12px; font-weight: 500; line-height: 1.4; }
+  .time { font-size: 10px; margin-top: 6px; }
+
+  /* Read fade — wrap the body in opacity 0.4 (title still styled #000 underneath) */
+  .read-wrap { opacity: 0.4; }
+</style>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Locked combined design</h3>
+      <p>Title "Maria offered $120 on your Filson Mile Marker tote" — every word #000 except <code>$120</code> (jade #00824C). "PICKUP" / "PICKUP OPTIONS" label #000. Pickup window list #000. Timestamp stays soft #888.</p>
+
+      <div class="panel">
+        <div class="label">Unread · single window</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title">Maria offered <span class="price">$120</span> on your Filson Mile Marker tote</p>
+            <div class="pickup-wrap">
+              <span class="pickup-label">Pickup</span>
+              <span class="pickup-times">Today 5–7pm</span>
+            </div>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+
+        <div class="label">Unread · three windows</div>
+        <div class="notif notif-unread">
+          <span class="dot"></span>
+          <div class="icon-tile">M</div>
+          <div class="body">
+            <p class="title">Maria offered <span class="price">$120</span> on your Filson Mile Marker tote</p>
+            <div class="pickup-wrap">
+              <span class="pickup-label">Pickup options</span>
+              <span class="pickup-times">Today 5–7pm · Tomorrow 12–2pm · Thu 3–5pm</span>
+            </div>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+
+        <div class="label">Read · three windows (opacity 0.4 wrapper)</div>
+        <div class="notif notif-read">
+          <div class="icon-tile">M</div>
+          <div class="body read-wrap">
+            <p class="title">Maria offered <span class="price">$120</span> on your Filson Mile Marker tote</p>
+            <div class="pickup-wrap">
+              <span class="pickup-label">Pickup options</span>
+              <span class="pickup-times">Today 5–7pm · Tomorrow 12–2pm · Thu 3–5pm</span>
+            </div>
+            <div class="time">2h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">If this lands, click A. Otherwise tell me what's still off.</p>

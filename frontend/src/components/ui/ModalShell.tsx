@@ -1,4 +1,37 @@
-import type { ReactNode } from "react";
+import { useEffect } from "react";
+import type { ReactNode, CSSProperties } from "react";
+
+// Ref-counted scroll lock — incremented for each open ModalShell, decremented
+// on close. Body scroll is only restored once ALL modals have unmounted, which
+// is correct for stacked modals (listing z=200 → buy z=250 → edit z=260).
+let lockCount = 0;
+let savedOverflow = "";
+let savedPaddingRight = "";
+
+function useScrollLock(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const body = document.body;
+    if (lockCount === 0) {
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      savedOverflow = body.style.overflow;
+      savedPaddingRight = body.style.paddingRight;
+      body.style.overflow = "hidden";
+      if (scrollbarWidth > 0) {
+        const currentPr = parseInt(window.getComputedStyle(body).paddingRight, 10) || 0;
+        body.style.paddingRight = `${currentPr + scrollbarWidth}px`;
+      }
+    }
+    lockCount += 1;
+    return () => {
+      lockCount -= 1;
+      if (lockCount === 0) {
+        body.style.overflow = savedOverflow;
+        body.style.paddingRight = savedPaddingRight;
+      }
+    };
+  }, [active]);
+}
 
 // Centered modal shell — owns the backdrop + outer wrapper but NOT the inner
 // frame. Children supply their own panel element (bg color, padding,
@@ -23,7 +56,12 @@ type ModalShellProps = {
   // When `align="start"`, the modal pins to the top of the viewport with
   // overflow-y-auto on the outer container — used for very tall content
   // (e.g. UserProfile overlay) that needs to scroll past the viewport.
-  align?: "center" | "start";
+  align?: "center" | "start" | "right";
+  // CSS top offset in px. When set, the outer container (incl. the backdrop)
+  // starts below the viewport top. Useful for letting a sticky nav stay
+  // visible above the modal/drawer — e.g. MobileNavMenu passes 64 so the
+  // backdrop doesn't cover the app's nav bar.
+  topOffset?: number;
 };
 
 export function ModalShell({
@@ -33,19 +71,32 @@ export function ModalShell({
   z = 50,
   dismissOnBackdrop = true,
   align = "center",
+  topOffset,
 }: ModalShellProps) {
+  // Must be called unconditionally (Rules of Hooks); self-gates on `active`.
+  useScrollLock(open);
   if (!open) return null;
   const alignment =
     align === "center"
       ? "flex items-center justify-center"
-      : "flex items-start justify-center overflow-y-auto";
+      : align === "start"
+        ? "flex items-start justify-center overflow-y-auto"
+        : "flex items-stretch justify-end";
+  // Default: full viewport. When topOffset is set, leave the area above it
+  // (the sticky nav) untouched.
+  const positioning = topOffset != null ? "fixed inset-x-0 bottom-0" : "fixed inset-0";
+  const style: CSSProperties = { zIndex: z };
+  if (topOffset != null) style.top = topOffset;
   return (
-    <div className={`fixed inset-0 ${alignment}`} style={{ zIndex: z }}>
+    <div className={`${positioning} ${alignment}`} style={style}>
       <div
         className="absolute inset-0 bg-ink/40 backdrop-blur-sm"
         onClick={dismissOnBackdrop ? onClose : undefined}
       />
-      {children}
+      {/* `relative isolate` forces the panel into its own stacking context +
+          compositing layer so iOS Safari doesn't rasterize it through the
+          sibling backdrop's backdrop-filter blur. */}
+      <div className="relative isolate">{children}</div>
     </div>
   );
 }

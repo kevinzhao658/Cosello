@@ -1,0 +1,111 @@
+<h2>Left-aligned price variations</h2>
+<p class="subtitle">Status column unchanged from A (locked at min-108px, pill left-edge anchored). Difference is the Price column: now locked + left-aligned so prices share an x-edge across rows. Compare against original A at top.</p>
+
+<style>
+  body, .frame { background: #f7f7f7 !important; color: #000 !important; }
+  .panel { background: #ffffff; border: 1px solid #E5E5E5; border-radius: 6px; padding: 0; overflow: hidden; margin-top: 8px; }
+  .panel-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; padding: 6px 14px; background: #FAFAFA; border-bottom: 1px solid #EFEFEF; }
+  .row { display: grid; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #EFEFEF; font-size: 12px; }
+  .row:last-child { border-bottom: 0; }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #555; padding-top: 8px; padding-bottom: 8px; background: #FAFAFA; }
+  .item { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .thumb { width: 32px; height: 32px; background: #E5E5E5; border-radius: 4px; flex-shrink: 0; }
+  .item-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .community { font-size: 10px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { font-size: 12px; font-weight: 600; color: #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .price { font-size: 13px; font-weight: 700; color: #000; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; white-space: nowrap; background: #DCEEE4; color: #00824C; }
+  .pill-warn { background: rgba(217, 154, 60, 0.18); color: #f3a838; }
+</style>
+
+<div style="margin-top: 12px; padding: 10px 12px; background: rgba(0,0,0,0.05); border-radius: 6px; border-left: 3px solid #888;">
+  <strong style="font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.08em;">Baseline — Option A (your prior pick)</strong>
+  <div class="panel" style="margin-top: 8px;">
+    <div class="panel-tag">A: grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)]</div>
+    <div class="row row-head" style="grid-template-columns: minmax(0,1fr) max-content minmax(108px,max-content);">
+      <span>Item</span><span>Price</span><span>Status</span>
+    </div>
+    <div class="row" style="grid-template-columns: minmax(0,1fr) max-content minmax(108px,max-content);">
+      <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">West Village</span><span class="name">Vintage Levi's 501</span></div></div>
+      <span class="price">$48</span>
+      <span><span class="pill">Live</span></span>
+    </div>
+    <div class="row" style="grid-template-columns: minmax(0,1fr) max-content minmax(108px,max-content);">
+      <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">Chelsea</span><span class="name">Eames lounge chair</span></div></div>
+      <span class="price">$285</span>
+      <span><span class="pill">Pickup in 2h 14m</span></span>
+    </div>
+    <div class="row" style="grid-template-columns: minmax(0,1fr) max-content minmax(108px,max-content);">
+      <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">SoHo</span><span class="name">Filson Mile Marker tote</span></div></div>
+      <span class="price">$1,250</span>
+      <span><span class="pill-warn">3 pending</span></span>
+    </div>
+  </div>
+  <p style="font-size: 11px; color: #555; margin-top: 8px;">Note: each price column auto-sizes to its row's content width — "$48" cell is narrower than "$1,250" cell. Prices don't share a left x-edge.</p>
+</div>
+
+<div class="options" style="margin-top: 18px;">
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Price locked at min-64px + left-aligned (tight)</h3>
+      <p>Price column gets min-width 64px (handles up to "$9,999"). Price value `justify-self: start` so all prices share a left x-edge across rows. Status unchanged from A.</p>
+      <div class="panel">
+        <div class="panel-tag">grid-cols-[minmax(0,1fr)_minmax(64px,max-content)_minmax(108px,max-content)] · price: justify-self-start</div>
+        <div class="row row-head" style="grid-template-columns: minmax(0,1fr) minmax(64px,max-content) minmax(108px,max-content);">
+          <span>Item</span><span>Price</span><span>Status</span>
+        </div>
+        <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(64px,max-content) minmax(108px,max-content);">
+          <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">West Village</span><span class="name">Vintage Levi's 501</span></div></div>
+          <span class="price" style="justify-self: start;">$48</span>
+          <span><span class="pill">Live</span></span>
+        </div>
+        <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(64px,max-content) minmax(108px,max-content);">
+          <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">Chelsea</span><span class="name">Eames lounge chair</span></div></div>
+          <span class="price" style="justify-self: start;">$285</span>
+          <span><span class="pill">Pickup in 2h 14m</span></span>
+        </div>
+        <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(64px,max-content) minmax(108px,max-content);">
+          <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">SoHo</span><span class="name">Filson Mile Marker tote</span></div></div>
+          <span class="price" style="justify-self: start;">$1,250</span>
+          <span><span class="pill-warn">3 pending</span></span>
+        </div>
+      </div>
+      <p style="font-size: 11px; color: #555; padding: 0 14px 10px;">All "$" symbols line up vertically. Price column has a 64px floor — fits typical prices snugly.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Price locked at min-88px + left-aligned (roomy)</h3>
+      <p>Same idea as B but the Price column has a wider floor — 88px (handles up to "$99,999"). More breathing room between Item and the Price↔Status pair. Useful if you regularly list higher-priced items.</p>
+      <div class="panel">
+        <div class="panel-tag">grid-cols-[minmax(0,1fr)_minmax(88px,max-content)_minmax(108px,max-content)] · price: justify-self-start</div>
+        <div class="row row-head" style="grid-template-columns: minmax(0,1fr) minmax(88px,max-content) minmax(108px,max-content);">
+          <span>Item</span><span>Price</span><span>Status</span>
+        </div>
+        <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(88px,max-content) minmax(108px,max-content);">
+          <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">West Village</span><span class="name">Vintage Levi's 501</span></div></div>
+          <span class="price" style="justify-self: start;">$48</span>
+          <span><span class="pill">Live</span></span>
+        </div>
+        <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(88px,max-content) minmax(108px,max-content);">
+          <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">Chelsea</span><span class="name">Eames lounge chair</span></div></div>
+          <span class="price" style="justify-self: start;">$285</span>
+          <span><span class="pill">Pickup in 2h 14m</span></span>
+        </div>
+        <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(88px,max-content) minmax(108px,max-content);">
+          <div class="item"><div class="thumb"></div><div class="item-text"><span class="community">SoHo</span><span class="name">Filson Mile Marker tote</span></div></div>
+          <span class="price" style="justify-self: start;">$1,250</span>
+          <span><span class="pill-warn">3 pending</span></span>
+        </div>
+      </div>
+      <p style="font-size: 11px; color: #555; padding: 0 14px 10px;">Same alignment as B but more horizontal space allotted to Price — softer feel, more separation from Status.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Pick B / C, or stay with A from the original screen.</p>

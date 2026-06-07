@@ -104,6 +104,7 @@ export type SellWizardAction =
   | { type: "GENERATE_END" }
   | { type: "GENERATE_SINGLE"; details: ProductDetails }
   | { type: "GENERATE_BULK"; items: BulkItemDetails[] }
+  | { type: "INIT_BULK_MANUAL" }
   | { type: "REGENERATE_BULK_ITEM"; index: number; item: BulkItemDetails }
   | { type: "SET_PHASE"; phase: BulkReviewPhase }
   | { type: "SET_BRAND_HINT"; index: number; value: string }
@@ -138,7 +139,8 @@ export type SellWizardAction =
   | { type: "SET_SEGMENTATION_ERROR"; value: string | null }
   | { type: "BACK_FROM_REVIEW" }
   | { type: "RESET_FROM_LOGOUT" }
-  | { type: "PARTIAL_RESET_FROM_BUY_SWITCH" };
+  | { type: "PARTIAL_RESET_FROM_BUY_SWITCH" }
+  | { type: "LOAD_FROM_DRAFT"; state: SellWizardState };
 
 function emptyWizardState(): SellWizardState {
   return {
@@ -209,6 +211,28 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
         groupingsModified: false,
         modifiedGroupIndices: new Set<number>(),
       };
+    case "INIT_BULK_MANUAL": {
+      if (!state.segmentation) return state;
+      const items: BulkItemDetails[] = state.segmentation.groupings.map((group, i) => ({
+        brand: state.brandHints[i] ?? "",
+        name: state.names[i] ?? "",
+        description: "",
+        price: "",
+        condition: "Good",
+        location: "",
+        tags: [],
+        imageIndices: group,
+      }));
+      return {
+        ...state,
+        isGenerating: false,
+        bulkItems: items,
+        currentCardIndex: 0,
+        bulkReviewPhase: "cards",
+        groupingsModified: false,
+        modifiedGroupIndices: new Set<number>(),
+      };
+    }
     case "REGENERATE_BULK_ITEM": {
       const updated = [...state.bulkItems];
       if (updated[action.index]) updated[action.index] = action.item;
@@ -564,6 +588,11 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
         bulkReviewPhase: null,
         currentCardIndex: 0,
       };
+    case "LOAD_FROM_DRAFT":
+      // Replace the entire reducer state with the hydrated payload.
+      // Caller is responsible for filtering transient fields out before save
+      // (draftStorage.ts) and defaulting them back in on load (SellWizard.tsx).
+      return action.state;
     default:
       return state;
   }
@@ -582,6 +611,7 @@ export interface SellWizardActions {
   generateEnd: () => void;
   generateSingle: (details: ProductDetails) => void;
   generateBulk: (items: BulkItemDetails[]) => void;
+  initBulkManual: () => void;
   regenerateBulkItem: (index: number, item: BulkItemDetails) => void;
   setPhase: (phase: BulkReviewPhase) => void;
   setBrandHint: (index: number, value: string) => void;
@@ -616,6 +646,144 @@ export interface SellWizardActions {
   setSegmentationError: (value: string | null) => void;
   backFromReview: () => void;
   partialResetFromBuySwitch: () => void;
+  loadFromDraft: (state: SellWizardState) => void;
+}
+
+// ─── BulkPreview type + selector ───────────────────────────────────────────
+
+export type PreviewStep = "upload" | "groups" | "review" | "pickup";
+
+export interface BulkPreviewBase {
+  index: number;
+  count: number;
+  unit: "Photo" | "Preview";
+  item: {
+    brand: string;
+    name: string;
+    /** null = not generated yet (Groups phase). */
+    price: string | null;
+    condition: string;
+    /** null = not generated yet (Groups phase). */
+    description: string | null;
+    location: string;
+    tagsCount: number;
+    /** Photo count for the focused group. Present at Groups; omitted at Review/Pickup. */
+    photoCount?: number;
+    /** Resolved URL for the cover photo. null when no photo yet. */
+    imageUrl: string | null;
+  };
+}
+
+export interface BulkPreview extends BulkPreviewBase {
+  step: PreviewStep;
+  communitySelected: boolean;
+  pickupLocationSet: boolean;
+}
+
+/**
+ * Build a BulkPreviewBase from wizard state. Returns null when there are no bulk items.
+ * Resolves the cover image URL inside the selector so callers (SellWizard.tsx) need no
+ * image-index knowledge. The emit effect in SellWizard.tsx attaches step + signals.
+ */
+export function selectBulkPreview(
+  bulkItems: BulkItemDetails[],
+  currentCardIndex: number,
+  imageUrls: string[] | undefined,
+  uploadedImages: UploadedImage[],
+): BulkPreviewBase | null {
+  if (bulkItems.length === 0) return null;
+  const i = Math.min(Math.max(currentCardIndex, 0), bulkItems.length - 1);
+  const it = bulkItems[i];
+  const firstIdx = it.imageIndices[0] ?? null;
+  const imageUrl: string | null =
+    firstIdx !== null
+      ? (imageUrls?.[firstIdx] ?? uploadedImages[firstIdx]?.preview ?? null)
+      : null;
+  return {
+    index: i,
+    count: bulkItems.length,
+    unit: "Preview",
+    item: {
+      brand: it.brand,
+      name: it.name,
+      price: it.price,
+      condition: it.condition,
+      description: it.description,
+      location: it.location,
+      tagsCount: it.tags.length,
+      imageUrl,
+    },
+  };
+}
+
+/**
+ * Build a BulkPreviewBase from a photo group (Groups phase, before details exist).
+ * Returns null when there is no segmentation / no groups. price & description are
+ * null (pending); photoCount carries the group size for the "{n} photos" pill.
+ * The emit effect in SellWizard.tsx attaches step + signals.
+ */
+export function selectGroupsPreview(
+  segmentation: SegmentationResult | null,
+  brandHints: string[],
+  names: string[],
+  currentCardIndex: number,
+  uploadedImages: UploadedImage[],
+): BulkPreviewBase | null {
+  if (!segmentation || segmentation.groupings.length === 0) return null;
+  const count = segmentation.groupings.length;
+  const i = Math.min(Math.max(currentCardIndex, 0), count - 1);
+  const group = segmentation.groupings[i];
+  const firstIdx = group[0] ?? null;
+  const imageUrl: string | null =
+    firstIdx !== null
+      ? (segmentation.image_urls[firstIdx] ?? uploadedImages[firstIdx]?.preview ?? null)
+      : null;
+  return {
+    index: i,
+    count,
+    unit: "Preview",
+    item: {
+      brand: brandHints[i] ?? "",
+      name: names[i] ?? "",
+      price: null,
+      condition: "",
+      description: null,
+      location: "",
+      tagsCount: 0,
+      photoCount: group.length,
+      imageUrl,
+    },
+  };
+}
+
+/**
+ * Build a BulkPreviewBase from raw uploaded photos (Upload step, AI mode, pre-segmentation).
+ * One slide per photo; unit "Photo"; all listing fields pending. Returns null when no photos.
+ * The emit effect in SellWizard.tsx attaches step + signals.
+ */
+export function selectUploadPreview(
+  uploadedImages: UploadedImage[],
+  currentCardIndex: number,
+): BulkPreviewBase | null {
+  if (uploadedImages.length === 0) return null;
+  const count = uploadedImages.length;
+  const i = Math.min(Math.max(currentCardIndex, 0), count - 1);
+  const imageUrl = uploadedImages[i]?.preview ?? null;
+  return {
+    index: i,
+    count,
+    unit: "Photo",
+    item: {
+      brand: "",
+      name: "",
+      price: null,
+      condition: "",
+      description: null,
+      location: "",
+      tagsCount: 0,
+      imageUrl,
+    },
+  };
 }
 
 export function useSellWizard(): [SellWizardState, SellWizardActions] {
@@ -635,6 +803,7 @@ export function useSellWizard(): [SellWizardState, SellWizardActions] {
     generateEnd: () => dispatch({ type: "GENERATE_END" }),
     generateSingle: (details) => dispatch({ type: "GENERATE_SINGLE", details }),
     generateBulk: (items) => dispatch({ type: "GENERATE_BULK", items }),
+    initBulkManual: () => dispatch({ type: "INIT_BULK_MANUAL" }),
     regenerateBulkItem: (index, item) => dispatch({ type: "REGENERATE_BULK_ITEM", index, item }),
     setPhase: (phase) => dispatch({ type: "SET_PHASE", phase }),
     setBrandHint: (index, value) => dispatch({ type: "SET_BRAND_HINT", index, value }),
@@ -677,6 +846,7 @@ export function useSellWizard(): [SellWizardState, SellWizardActions] {
     setSegmentationError: (value) => dispatch({ type: "SET_SEGMENTATION_ERROR", value }),
     backFromReview: () => dispatch({ type: "BACK_FROM_REVIEW" }),
     partialResetFromBuySwitch: () => dispatch({ type: "PARTIAL_RESET_FROM_BUY_SWITCH" }),
+    loadFromDraft: (state) => dispatch({ type: "LOAD_FROM_DRAFT", state }),
   }), []);
 
   return [state, actions];

@@ -1,0 +1,109 @@
+<h2>Pulse vs shimmer — side-by-side</h2>
+<p class="subtitle">Same skeleton shapes, different animation. Watch them both for a few seconds to feel the difference.</p>
+
+<style>
+  .skel-pulse { background: rgba(255,255,255,0.08); border-radius: 4px; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
+
+  .skel-shimmer { border-radius: 4px; background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) 40%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0.06) 100%); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .panel { background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 16px; }
+  .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .panel-tag { padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 600; background: rgba(80,200,120,0.18); color: #6ee7a8; }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  /* Listings table row */
+  .row { display: grid; grid-template-columns: minmax(0,3fr) minmax(0,1fr) minmax(0,1fr); gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .row-item { display: flex; align-items: center; gap: 10px; }
+  .row-thumb { width: 36px; height: 36px; }
+  .row-text { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+  .row-sub { width: 60%; height: 9px; }
+  .row-name { width: 80%; height: 12px; }
+  .row-price { width: 40px; height: 12px; margin-left: auto; }
+  .row-pill { width: 56px; height: 16px; border-radius: 999px; margin-left: auto; }
+
+  /* KPI */
+  .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpi { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .kpi-label { width: 60%; height: 7px; }
+  .kpi-value { width: 50%; height: 20px; }
+  .kpi-sub { width: 70%; height: 7px; }
+
+  /* Community tiles */
+  .comm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  .comm { aspect-ratio: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .comm-circle { width: 32px; height: 32px; border-radius: 50%; }
+  .comm-name { width: 70%; height: 7px; }
+  .comm-sub { width: 50%; height: 6px; }
+</style>
+
+<div class="split">
+
+  <div class="panel">
+    <div class="panel-title"><span>Pulse (current)</span><span class="panel-tag">A</span></div>
+
+    <div style="font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">Listings table</div>
+    <div class="row"><div class="row-item"><div class="skel-pulse row-thumb"></div><div class="row-text"><div class="skel-pulse row-sub"></div><div class="skel-pulse row-name"></div></div></div><div class="skel-pulse row-price"></div><div class="skel-pulse row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-pulse row-thumb"></div><div class="row-text"><div class="skel-pulse row-sub"></div><div class="skel-pulse row-name"></div></div></div><div class="skel-pulse row-price"></div><div class="skel-pulse row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-pulse row-thumb"></div><div class="row-text"><div class="skel-pulse row-sub"></div><div class="skel-pulse row-name"></div></div></div><div class="skel-pulse row-price"></div><div class="skel-pulse row-pill"></div></div>
+
+    <div style="font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 0 6px;">KPI cards</div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="skel-pulse kpi-label"></div><div class="skel-pulse kpi-value"></div><div class="skel-pulse kpi-sub"></div></div>
+      <div class="kpi"><div class="skel-pulse kpi-label"></div><div class="skel-pulse kpi-value"></div><div class="skel-pulse kpi-sub"></div></div>
+    </div>
+
+    <div style="font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 0 6px;">Community tiles</div>
+    <div class="comm-grid">
+      <div class="comm"><div class="skel-pulse comm-circle"></div><div class="skel-pulse comm-name"></div><div class="skel-pulse comm-sub"></div></div>
+      <div class="comm"><div class="skel-pulse comm-circle"></div><div class="skel-pulse comm-name"></div><div class="skel-pulse comm-sub"></div></div>
+      <div class="comm"><div class="skel-pulse comm-circle"></div><div class="skel-pulse comm-name"></div><div class="skel-pulse comm-sub"></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span>Shimmer (new)</span><span class="panel-tag">B</span></div>
+
+    <div style="font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">Listings table</div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer row-thumb"></div><div class="row-text"><div class="skel-shimmer row-sub"></div><div class="skel-shimmer row-name"></div></div></div><div class="skel-shimmer row-price"></div><div class="skel-shimmer row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer row-thumb"></div><div class="row-text"><div class="skel-shimmer row-sub"></div><div class="skel-shimmer row-name"></div></div></div><div class="skel-shimmer row-price"></div><div class="skel-shimmer row-pill"></div></div>
+    <div class="row"><div class="row-item"><div class="skel-shimmer row-thumb"></div><div class="row-text"><div class="skel-shimmer row-sub"></div><div class="skel-shimmer row-name"></div></div></div><div class="skel-shimmer row-price"></div><div class="skel-shimmer row-pill"></div></div>
+
+    <div style="font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 0 6px;">KPI cards</div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="skel-shimmer kpi-label"></div><div class="skel-shimmer kpi-value"></div><div class="skel-shimmer kpi-sub"></div></div>
+      <div class="kpi"><div class="skel-shimmer kpi-label"></div><div class="skel-shimmer kpi-value"></div><div class="skel-shimmer kpi-sub"></div></div>
+    </div>
+
+    <div style="font-size: 10px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 0 6px;">Community tiles</div>
+    <div class="comm-grid">
+      <div class="comm"><div class="skel-shimmer comm-circle"></div><div class="skel-shimmer comm-name"></div><div class="skel-shimmer comm-sub"></div></div>
+      <div class="comm"><div class="skel-shimmer comm-circle"></div><div class="skel-shimmer comm-name"></div><div class="skel-shimmer comm-sub"></div></div>
+      <div class="comm"><div class="skel-shimmer comm-circle"></div><div class="skel-shimmer comm-name"></div><div class="skel-shimmer comm-sub"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<h3 style="margin-top: 22px;">Which animation?</h3>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Pulse — opacity fade</h3>
+      <p>Existing <code>animate-pulse</code> in Tailwind. Already what <code>Skeleton.tsx</code> uses. Calmer, more ambient. Zero new CSS.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Shimmer — gradient sweep</h3>
+      <p>Linear gradient moving left to right. More premium feel — the "skeleton screen" pattern you see on Instagram, LinkedIn, YouTube. Requires extending <code>Skeleton.tsx</code> with new CSS + keyframes (and adding a <code>tailwind.config</code> animation entry, or inline-style fallback since this project uses Tailwind v4).</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Click A or B.</p>

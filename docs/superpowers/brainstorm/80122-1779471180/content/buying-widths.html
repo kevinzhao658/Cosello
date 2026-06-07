@@ -1,0 +1,115 @@
+<h2>Column widths — how should the 4 cols share the space?</h2>
+<p class="subtitle">Today: Price and Status both <code>auto</code> (shrink-wrap to content), so they bunch at the right edge. Pick how evenly to spread them.</p>
+
+<style>
+  .row { display: grid; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
+  .row-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; border-bottom-color: rgba(255,255,255,0.18); padding-top: 8px; padding-bottom: 8px; }
+  .thumb { width: 28px; height: 28px; background: rgba(255,255,255,0.12); border-radius: 4px; flex-shrink: 0; }
+  .item { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { display: inline-block; padding: 2px 8px; background: rgba(80, 200, 120, 0.18); color: #6ee7a8; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  .price { font-weight: 700; }
+  .dim { opacity: 0.6; }
+  .grid-template { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; opacity: 0.55; margin-top: 4px; }
+  .label-now { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.5; margin: 6px 0 6px; }
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">Today — Price & Status bunched right</div>
+  <div class="mockup-body">
+    <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto auto;">
+      <span>Item</span><span>Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+    </div>
+    <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) auto auto;">
+      <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+      <span class="dim">• West Village</span>
+      <span class="price">$48</span>
+      <span class="pill">2h 14m</span>
+    </div>
+    <div class="grid-template">grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto]</div>
+  </div>
+</div>
+
+<h3 style="margin-top: 22px;">Pick a width distribution</h3>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Weighted — Item wider, last three equal (Recommended)</h3>
+      <p>Item keeps its 2fr emphasis (it has thumbnail + title); Community / Price / Status each get 1fr and spread across the remaining width. Status floats to the far right with real breathing room. Most natural read order.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span>Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+            <span class="dim">• West Village</span>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item"><div class="thumb"></div><span>Eames lounge chair replica</span></div>
+            <span class="dim">• Chelsea</span>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template" style="padding: 0 12px 8px;">grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Fully equal — all four 1fr</h3>
+      <p>Every column gets exactly 1/4 of the width. Maximally even, but Item (thumb + title) starts to feel cramped and Community + Price columns waste space on short content like "$48".</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <span>Item</span><span>Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+            <span class="dim">• West Village</span>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);">
+            <div class="item"><div class="thumb"></div><span>Eames lounge chair…</span></div>
+            <span class="dim">• Chelsea</span>
+            <span class="price" style="text-align:right">$285</span>
+            <span style="text-align:right"><span class="pill">Confirmed</span></span>
+          </div>
+        </div>
+        <div class="grid-template" style="padding: 0 12px 8px;">grid-cols-4 (all 1fr)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Item + Status anchored, middle two equal</h3>
+      <p>Item gets 2fr (left anchor), Community + Price each get 1fr (middle), Status auto-shrinks but pinned right with a fixed min-width gutter. Closest to the current shape, just spreads the middle.</p>
+      <div class="mockup" style="margin-top: 10px;">
+        <div class="mockup-body">
+          <div class="row row-head" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(96px,auto);">
+            <span>Item</span><span>Community</span><span style="text-align:right">Price</span><span style="text-align:right">Status</span>
+          </div>
+          <div class="row" style="grid-template-columns: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(96px,auto);">
+            <div class="item"><div class="thumb"></div><span>Vintage Levi's 501</span></div>
+            <span class="dim">• West Village</span>
+            <span class="price" style="text-align:right">$48</span>
+            <span style="text-align:right"><span class="pill">2h 14m</span></span>
+          </div>
+        </div>
+        <div class="grid-template" style="padding: 0 12px 8px;">grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(96px,auto)]</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 16px;">Same distribution applies to both Selling and Buying so the tables look identical structurally. Click A / B / C.</p>
