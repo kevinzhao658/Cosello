@@ -3,6 +3,7 @@ import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
+import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
@@ -126,6 +127,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // Single-listing wizard has its own two-phase split (review → pickup) to
   // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
   const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
+  const [isCompressing, setIsCompressing] = useState(false);
   const [state, actions] = useSellWizard();
 
   const {
@@ -373,7 +375,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
       return;
     }
-    const newImages = incoming.map((file) => ({
+    setIsCompressing(true);
+    const compressed = await Promise.all(incoming.map(compressImage));
+    setIsCompressing(false);
+    const newImages = compressed.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -431,7 +436,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       deletePhoto(originalIndex);
     };
 
-  const addPhotoToBulkItem = (index: number, files: FileList) => {
+  const addPhotoToBulkItem = async (index: number, files: FileList) => {
     const remaining = 20 - uploadedImages.length;
     if (remaining <= 0) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
@@ -442,7 +447,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
       return;
     }
-    const newImages = incoming.map((file) => ({
+    setIsCompressing(true);
+    const compressed = await Promise.all(incoming.map(compressImage));
+    setIsCompressing(false);
+    const newImages = compressed.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -651,11 +659,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (incoming.length > remaining) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
     }
-    const newImages = trimmed.map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-    }));
-    actions.appendImages(newImages);
+    setIsCompressing(true);
+    void Promise.all(trimmed.map(compressImage)).then((compressed) => {
+      setIsCompressing(false);
+      const newImages = compressed.map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+      }));
+      actions.appendImages(newImages);
+    });
   }, [uploadedImages.length, actions]);
 
   useImperativeHandle(ref, () => ({
@@ -763,6 +775,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         onSubmit={handleSellSubmit}
         onSwitchToBuy={onSwitchToBuy}
       />
+
+      {isCompressing && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-muted" aria-live="polite">
+          <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+          <span>Preparing photos…</span>
+        </div>
+      )}
 
       {uploadedImages.length > 0 && (
         <>
