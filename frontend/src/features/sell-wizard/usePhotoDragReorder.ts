@@ -55,10 +55,12 @@ export function usePhotoDragReorder(
       });
 
       // Count how many OTHER tiles have their horizontal centre to the left of
-      // the pointer — that is the insertion slot index.
+      // the pointer — that is the insertion slot index. Skip the dragged tile by
+      // its logical data-drag-index, not the loop counter: the two only coincide
+      // when DOM order is exactly 0,1,2…, which can break during a delete+drag race.
       let slot = 0;
       for (let i = 0; i < tiles.length; i++) {
-        if (i === from) continue; // skip the dragged tile itself
+        if (Number(tiles[i].dataset.dragIndex) === from) continue; // skip the dragged tile itself
         const rect = tiles[i].getBoundingClientRect();
         const centre = rect.left + rect.width / 2;
         if (centre < clientX) slot++;
