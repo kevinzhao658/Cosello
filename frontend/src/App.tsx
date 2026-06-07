@@ -829,17 +829,10 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
               {/* Left — form column */}
               <div className="space-y-6 min-w-0">
-                {/* Photos section eyebrow — only during the upload step (step 1).
-                    Once AI segmentation starts (wizardPhase !== null) the wizard
-                    takes over its own headers, so this would otherwise persist
-                    incorrectly into step 2+. Manual mode keeps wizardPhase null,
-                    so the composer header stays as expected there. */}
+                {/* The "Photos" label now lives inside SellWizard, directly above
+                    the upload box (below the step progress bar), so the bar no
+                    longer separates the label from the box. */}
                 <section>
-                  {newListing.wizardPhase === null && (
-                    <header className="flex items-baseline justify-between mb-3">
-                      <h2 className="text-sm font-semibold text-ink">Photos</h2>
-                    </header>
-                  )}
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
                       AI mode it expands into the full wizard flow. */}

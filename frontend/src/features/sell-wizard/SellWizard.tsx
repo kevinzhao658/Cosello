@@ -777,6 +777,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           </button>
         </div>
       )}
+      {bulkReviewPhase === null && (
+        <header className="flex items-baseline justify-between mb-3 mt-3">
+          <h2 className="text-sm font-semibold text-ink">Photos</h2>
+        </header>
+      )}
       <UploadStep
         uploadedImagesCount={uploadedImages.length}
         isGenerating={isGenerating}
