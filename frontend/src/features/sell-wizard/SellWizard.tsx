@@ -1158,6 +1158,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           imageUrls={segmentation?.image_urls ?? []}
           onAddPhotos={(files) => addImagesFromFiles(files)}
           onDeletePhoto={deletePhoto}
+          onReorderPhotos={actions.reorderSinglePhotos}
         />
       )}
 
@@ -1203,6 +1204,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           addPhotoToBulkItem={addPhotoToBulkItem}
           onDeletePhoto={deletePhoto}
           onAdvance={() => transitionToPhase("pickup")}
+          reorderBulkItemPhotos={actions.reorderBulkItemPhotos}
         />
       )}
 

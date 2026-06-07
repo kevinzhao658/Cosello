@@ -8,6 +8,7 @@ import { CategorySelector, CategoryAttributeFields } from "../../components/Cate
 import { CONDITIONS } from "../../lib/listings";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import type { ProductDetails, UploadedImage } from "./useSellWizard";
+import { usePhotoDragReorder } from "./usePhotoDragReorder";
 
 interface SingleListingFormProps {
   productDetails: ProductDetails;
@@ -22,14 +23,20 @@ interface SingleListingFormProps {
   imageUrls: string[];
   onAddPhotos: (files: FileList) => void;
   onDeletePhoto: (index: number) => void;
+  onReorderPhotos: (from: number, to: number) => void;
 }
 
 export function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   newTag, setNewTag, onContinue, isAuthenticated,
-  uploadedImages, imageUrls, onAddPhotos, onDeletePhoto,
+  uploadedImages, imageUrls, onAddPhotos, onDeletePhoto, onReorderPhotos,
 }: SingleListingFormProps) {
   const singlePhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const { dragIndex, overIndex, getItemProps } = usePhotoDragReorder(
+    uploadedImages.length,
+    onReorderPhotos,
+  );
 
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
@@ -44,10 +51,29 @@ export function SingleListingForm({
       )}
       <div className="flex items-center gap-2 flex-wrap mb-1">
         {uploadedImages.map((img, i) => {
-          const src = imageUrls[i] ?? img.preview ?? null;
+          // Use || instead of ?? so that padded "" entries (from REORDER_SINGLE_PHOTOS)
+          // fall through to the blob preview rather than rendering a broken image.
+          const src = (imageUrls[i] || img.preview) || null;
+          const isCover = i === 0;
+          const isDraggingThis = dragIndex === i;
+          const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
+          const itemProps = getItemProps(i);
           return (
-            <div key={i} className="relative size-16 shrink-0 rounded-md border border-hairline">
+            <div
+              key={i}
+              {...itemProps}
+              className={[
+                "relative size-16 shrink-0 rounded-md border select-none transition-opacity",
+                isDraggingThis ? "border-primary opacity-70" : "border-hairline opacity-100",
+                isDropTarget ? "ring-2 ring-primary ring-offset-1 ring-offset-canvas" : "",
+              ].join(" ")}
+            >
               <SkeletonImage src={src} alt="Photo" className="rounded-md" />
+              {isCover && (
+                <span className="absolute top-1 left-1 z-10 px-1 py-px rounded-sm bg-primary text-on-primary text-[8px] font-bold uppercase leading-none pointer-events-none">
+                  Cover
+                </span>
+              )}
               {uploadedImages.length > 1 && (
                 <button
                   type="button"

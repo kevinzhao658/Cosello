@@ -10,6 +10,7 @@ import { formatTitle } from "../../../lib/format";
 import { CONDITIONS } from "../../../lib/listings";
 import type { CategorySchema } from "../../../lib/types";
 import type { BulkItemDetails, UploadedImage } from "../useSellWizard";
+import { usePhotoDragReorder } from "../usePhotoDragReorder";
 
 export interface AIReviewStepProps {
   bulkItems: BulkItemDetails[];
@@ -32,17 +33,25 @@ export interface AIReviewStepProps {
   addPhotoToBulkItem: (index: number, files: FileList) => void;
   onDeletePhoto: (index: number) => void;
   onAdvance: () => void;
+  reorderBulkItemPhotos: (index: number, from: number, to: number) => void;
 }
 
 export function AIReviewStep({
   bulkItems, currentCardIndex, uploadedImages, imageUrls, categorySchemas, editingTitle, newTag,
   isGenerating, setEditingTitle, setNewTag, setCurrentCardIndex, deleteBulkItem,
-  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onDeletePhoto, onAdvance,
+  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onDeletePhoto,
+  onAdvance, reorderBulkItemPhotos,
 }: AIReviewStepProps) {
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
   const swipeDown = useRef<{ x: number; y: number } | null>(null);
 
   const currentItem = bulkItems[currentCardIndex];
+
+  const { dragIndex, overIndex, getItemProps } = usePhotoDragReorder(
+    currentItem?.imageIndices.length ?? 0,
+    (from, to) => reorderBulkItemPhotos(currentCardIndex, from, to),
+  );
+
   if (!currentItem) return null;
 
   return (
@@ -70,13 +79,30 @@ export function AIReviewStep({
         }}
       >
         <div className="flex items-center gap-2 mb-1">
-          {currentItem.imageIndices.map((imgIdx) => {
+          {currentItem.imageIndices.map((imgIdx, i) => {
             // Prefer persistent server URL over local blob URL (iOS Safari
             // can drop blob URLs after backgrounding).
             const src = imageUrls?.[imgIdx] ?? uploadedImages[imgIdx]?.preview ?? null;
+            const isCover = i === 0;
+            const isDraggingThis = dragIndex === i;
+            const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
+            const itemProps = getItemProps(i);
             return (
-              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline">
+              <div
+                key={imgIdx}
+                {...itemProps}
+                className={[
+                  "relative size-16 rounded-md border select-none transition-opacity",
+                  isDraggingThis ? "border-primary opacity-70" : "border-hairline opacity-100",
+                  isDropTarget ? "ring-2 ring-primary ring-offset-1 ring-offset-canvas" : "",
+                ].join(" ")}
+              >
                 <SkeletonImage src={src} alt="Item" className="rounded-md" />
+                {isCover && (
+                  <span className="absolute top-1 left-1 z-10 px-1 py-px rounded-sm bg-primary text-on-primary text-[8px] font-bold uppercase leading-none pointer-events-none">
+                    Cover
+                  </span>
+                )}
                 {currentItem.imageIndices.length > 1 && (
                   <button
                     type="button"
