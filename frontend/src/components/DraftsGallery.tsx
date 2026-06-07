@@ -168,8 +168,8 @@ export function DraftsGallery({
               <SkeletonImage src={previewUrls.get(draft.id) ?? null} alt="" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-ink truncate">{draftTitle(draft)}</div>
-              <div className="text-xs text-muted truncate">
+              <div className="text-lg font-bold text-ink truncate">{draftTitle(draft)}</div>
+              <div className="text-sm text-muted truncate">
                 {draft.mode === "single" ? "Single" : "Bulk"} · {relativeTime(draft.updatedAt)}
               </div>
             </div>
