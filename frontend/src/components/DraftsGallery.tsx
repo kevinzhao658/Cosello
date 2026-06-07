@@ -44,6 +44,8 @@ function itemCount(draft: Draft): number {
 }
 
 function draftTitle(draft: Draft): string {
+  const custom = draft.name?.trim();
+  if (custom) return custom;
   const n = itemCount(draft);
   return `${n} item${n === 1 ? "" : "s"}`;
 }
