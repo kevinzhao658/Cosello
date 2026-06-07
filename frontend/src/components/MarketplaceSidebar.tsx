@@ -82,7 +82,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
       <div className="px-6 pt-7 pb-8 flex flex-col gap-5">
         {/* SEARCH */}
         <div className="flex flex-col gap-2">
-          <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Search</label>
+          <label className="text-[11px] font-semibold text-muted">Search</label>
           <div className="flex items-center gap-2 bg-surface-card border border-hairline rounded-md px-3 h-9">
             <Search className="size-4 text-muted shrink-0" />
             <input
@@ -98,7 +98,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
         {/* CATEGORIES */}
         {Object.keys(categorySchemas).length > 0 && (
           <div className="flex flex-col gap-2">
-            <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Categories</label>
+            <label className="text-[11px] font-semibold text-muted">Categories</label>
             <div className="flex flex-wrap gap-1.5">
               {isAuthenticated && (
                 <button
@@ -140,7 +140,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
         {isAuthenticated && filterCommunities.length > 0 && (
           <div className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between gap-2">
-              <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Communities</label>
+              <label className="text-[11px] font-semibold text-muted">Communities</label>
               {selectedMarketCommunities.length > 0 && (
                 <span className="text-[11px] text-muted">{selectedMarketCommunities.length} active</span>
               )}
@@ -197,7 +197,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
                       role="menu"
                       className="absolute top-full left-0 mt-2 z-30 min-w-[220px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
                     >
-                      <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
+                      <div className="text-[11px] font-semibold text-muted px-2.5 pt-1.5 pb-1">
                         More communities
                       </div>
                       {extraComms.map((community) => {
@@ -229,7 +229,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
         {/* DISTANCE */}
         <div className="flex flex-col gap-2">
           <div className="flex items-baseline justify-between gap-2">
-            <label className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted">Distance</label>
+            <label className="text-[11px] font-semibold text-muted">Distance</label>
             <span className="text-[11px] text-muted">{distanceLabel}</span>
           </div>
           {/* TODO: backend has no distance filter today and listings carry no

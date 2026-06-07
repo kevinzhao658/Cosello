@@ -201,7 +201,7 @@ export function OrderManagementModal({
           </div>
         </div>
 
-        <p className="text-[10px] text-muted uppercase tracking-wider mb-3">Pending orders</p>
+        <p className="text-[10px] text-muted mb-3">Pending orders</p>
 
         {isLoadingOrders ? (
           <div className="py-8 text-center"><Loader2 className="size-5 animate-spin mx-auto text-primary" /></div>
@@ -266,7 +266,7 @@ export function OrderManagementModal({
                     </div>
                   ) : (
                     <>
-                      <p className="text-[10px] text-muted uppercase tracking-wider mb-2">Select pickup window</p>
+                      <p className="text-[10px] text-muted mb-2">Select pickup window</p>
                       <div className="space-y-1.5">
                         {order.selected_pickup_slots.map((slot, i) => {
                           const dateStr = new Date(slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
@@ -315,7 +315,7 @@ export function OrderManagementModal({
                         const slotDateStr = new Date(selectedSlot.slot.date + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
                         return (
                           <div className="mt-3 pt-3 border-t border-hairline">
-                            <p className="text-[10px] text-muted uppercase tracking-wider mb-2">Choose exact pickup time</p>
+                            <p className="text-[10px] text-muted mb-2">Choose exact pickup time</p>
                             <p className="text-xs text-muted mb-2">{slotDateStr} — {TIME_LABELS[selectedSlot.slot.time] || selectedSlot.slot.time}</p>
                             <select
                               value={confirmTime}

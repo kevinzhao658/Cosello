@@ -6,7 +6,7 @@ import { X, Globe, Search, Loader2, Lock, MapPin, Plus } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
 
 const LABEL_CLASS =
-  "block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5";
+  "block text-[11px] font-semibold text-muted mb-1.5";
 
 export interface CommunitySearchResult {
   id: number;

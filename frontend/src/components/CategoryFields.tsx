@@ -27,7 +27,7 @@ interface CategorySelectorProps {
 export function CategorySelector({ category, schemas, onChange }: CategorySelectorProps) {
   return (
     <div>
-      <label className="text-xs text-muted uppercase tracking-wider">Category</label>
+      <label className="text-xs text-muted">Category</label>
       <select
         value={category}
         onChange={(e) => onChange(e.target.value as CategorySlug)}
@@ -86,7 +86,7 @@ export function CategoryAttributeFields({
 
         return (
           <div key={field.key} className={field.key === "dimensions" ? "col-span-2" : ""}>
-            <label className="text-xs text-muted uppercase tracking-wider inline-flex items-center gap-1">
+            <label className="text-xs text-muted inline-flex items-center gap-1">
               {field.label}
               {field.tooltip && (
                 <Tooltip content={field.tooltip}>

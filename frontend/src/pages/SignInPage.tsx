@@ -195,7 +195,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
           {step === "phone" ? (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   Phone Number
                 </label>
                 <div className="flex items-stretch gap-0">
@@ -281,7 +281,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
           ) : (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   Verification Code
                 </label>
                 <Input

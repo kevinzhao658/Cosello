@@ -1,8 +1,7 @@
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is([data-theme="dark"] *));
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Brutalist Trade — R-1 design tokens (per design_handoff_cosello/README.md
-   and reskin.css `:root[data-style="brutalist"]`).
+   Electric Violet — UI Redesign v3 design tokens (DESIGN.md `colors` map).
 
    Page-level screens still use hardcoded gradient / dark-overlay classes
    from the pre-redesign era; those will be repainted in R-2 through R-5.
@@ -11,43 +10,59 @@
 :root {
   /* Surfaces */
   --canvas: #FFFFFF;
-  --surface-soft: #F5F5F5;
-  --surface-card: #FAFAFA;
-  --surface-strong: #EAEAEA;
-  --surface-dark: #000000;
+  --surface-soft: #F6F4FB;
+  --surface-card: #FFFFFF;
+  --surface-strong: #EFEBF8;
+  --surface-overlay: #FFFFFF;
 
-  /* Cosello Green */
-  --primary: #00824C;
-  --primary-hover: #006B3F;
-  --primary-active: #005731;
-  --primary-soft: #DCEEE4;
-  --primary-tint: #CFE9D8;
+  /* Electric Violet — primary brand voltage */
+  --primary: #7C3AED;
+  --primary-hover: #6D28D9;
+  --primary-active: #5B21B6;
+  --primary-disabled: #D9CCF5;
+  --primary-soft: #EDE7FB;
+  --primary-tint: #E3D9F9;
+  --primary-text: #6D28D9;
 
-  /* Accent (hard black — vintage / collectible tags only) */
+  /* Accent (monochrome ink — vintage / collectible tags, stars, secondary CTA) */
   --accent: #000000;
   --accent-soft: #E8E8E8;
+  --accent-text: #000000;
+  --accent-ink: #FFFFFF;
 
   /* Text */
-  --ink: #000000;
-  --body: #333333;
-  --muted: #555555;
-  --muted-soft: #888888;
+  --ink: #14101F;
+  --body: #3F3A4D;
+  --muted: #6B6577;
+  --muted-soft: #9A93A6;
 
   /* Borders */
-  --hairline: #E5E5E5;
-  --hairline-soft: #EFEFEF;
-  --border-strong: #CCCCCC;
+  --hairline: #E7E3F0;
+  --hairline-soft: #F0EDF7;
+  --border-strong: #C9C2DB;
 
   /* Foregrounds for inverted surfaces */
   --on-primary: #FFFFFF;
-  --on-dark: #FFFFFF;
+  --on-accent: #FFFFFF;
+  --on-dark: #F4F0FF;
+  --on-dark-soft: #A99FC4;
 
-  /* Status */
-  --warning: #D89A3C;
-  --warning-soft: #F5E5C5;
-  --error: #B84A3B;
+  /* Semantic status */
+  --success: #2E8B57;
+  --success-soft: #DDEFE4;
+  --warning: #B26B00;
+  --warning-soft: #FBEBCF;
+  --error: #C2344E;
+  --error-soft: #FAE0E4;
+  --info: #2D62C7;
+  --info-soft: #DEE7FA;
 
-  /* Radii */
+  /* Misc */
+  --legal-link: #6D28D9;
+  --star-rating: #000000;
+  --scrim: #1A1226;
+
+  /* Radii — unchanged */
   --r-xs: 2px;
   --r-sm: 4px;
   --r-md: 4px;
@@ -55,10 +70,10 @@
   --r-xl: 24px;
   --r-full: 9999px;
 
-  /* Elevation */
-  --shadow-card: 0 1px 2px rgba(31, 42, 34, 0.04), 0 2px 8px rgba(31, 42, 34, 0.04);
-  --shadow-hover: 0 2px 4px rgba(31, 42, 34, 0.04), 0 8px 20px rgba(31, 42, 34, 0.08);
-  --shadow-overlay: 0 12px 32px rgba(31, 42, 34, 0.12), 0 2px 6px rgba(31, 42, 34, 0.06);
+  /* Elevation — violet-tint shadows per DESIGN.md `elevation` map */
+  --shadow-card: 0 1px 2px rgba(20, 16, 31, 0.04), 0 2px 8px rgba(20, 16, 31, 0.06);
+  --shadow-hover: 0 8px 24px rgba(124, 58, 237, 0.16), 0 2px 8px rgba(20, 16, 31, 0.08);
+  --shadow-overlay: 0 16px 40px rgba(20, 16, 31, 0.16), 0 2px 8px rgba(20, 16, 31, 0.08);
 
   /* Typography size knob (driven by Settings → text size). Kept from the
      original token set because SettingsContext writes to it at runtime. */
@@ -69,7 +84,7 @@
   /* ── Legacy shadcn alias layer ─────────────────────────────────────────
      Existing components and pages reference the old token names (e.g.
      `bg-background`, `text-foreground`, `bg-primary`, `border-input`).
-     Map them onto the new Brutalist tokens so untouched code keeps
+     Map them onto the new Electric Violet tokens so untouched code keeps
      compiling and reads against the new palette. R-2 → R-5 will remove
      these call sites and we can drop this block then. */
   --background: var(--canvas);
@@ -93,26 +108,95 @@
   --radius: var(--r-md);
 }
 
+/* ── Dark mode overrides (DESIGN.md `colorsDark` + `elevationDark`) ────────
+   Applied when SettingsContext sets data-theme="dark" on <html>.
+   The legacy alias layer and @theme inline both resolve to these vars,
+   so the entire UI re-themes from this one block. */
+[data-theme="dark"] {
+  /* Surfaces */
+  --canvas: #0E0B1A;
+  --surface-card: #181432;
+  --surface-soft: #141026;
+  --surface-strong: #211B40;
+  --surface-overlay: #221A44;
+
+  /* Electric Violet — primary stays constant; hover/active flip for dark */
+  --primary: #7C3AED;
+  --primary-hover: #8B52F0;
+  --primary-active: #6A28D9;
+  --primary-disabled: #3B3358;
+  --primary-soft: #261B47;
+  --primary-tint: #322357;
+  --primary-text: #F4F0FF;
+
+  /* Accent flips to near-white on dark */
+  --accent: #F4F0FF;
+  --accent-soft: #2A2540;
+  --accent-text: #F4F0FF;
+  --accent-ink: #14101F;
+
+  /* Text */
+  --ink: #F4F0FF;
+  --body: #F4F0FF;
+  --muted: #A99FC4;
+  --muted-soft: #7E769B;
+
+  /* Borders */
+  --hairline: #261F45;
+  --hairline-soft: #1D1838;
+  --border-strong: #3A3160;
+
+  /* Foregrounds */
+  --on-primary: #FFFFFF;
+  --on-accent: #14101F;
+  --on-dark: #F4F0FF;
+  --on-dark-soft: #A99FC4;
+
+  /* Semantic status — brightened for dark canvas */
+  --success: #5FD08A;
+  --success-soft: #16301F;
+  --warning: #FFB200;
+  --warning-soft: #2E2410;
+  --error: #FF5470;
+  --error-soft: #3A1620;
+  --info: #5B8DEF;
+  --info-soft: #16223A;
+
+  /* Misc */
+  --legal-link: #F4F0FF;
+  --star-rating: #F4F0FF;
+  --scrim: #06040E;
+
+  /* Elevation — surface-tint + violet glow per DESIGN.md `elevationDark` map */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-hover: 0 8px 28px rgba(124, 58, 237, 0.22), 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-overlay: 0 20px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
 /* Expose tokens to Tailwind v4 utilities. `@theme inline` resolves the
    CSS variables eagerly so the generated utility values are static — that
    means runtime changes to `:root` won't reflow Tailwind classes, but it
    keeps the bundle small and predictable. */
 @theme inline {
-  /* New Brutalist Trade tokens */
+  /* New Electric Violet tokens */
   --color-canvas: var(--canvas);
   --color-surface-soft: var(--surface-soft);
   --color-surface-card: var(--surface-card);
   --color-surface-strong: var(--surface-strong);
-  --color-surface-dark: var(--surface-dark);
+  --color-surface-overlay: var(--surface-overlay);
 
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-active: var(--primary-active);
+  --color-primary-disabled: var(--primary-disabled);
   --color-primary-soft: var(--primary-soft);
   --color-primary-tint: var(--primary-tint);
+  --color-primary-text: var(--primary-text);
 
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-accent-ink: var(--accent-ink);
 
   --color-ink: var(--ink);
   --color-body: var(--body);
@@ -124,11 +208,22 @@
   --color-border-strong: var(--border-strong);
 
   --color-on-primary: var(--on-primary);
+  --color-on-accent: var(--on-accent);
   --color-on-dark: var(--on-dark);
+  --color-on-dark-soft: var(--on-dark-soft);
 
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --color-legal-link: var(--legal-link);
+  --color-star-rating: var(--star-rating);
+  --color-scrim: var(--scrim);
 
   /* Radii */
   --radius-xs: var(--r-xs);
@@ -194,7 +289,7 @@
   --color-ring: var(--ring);
 }
 
-/* Marketplace distance slider — jade-fill track + canvas thumb with primary
+/* Marketplace distance slider — violet-fill track + canvas thumb with primary
    ring. The fill percentage is driven by the inline `--mkt-range-fill` style
    set by the sidebar. */
 .mkt-range {
@@ -239,7 +334,7 @@
   border: 2px solid var(--primary);
   margin-top: -6px;
   cursor: grab;
-  box-shadow: 0 1px 3px rgba(31, 42, 34, 0.15);
+  box-shadow: 0 1px 3px rgba(20, 16, 31, 0.15);
 }
 .mkt-range::-webkit-slider-thumb:active {
   cursor: grabbing;
@@ -251,7 +346,7 @@
   background: var(--canvas);
   border: 2px solid var(--primary);
   cursor: grab;
-  box-shadow: 0 1px 3px rgba(31, 42, 34, 0.15);
+  box-shadow: 0 1px 3px rgba(20, 16, 31, 0.15);
 }
 
 /* Marketplace card stagger reveal — applied to each grid card with a small

@@ -30,7 +30,7 @@ export function CommunityPicker({
 
   return (
     <div>
-      <label className="text-xs text-muted uppercase tracking-wider">Communities</label>
+      <label className="text-xs text-muted">Communities</label>
       {hasAny ? (
         <>
           <p className="text-[10px] text-muted-soft mt-1.5 mb-2 leading-relaxed">
@@ -60,7 +60,7 @@ export function CommunityPicker({
                   {c.is_public === false && <Lock className="size-3 shrink-0" aria-hidden />}
                   <span>{c.name}</span>
                   {isMyNbhd && (
-                    <span className="text-[9px] uppercase tracking-wider opacity-70 font-bold">
+                    <span className="text-[9px] opacity-70 font-bold">
                       my nbhd
                     </span>
                   )}

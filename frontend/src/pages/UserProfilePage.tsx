@@ -53,7 +53,7 @@ interface UserProfileOverlayProps {
 }
 
 const SECTION_CARD = "bg-canvas border border-hairline rounded-md shadow-card";
-const SECTION_LABEL = "text-[10px] text-muted-soft uppercase tracking-wider mb-3";
+const SECTION_LABEL = "text-[10px] text-muted-soft mb-3";
 const AVATAR_SURFACE = "bg-surface-soft border border-hairline";
 
 export default function UserProfileOverlay({ userId, onClose, onViewUser, openListingDetail }: UserProfileOverlayProps) {

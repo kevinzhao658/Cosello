@@ -80,7 +80,7 @@ export function TypedInstruction({ bulkReviewPhase, exiting, stepLabel, onBack }
             <ChevronRight className="size-3.5 rotate-180" />
           </button>
         )}
-        <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted">
+        <p className="text-[12px] font-semibold text-muted">
           {eyebrow}
         </p>
       </div>

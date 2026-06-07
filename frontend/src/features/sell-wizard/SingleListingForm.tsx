@@ -35,7 +35,7 @@ export function SingleListingForm({
       )}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Brand</label>
+          <label className="text-xs text-muted">Brand</label>
           <Input
             value={productDetails.brand}
             onChange={(e) => setProductDetails({ ...productDetails, brand: e.target.value })}
@@ -43,7 +43,7 @@ export function SingleListingForm({
           />
         </div>
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Name</label>
+          <label className="text-xs text-muted">Name</label>
           <Input
             value={productDetails.name}
             onChange={(e) => setProductDetails({ ...productDetails, name: e.target.value })}
@@ -52,7 +52,7 @@ export function SingleListingForm({
         </div>
       </div>
       <div>
-        <label className="text-xs text-muted uppercase tracking-wider">Description</label>
+        <label className="text-xs text-muted">Description</label>
         <textarea
           value={productDetails.description}
           onChange={(e) => setProductDetails({ ...productDetails, description: e.target.value })}
@@ -62,7 +62,7 @@ export function SingleListingForm({
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Price ($)</label>
+          <label className="text-xs text-muted">Price ($)</label>
           <PriceInput
             value={productDetails.price}
             onChange={(next) => setProductDetails({ ...productDetails, price: next })}
@@ -70,7 +70,7 @@ export function SingleListingForm({
           />
         </div>
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Condition</label>
+          <label className="text-xs text-muted">Condition</label>
           <select
             value={productDetails.condition}
             onChange={(e) => setProductDetails({ ...productDetails, condition: e.target.value })}
@@ -102,7 +102,7 @@ export function SingleListingForm({
         </>
       )}
       <div>
-        <label className="text-xs text-muted uppercase tracking-wider">Tags</label>
+        <label className="text-xs text-muted">Tags</label>
         <div className="flex flex-wrap gap-2 mt-1">
           {productDetails.tags.map((tag, index) => (
             <span

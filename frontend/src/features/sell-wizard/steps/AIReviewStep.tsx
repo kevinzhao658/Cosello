@@ -166,7 +166,7 @@ export function AIReviewStep({
           </div>
         )}
         <div>
-          <label htmlFor={`bulk-title-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Title</label>
+          <label htmlFor={`bulk-title-${currentCardIndex}`} className="text-xs text-muted">Title</label>
           <Input
             id={`bulk-title-${currentCardIndex}`}
             value={editingTitle ?? formatTitle(currentItem.brand, currentItem.name)}
@@ -190,7 +190,7 @@ export function AIReviewStep({
           />
         </div>
         <div>
-          <label htmlFor={`bulk-description-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Description</label>
+          <label htmlFor={`bulk-description-${currentCardIndex}`} className="text-xs text-muted">Description</label>
           <textarea
             id={`bulk-description-${currentCardIndex}`}
             value={currentItem.description}
@@ -201,7 +201,7 @@ export function AIReviewStep({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor={`bulk-price-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Price ($)</label>
+            <label htmlFor={`bulk-price-${currentCardIndex}`} className="text-xs text-muted">Price ($)</label>
             <PriceInput
               id={`bulk-price-${currentCardIndex}`}
               value={currentItem.price}
@@ -210,7 +210,7 @@ export function AIReviewStep({
             />
           </div>
           <div>
-            <label htmlFor={`bulk-condition-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Condition</label>
+            <label htmlFor={`bulk-condition-${currentCardIndex}`} className="text-xs text-muted">Condition</label>
             <select
               id={`bulk-condition-${currentCardIndex}`}
               value={currentItem.condition}
@@ -247,7 +247,7 @@ export function AIReviewStep({
           </>
         )}
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Tags</label>
+          <label className="text-xs text-muted">Tags</label>
           <div className="flex flex-wrap gap-2 mt-1">
             {currentItem.tags.map((tag, index) => (
               <span
