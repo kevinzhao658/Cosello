@@ -311,10 +311,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
   const segmentPhotos = useCallback(async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
     if (files.length > 20) throw new Error("Maximum 20 photos per upload");
-    if (!token) throw new Error("Sign in to upload");
-    const urls = await uploadToStorage(files, token);
     const formData = new FormData();
-    formData.append("image_urls", JSON.stringify(urls));
+    if (token) {
+      // Authenticated path: pre-upload to Supabase Storage, then send URLs.
+      const urls = await uploadToStorage(files, token);
+      formData.append("image_urls", JSON.stringify(urls));
+    } else {
+      // Guest path: skip storage upload, send raw files directly as multipart.
+      // Backend saves them via _save_uploaded_images and returns image_urls.
+      for (const f of files) {
+        formData.append("images", f);
+      }
+    }
     const res = await apiFetch("/api/segment-photos", {
       method: "POST",
       body: formData,
@@ -336,7 +344,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     rationale: string;
     rationale_other: string;
   }): Promise<BulkItemDetails[]> => {
-    if (!token) throw new Error("Sign in to upload");
     const res = await apiFetch("/api/generate-listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -456,10 +463,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (uploadedImages.length === 0) return;
     if (uploadedImages.length > 20) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
-      return;
-    }
-    if (!token) {
-      actions.setSegmentationError("Sign in to upload");
       return;
     }
     actions.segmentationStart();
