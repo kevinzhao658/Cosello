@@ -1125,6 +1125,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             setSinglePostPhase("pickup");
           }}
           isAuthenticated={isAuthenticated}
+          uploadedImages={uploadedImages}
+          imageUrls={segmentation?.image_urls ?? []}
+          onAddPhotos={(files) => addImagesFromFiles(files)}
         />
       )}
 

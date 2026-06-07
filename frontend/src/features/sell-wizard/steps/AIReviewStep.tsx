@@ -3,7 +3,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { PriceInput } from "../../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../../components/CategoryFields";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { SkeletonImage } from "../../../components/ui/SkeletonImage";
 import { formatTitle } from "../../../lib/format";
@@ -124,6 +124,14 @@ export function AIReviewStep({
               </div>
             );
           })}
+          <button
+            type="button"
+            onClick={() => bulkPhotoInputRef.current?.click()}
+            aria-label="Add more photos"
+            className="size-16 shrink-0 rounded-md border-2 border-dashed border-border-strong inline-flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          >
+            <Plus className="size-5" />
+          </button>
           <input
             ref={bulkPhotoInputRef}
             type="file"
