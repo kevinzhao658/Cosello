@@ -4023,11 +4023,10 @@ function SettingsTabContent({
             subtitle="Tighten spacing across cards, sections, and layouts."
             control={<ToggleSwitch checked={settings.compactMode} onChange={(v) => updateSetting("compactMode", v)} label="Compact mode" />}
           />
-          {/* Dark mode + Color-blind mode wire the integration points
-              (data-theme / data-cb on <html>) but the Brutalist Trade
-              theme is light-only with a single jade accent today —
-              they're visually inert until the parallel token blocks
-              ship (see backlog.md). */}
+          {/* Dark mode sets data-theme="dark" on <html>; SettingsContext
+              persists the choice to localStorage and restores on reload.
+              The Electric Violet token set (UI redesign v3) fully supports
+              dark mode via the [data-theme="dark"] block in theme.css. */}
           <SettingRow
             title="Dark mode"
             subtitle="Use a dark surface palette across Cosello."
