@@ -45,7 +45,7 @@ export function SingleListingForm({
         {uploadedImages.map((img, i) => {
           const src = imageUrls[i] ?? img.preview ?? null;
           return (
-            <div key={i} className="size-16 rounded-md border border-hairline overflow-hidden">
+            <div key={i} className="relative size-16 shrink-0 rounded-md border border-hairline overflow-hidden">
               <SkeletonImage src={src} alt="Photo" />
             </div>
           );
