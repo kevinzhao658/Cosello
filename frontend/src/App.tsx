@@ -360,12 +360,19 @@ export default function App() {
     }
   }, [isAuthenticated, page, pendingSignupToken]);
 
-  // If user needs registration and we have a pending token, redirect to signup
+  // If a live session still needs registration, backfill pendingSignupToken
+  // from the session token (lost on reload since it only lives in App state)
+  // and force the signup page. This prevents a half-registered user from
+  // browsing the app as if they were fully signed in.
   useEffect(() => {
-    if (needsRegistration && pendingSignupToken && page !== "signup") {
+    if (!needsRegistration) return;
+    if (!pendingSignupToken && token) {
+      setPendingSignupToken(token);
+    }
+    if (page !== "signup") {
       setPage("signup");
     }
-  }, [needsRegistration, pendingSignupToken]);
+  }, [needsRegistration, pendingSignupToken, token, page]);
 
   const userInitials = (() => {
     const name = user?.display_name?.trim();
@@ -743,9 +750,13 @@ export default function App() {
               setPage("account");
             }}
             onCancel={() => {
-              setPendingSignupToken(null);
-              setPendingSignupUser(null);
-              setPage("home");
+              // Sign out the Supabase session so the half-registered user
+              // does not remain "signed in" with an incomplete profile.
+              void logout().then(() => {
+                setPendingSignupToken(null);
+                setPendingSignupUser(null);
+                setPage("home");
+              });
             }}
           />
         </Suspense>
