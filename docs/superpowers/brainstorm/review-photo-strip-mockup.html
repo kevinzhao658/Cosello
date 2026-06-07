@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cosello · Step-4 Review — remove mini strip, keep large thumbnails</title>
+<style>
+  :root{
+    --primary:#7C3AED; --primary-active:#6D28D9; --primary-soft:#F3EEFF;
+    --ink:#1A1523; --muted:#6B6577; --muted-soft:#9A93A6;
+    --canvas:#FFFFFF; --surface-soft:#F7F5FB; --surface-card:#FFFFFF;
+    --hairline:#E8E4F0; --border-strong:#D9D3E6; --error:#DC2626;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; min-height:100vh; background:
+      radial-gradient(1200px 600px at 50% -10%, #efe9fb 0%, #f6f4fb 40%, #f2f0f7 100%);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); display:flex; flex-direction:column; align-items:center;
+    padding:32px 16px 64px; gap:18px;
+  }
+  .head{text-align:center; max-width:460px;}
+  .head h1{font-size:18px; letter-spacing:-0.02em; margin:0 0 4px;}
+  .head p{font-size:12.5px; color:var(--muted); margin:0; line-height:1.55;}
+
+  .seg{display:inline-flex; background:var(--surface-soft); border:1px solid var(--hairline);
+    border-radius:999px; padding:3px; gap:2px;}
+  .seg button{border:0; background:transparent; font:inherit; font-size:12.5px; font-weight:700;
+    color:var(--muted); padding:7px 16px; border-radius:999px; cursor:pointer; transition:.18s;}
+  .seg button.on{background:var(--ink); color:#fff;}
+
+  .phone{width:420px; max-width:100%; background:var(--canvas); border:1px solid var(--hairline);
+    border-radius:22px; box-shadow:0 24px 60px -28px rgba(48,30,90,.45),0 2px 8px rgba(48,30,90,.06);
+    overflow:hidden;}
+  .phone-bar{height:34px; background:linear-gradient(var(--surface-soft),var(--canvas));
+    border-bottom:1px solid var(--hairline); display:flex; align-items:center; justify-content:center;}
+  .phone-bar span{font-size:11px; font-weight:700; color:var(--muted-soft); letter-spacing:.12em; text-transform:uppercase;}
+  .pad{padding:18px 18px 22px;}
+
+  .steps{display:flex; margin:0 0 16px; align-items:center;}
+  .steps .b{flex:1; display:flex; flex-direction:column; align-items:center; gap:5px; position:relative;}
+  .steps .b::before{content:""; position:absolute; top:23px; left:-50%; width:100%; height:2px; background:var(--hairline); z-index:0;}
+  .steps .b:first-child::before{display:none;}
+  .steps .b.done::before,.steps .b.cur::before{background:var(--primary);}
+  .steps .lab{font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-soft);}
+  .steps .b.cur .lab{color:var(--primary);} .steps .b.done .lab{color:var(--muted);}
+  .steps .dot{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:800;z-index:1;background:var(--canvas);border:1px solid var(--hairline);color:var(--muted-soft);}
+  .steps .b.done .dot{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .steps .b.cur .dot{background:var(--canvas);color:var(--primary);border:2px solid var(--primary);box-shadow:0 0 0 3px rgba(124,58,237,.16);}
+
+  .counter{font-size:13px;color:var(--muted);margin:2px 0 12px;}
+  .counter b{color:var(--ink);}
+
+  /* ===== MINI item-nav strip (BEFORE only — this is what gets removed) ===== */
+  .navrow{display:flex;align-items:center;gap:8px;margin:0 0 16px;position:relative;}
+  .navarrow{width:28px;height:28px;border-radius:50%;border:1px solid var(--hairline);background:var(--canvas);
+    color:var(--ink);font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto;}
+  .navarrow:disabled{opacity:.3;}
+  .navthumbs{display:flex;gap:8px;overflow-x:auto;padding:2px;flex:1;}
+  .navthumbs .nt{width:28px;height:28px;border-radius:7px;flex:0 0 auto;background-size:cover;}
+  .navthumbs .nt.on{outline:2px solid var(--primary);outline-offset:1px;}
+  .removed-tag{position:absolute;right:0;top:-15px;font-size:9px;font-weight:800;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--error);background:#fdecec;border:1px solid #f6c9c9;border-radius:999px;padding:2px 8px;}
+
+  .card{background:var(--surface-card);border:1px solid var(--hairline);border-radius:14px;
+    box-shadow:0 1px 2px rgba(48,30,90,.04);padding:16px;}
+
+  /* ===== LARGE pre-existing photo thumbnails (RETAINED, unchanged) ===== */
+  .photorow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .thumb{position:relative;width:64px;height:64px;border-radius:10px;flex:0 0 auto;background-size:cover;background-position:center;
+    border:1px solid var(--hairline);display:flex;align-items:flex-end;justify-content:flex-start;}
+  .thumb .lab{position:relative;font-size:8.5px;font-weight:700;color:#fff;padding:3px 5px;text-shadow:0 1px 2px rgba(0,0,0,.55);}
+  .del{position:absolute;top:-7px;right:-7px;z-index:4;width:20px;height:20px;border-radius:50%;
+    background:rgba(26,21,35,.5);color:#fff;border:0;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;backdrop-filter:blur(2px);font-size:12px;line-height:1;}
+  .del:hover{background:rgba(26,21,35,.72);}
+  .add{flex:0 0 auto;width:64px;height:64px;border-radius:10px;border:2px dashed var(--border-strong);background:transparent;
+    color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:24px;font-weight:300;transition:.15s;}
+  .add:hover{color:var(--primary);border-color:var(--primary);}
+
+  .field{margin-top:14px;}
+  .field label{font-size:11px;color:var(--muted);display:block;margin-bottom:5px;}
+  .field input,.field textarea,.field select{width:100%;font:inherit;font-size:13px;color:var(--ink);
+    background:var(--canvas);border:1px solid var(--border-strong);border-radius:9px;padding:8px 10px;}
+  .field textarea{resize:none;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+  .btns{display:flex;gap:10px;margin-top:16px;}
+  .btn{flex:1;font:inherit;font-size:13px;font-weight:700;border-radius:10px;padding:10px;cursor:pointer;border:1px solid var(--border-strong);background:var(--canvas);color:var(--ink);}
+  .btn[disabled]{opacity:.3;}
+  .btn.danger{flex:0 0 auto;width:44px;border-color:rgba(220,38,38,.4);color:var(--error);}
+  .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .btn.primary:hover{background:var(--primary-active);}
+
+  .note{max-width:460px;font-size:11.5px;color:var(--muted-soft);text-align:center;line-height:1.6;}
+  .note b{color:var(--muted);} .kept{color:var(--primary);font-weight:700;} .gone{color:var(--error);font-weight:700;}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Step-4 Review — simplified</h1>
+    <p>Remove the small item-nav strip; <b>keep the existing large photo thumbnails</b> —
+       the same ones shown in the earlier grouping steps, so the wizard stays consistent.</p>
+  </div>
+
+  <div class="seg">
+    <button id="t-before">Before</button>
+    <button id="t-after" class="on">After</button>
+  </div>
+
+  <div class="phone">
+    <div class="phone-bar"><span>New listing</span></div>
+    <div class="pad">
+      <div class="steps">
+        <div class="b done"><div class="dot">1</div><div class="lab">Photos</div></div>
+        <div class="b done"><div class="dot">2</div><div class="lab">Items</div></div>
+        <div class="b done"><div class="dot">3</div><div class="lab">Reason</div></div>
+        <div class="b cur"><div class="dot">4</div><div class="lab">Review</div></div>
+        <div class="b"><div class="dot">5</div><div class="lab">Pickup</div></div>
+      </div>
+
+      <div class="counter">Item <b>2</b> of <b>5</b></div>
+
+      <!-- BEFORE-only: the mini item-nav strip that gets removed -->
+      <div class="navrow" id="navrow">
+        <span class="removed-tag">removed</span>
+        <button class="navarrow" disabled>‹</button>
+        <div class="navthumbs" id="navthumbs"></div>
+        <button class="navarrow">›</button>
+      </div>
+
+      <div class="card">
+        <!-- RETAINED: large pre-existing photo thumbnails (with add + / delete ×) -->
+        <div class="photorow" id="photorow"></div>
+
+        <div class="field"><label>Title</label><input value="Reformation Linen Midi Dress" /></div>
+        <div class="field"><label>Description</label><textarea rows="2">Worn twice, no flaws. Size M, button-front, side slit.</textarea></div>
+        <div class="grid2">
+          <div class="field"><label>Price ($)</label><input value="68" /></div>
+          <div class="field"><label>Condition</label>
+            <select><option>Like new</option><option>Good</option><option>Fair</option></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="btn">Previous</button>
+        <button class="btn danger" title="Remove this item">✕</button>
+        <button class="btn primary">Next Item</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="note" id="note"></p>
+
+<script>
+(function(){
+  const item=[{label:"Front",hue:265},{label:"Back",hue:212},{label:"Tag",hue:330}];
+  const navItems=[265,212,330,158,30]; // 5 items' covers for the mini strip (before only)
+  const sw=h=>`linear-gradient(135deg, hsl(${h} 66% 72%), hsl(${h+26} 60% 50%))`;
+
+  const navrow=document.getElementById('navrow');
+  const navWrap=document.getElementById('navthumbs');
+  const photorow=document.getElementById('photorow');
+  const note=document.getElementById('note');
+
+  navItems.forEach((h,i)=>{const n=document.createElement('div');n.className='nt'+(i===1?' on':'');n.style.backgroundImage=sw(h);navWrap.appendChild(n);});
+
+  let photos=item.slice();
+  function renderPhotos(){
+    photorow.innerHTML='';
+    photos.forEach((p,i)=>{
+      const t=document.createElement('div');t.className='thumb';t.style.backgroundImage=sw(p.hue);
+      t.innerHTML=(photos.length>1?'<button class="del" aria-label="Delete photo">✕</button>':'')+`<span class="lab">${p.label}</span>`;
+      t.querySelector('.del')?.addEventListener('click',()=>{photos.splice(i,1);renderPhotos();});
+      photorow.appendChild(t);
+    });
+    const add=document.createElement('button');add.className='add';add.textContent='+';add.title='Add more photos';
+    add.addEventListener('click',()=>{photos.push({label:'New',hue:(photos.length*40+120)%360});renderPhotos();});
+    photorow.appendChild(add);
+  }
+  renderPhotos();
+
+  function setMode(m){
+    const before=m==='before';
+    navrow.style.display=before?'flex':'none';
+    document.getElementById('t-before').classList.toggle('on',before);
+    document.getElementById('t-after').classList.toggle('on',!before);
+    note.innerHTML=before
+      ? 'BEFORE — a tiny <b>item-nav strip</b> sits above the card, duplicating navigation already handled by Previous / Next.'
+      : 'AFTER — mini strip <span class="gone">removed</span>; the <span class="kept">large photo thumbnails stay</span> (same look as prior steps). Item nav via Previous / Next + swipe.';
+  }
+  document.getElementById('t-before').addEventListener('click',()=>setMode('before'));
+  document.getElementById('t-after').addEventListener('click',()=>setMode('after'));
+  setMode('after');
+})();
+</script>
+</body>
+</html>
