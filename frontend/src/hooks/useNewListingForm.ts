@@ -32,6 +32,7 @@ export function useNewListingForm({
   const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
   const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
   const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null);
+  const [checklistSignals, setChecklistSignals] = useState({ communitySelected: false, pickupLocationSet: false });
 
   // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
   // flow and a blank-form manual flow. Manual form fields live here so the page
@@ -82,6 +83,7 @@ export function useNewListingForm({
     setImageCount(0);
     setAiProductDetails(null);
     setAiCoverImageUrl(null);
+    setChecklistSignals({ communitySelected: false, pickupLocationSet: false });
   }, []);
 
   // Manual-mode publish. Seeds the wizard's productDetails from the page-level
@@ -223,6 +225,9 @@ export function useNewListingForm({
     setAiCoverImageUrl,
     bulkPreview,
     setBulkPreview,
+    // Checklist signals from wizard (community + pickup)
+    checklistSignals,
+    setChecklistSignals,
     // Preview overlay
     overlayOpen,
     setOverlayOpen,

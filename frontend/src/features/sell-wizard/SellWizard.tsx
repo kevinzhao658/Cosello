@@ -65,6 +65,7 @@ export interface SellWizardProps {
   onImagesChange?: (count: number) => void;
   onProductDetailsChange?: (details: ProductDetails | null) => void;
   onCoverImageChange?: (url: string | null) => void;
+  onChecklistSignalsChange?: (s: { communitySelected: boolean; pickupLocationSet: boolean }) => void;
   // Drafts. Parent sets pendingDraftId when the user taps a draft card; the
   // wizard loads it on mount and clears the parent's state via onDraftLoaded.
   pendingDraftId?: string | null;
@@ -106,6 +107,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onImagesChange,
   onProductDetailsChange,
   onCoverImageChange,
+  onChecklistSignalsChange,
   pendingDraftId = null,
   onDraftLoaded,
   draftName = "",
@@ -294,6 +296,16 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
   }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
+
+  // Emit checklist signals (community + pickup) to the parent so it can render
+  // a single static checklist regardless of step/mode.
+  useEffect(() => {
+    const communitySelected = selectedCommunityIds.length > 0;
+    // Use the single-listing pickup when a single item has been generated;
+    // fall back to the bulk pickup location otherwise.
+    const pickupLocationSet = (productDetails ? postPickupLocation : bulkPickupLocation).trim() !== "";
+    onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
+  }, [selectedCommunityIds, postPickupLocation, bulkPickupLocation, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex

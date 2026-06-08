@@ -39,7 +39,7 @@ import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
 import { useListingDetail } from "./hooks/useListingDetail";
 import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
-import { formatPriceDisplay } from "./lib/price";
+import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
@@ -407,26 +407,81 @@ export default function App() {
   // Rendered both inside the lg:+ sticky aside and inside the below-lg:
   // floating drawer so the two share a single source of truth.
   //
-  // Mode selection:
-  //   newListing.imageCount === 0     → TopSearches (no photos yet)
-  //   newListing.bulkPreview !== null → BulkPreviewAside (AI bulk mode, ≥1 item)
-  //   else                            → single-item preview (manual or AI single)
+  // The checklist is ALWAYS the same 6 rows in the same order whenever
+  // imageCount > 0. Only the check states change as the user progresses.
+  // The preview card changes per mode/step but the checklist is static.
+  //
+  // Mode selection for the preview card:
+  //   newListing.imageCount === 0     → TopSearches (no checklist)
+  //   newListing.bulkPreview !== null → BulkPreviewAside card (AI bulk)
+  //   else                            → single-item preview card (manual or AI single)
   const newListingPreviewContent = (() => {
     if (newListing.imageCount === 0) {
       return <TopSearches />;
     }
 
+    // Build the static 6-row checklist, mode-aware for fields 2–4.
+    const { communitySelected, pickupLocationSet } = newListing.checklistSignals;
+    const checklistRows: ReadonlyArray<readonly [string, boolean]> = (() => {
+      if (newListing.mode === "manual") {
+        // Manual mode: drive rows 2-4 from the page-level form fields.
+        const hasBrandOrName = newListing.brand.trim().length > 0 || newListing.name.trim().length > 0;
+        const hasPrice = /^[0-9]+$/.test(newListing.price) && Number.parseInt(newListing.price, 10) > 0;
+        const hasDescription = newListing.description.trim().length >= 20;
+        return [
+          ["Photo added", newListing.imageCount > 0],
+          ["Brand or name", hasBrandOrName],
+          ["Price set", hasPrice],
+          ["Description (20+ chars)", hasDescription],
+          ["Community", communitySelected],
+          ["Pickup location", pickupLocationSet],
+        ] as const;
+      }
+      if (newListing.bulkPreview !== null) {
+        // AI bulk mode: drive rows 2-4 from the focused bulk preview item.
+        const it = newListing.bulkPreview.item;
+        const hasBrandOrName = Boolean(it.brand.trim() || it.name.trim());
+        const hasPrice = it.price !== null && isPricePositive(it.price);
+        const hasDescription = it.description !== null && it.description.trim().length >= 20;
+        return [
+          ["Photo added", newListing.imageCount > 0],
+          ["Brand or name", hasBrandOrName],
+          ["Price set", hasPrice],
+          ["Description (20+ chars)", hasDescription],
+          ["Community", communitySelected],
+          ["Pickup location", pickupLocationSet],
+        ] as const;
+      }
+      // AI single mode: drive rows 2-4 from aiProductDetails.
+      const hasBrandOrName = Boolean(
+        newListing.aiProductDetails?.brand?.trim() || newListing.aiProductDetails?.name?.trim(),
+      );
+      const hasPrice = isPricePositive(newListing.aiProductDetails?.price ?? "");
+      const hasDescription = (newListing.aiProductDetails?.description?.trim().length ?? 0) >= 20;
+      return [
+        ["Photo added", newListing.imageCount > 0],
+        ["Brand or name", hasBrandOrName],
+        ["Price set", hasPrice],
+        ["Description (20+ chars)", hasDescription],
+        ["Community", communitySelected],
+        ["Pickup location", pickupLocationSet],
+      ] as const;
+    })();
+
     if (newListing.bulkPreview !== null) {
       return (
-        <BulkPreviewAside
-          preview={newListing.bulkPreview}
-          onPrev={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index - 1)}
-          onNext={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index + 1)}
-        />
+        <>
+          <BulkPreviewAside
+            preview={newListing.bulkPreview}
+            onPrev={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index - 1)}
+            onNext={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index + 1)}
+          />
+          <ListingChecklist heading="Listing checklist" rows={checklistRows} />
+        </>
       );
     }
 
-    // Single-item preview (manual or AI single mode) — unchanged.
+    // Single-item preview card (manual or AI single mode).
     return (
       <>
         <p className="text-xs font-semibold text-muted">Listing preview</p>
@@ -489,34 +544,7 @@ export default function App() {
           </div>
         </article>
 
-        <ListingChecklist
-          heading="Listing checklist"
-          rows={(() => {
-            const isManual = newListing.mode === "manual";
-            const hasBrandOrName = isManual
-              ? (newListing.brand.trim().length > 0 || newListing.name.trim().length > 0)
-              : Boolean(newListing.aiProductDetails?.brand?.trim() || newListing.aiProductDetails?.name?.trim());
-            const hasPrice = (() => {
-              if (isManual) {
-                // integer-only by design (whole-dollar prices); see lib/price.ts for the float-based preview helpers
-                return /^[0-9]+$/.test(newListing.price) && Number.parseInt(newListing.price, 10) > 0;
-              }
-              const raw = newListing.aiProductDetails?.price?.replace(/^\$/, "").trim();
-              const num = raw ? Number.parseFloat(raw) : NaN;
-              return Number.isFinite(num) && num > 0;
-            })();
-            const hasDescription = isManual
-              ? newListing.description.trim().length >= 20
-              : (newListing.aiProductDetails?.description?.trim().length ?? 0) >= 20;
-            const rows: ReadonlyArray<readonly [string, boolean]> = [
-              ["At least one photo", newListing.imageCount > 0],
-              ["Brand or name", hasBrandOrName],
-              ["Price set", hasPrice],
-              ["Description 20+ chars", hasDescription],
-            ];
-            return rows;
-          })()}
-        />
+        <ListingChecklist heading="Listing checklist" rows={checklistRows} />
       </>
     );
   })();
@@ -908,6 +936,7 @@ export default function App() {
                     }}
                     onBackToDrafts={() => setDraftRouteState({ kind: "gallery" })}
                     onBulkPreviewChange={newListing.setBulkPreview}
+                    onChecklistSignalsChange={newListing.setChecklistSignals}
                   />
                 </section>
 
