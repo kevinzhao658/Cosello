@@ -72,7 +72,12 @@ export function GroupsStep({
               <div aria-hidden="true" className="self-stretch border-l border-hairline" />
             )}
             <GroupCard
-              group={group}
+              // Prefer the live per-item photo order from bulkItems (the source
+              // of truth for the published cover) so reordering/adding/deleting
+              // photos in the review step is reflected in this item tab. Falls
+              // back to the raw segmentation grouping before bulkItems exist
+              // (pre-generation review/reason phases).
+              group={bulkItems[groupIdx]?.imageIndices ?? group}
               groupIdx={groupIdx}
               isDropTarget={dragOverGroup === groupIdx}
               isActiveCard={currentCardIndex === groupIdx}
