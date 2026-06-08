@@ -84,6 +84,9 @@ export default function App() {
     | { kind: "load"; id: string }
   >({ kind: "gallery" });
   const [draftsRefreshNonce, setDraftsRefreshNonce] = useState(0);
+  // Listing-name edit mode. The name reads as a heading by default (with a
+  // pencil affordance); tapping it switches to an input. Enter/Escape/blur exit.
+  const [isEditingName, setIsEditingName] = useState(false);
 
   // Bumped each time a nav element wants to land on a specific MyAccount tab.
   // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
@@ -802,7 +805,7 @@ export default function App() {
             <DraftsGallery
               userId={user?.id ?? null}
               onSelectDraft={(id) => setDraftRouteState({ kind: "load", id })}
-              onStartNew={() => setDraftRouteState({ kind: "new" })}
+              onStartNew={() => { newListing.setDraftName(""); setDraftRouteState({ kind: "new" }); }}
               refreshNonce={draftsRefreshNonce}
             />
           ) : (
@@ -810,9 +813,40 @@ export default function App() {
             {/* Breadcrumb + title + toolbar */}
             <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
               <div className="min-w-0">
-                <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
-                  New listing
-                </h1>
+                {isEditingName ? (
+                  <input
+                    type="text"
+                    value={newListing.draftName}
+                    onChange={(e) => newListing.setDraftName(e.target.value)}
+                    onBlur={() => setIsEditingName(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Escape") {
+                        e.preventDefault();
+                        setIsEditingName(false);
+                      }
+                    }}
+                    placeholder="New listing"
+                    maxLength={80}
+                    aria-label="Listing name"
+                    autoFocus
+                    className="w-full bg-transparent border-0 border-b-2 border-primary p-0 pb-0.5 text-3xl font-extrabold tracking-display text-ink leading-[1.05] placeholder:text-muted-soft focus:outline-none focus:ring-0"
+                  />
+                ) : (
+                  <div className="flex items-center gap-3 max-w-full">
+                    <h1 className={`min-w-0 truncate text-3xl font-extrabold tracking-display leading-[1.05] ${newListing.draftName ? "text-ink" : "text-muted-soft"}`}>
+                      {newListing.draftName || "New listing"}
+                    </h1>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingName(true)}
+                      aria-label="Rename listing"
+                      className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-border-strong text-muted text-[11.5px] font-bold hover:border-primary hover:text-primary hover:bg-primary-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                      Rename
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -864,6 +898,8 @@ export default function App() {
                       // continues editing the loaded state without further loads.
                       setDraftRouteState({ kind: "new" });
                     }}
+                    draftName={newListing.draftName}
+                    onDraftNameLoaded={newListing.setDraftName}
                     onPublishedDraft={async (draftId) => {
                       if (draftId) {
                         await draftStorage.deleteDraft(draftId);

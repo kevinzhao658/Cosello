@@ -69,6 +69,10 @@ export interface SellWizardProps {
   // wizard loads it on mount and clears the parent's state via onDraftLoaded.
   pendingDraftId?: string | null;
   onDraftLoaded?: () => void;
+  // Editable draft name, owned by the page heading. Threaded into autosave as
+  // Draft.name; onDraftNameLoaded pushes a loaded draft's name back to the page.
+  draftName?: string;
+  onDraftNameLoaded?: (name: string) => void;
   onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
   onBackToDrafts?: () => void;
 }
@@ -104,6 +108,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onCoverImageChange,
   pendingDraftId = null,
   onDraftLoaded,
+  draftName = "",
+  onDraftNameLoaded,
   onPublishedDraft,
   onBackToDrafts,
 }, ref) {
@@ -182,6 +188,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     initializedFromNeighborhoodRef,
     pendingDraftId,
     onDraftLoaded,
+    draftName,
+    onDraftNameLoaded,
   });
 
   const post = usePostListing({
@@ -1150,6 +1158,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           imageUrls={segmentation?.image_urls ?? []}
           onAddPhotos={(files) => addImagesFromFiles(files)}
           onDeletePhoto={deletePhoto}
+          onReorderPhotos={actions.reorderSinglePhotos}
         />
       )}
 
@@ -1195,6 +1204,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           addPhotoToBulkItem={addPhotoToBulkItem}
           onDeletePhoto={deletePhoto}
           onAdvance={() => transitionToPhase("pickup")}
+          reorderBulkItemPhotos={actions.reorderBulkItemPhotos}
         />
       )}
 

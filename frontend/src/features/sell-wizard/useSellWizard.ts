@@ -140,13 +140,28 @@ export type SellWizardAction =
   | { type: "BACK_FROM_REVIEW" }
   | { type: "RESET_FROM_LOGOUT" }
   | { type: "PARTIAL_RESET_FROM_BUY_SWITCH" }
-  | { type: "LOAD_FROM_DRAFT"; state: SellWizardState };
+  | { type: "LOAD_FROM_DRAFT"; state: SellWizardState }
+  | { type: "REORDER_BULK_ITEM_PHOTOS"; index: number; from: number; to: number }
+  | { type: "REORDER_SINGLE_PHOTOS"; from: number; to: number };
 
 function emptyWizardState(): SellWizardState {
   return {
     ...initialSellWizardState,
     modifiedGroupIndices: new Set<number>(),
   };
+}
+
+/**
+ * Immutably moves an element from index `from` to index `to` in `arr`.
+ * Returns the original array reference unchanged when `from === to` or
+ * either index is out of bounds.
+ */
+function arrayMove<T>(arr: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return arr;
+  const next = [...arr];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
 }
 
 export function sellWizardReducer(state: SellWizardState, action: SellWizardAction): SellWizardState {
@@ -593,6 +608,26 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       // Caller is responsible for filtering transient fields out before save
       // (draftStorage.ts) and defaulting them back in on load (SellWizard.tsx).
       return action.state;
+    case "REORDER_BULK_ITEM_PHOTOS": {
+      const item = state.bulkItems[action.index];
+      if (!item) return state;
+      const updated = [...state.bulkItems];
+      updated[action.index] = { ...item, imageIndices: arrayMove(item.imageIndices, action.from, action.to) };
+      return { ...state, bulkItems: updated };
+    }
+    case "REORDER_SINGLE_PHOTOS": {
+      const nextImages = arrayMove(state.uploadedImages, action.from, action.to);
+      if (nextImages === state.uploadedImages) return state;
+      let nextSeg = state.segmentation;
+      if (state.segmentation) {
+        // image_urls is string[] — pad missing entries with "" so the array
+        // stays aligned with uploadedImages after reorder.
+        const urls = state.segmentation.image_urls ?? [];
+        const padded: string[] = state.uploadedImages.map((_, i) => urls[i] ?? "");
+        nextSeg = { ...state.segmentation, image_urls: arrayMove(padded, action.from, action.to) };
+      }
+      return { ...state, uploadedImages: nextImages, segmentation: nextSeg };
+    }
     default:
       return state;
   }
@@ -647,6 +682,8 @@ export interface SellWizardActions {
   backFromReview: () => void;
   partialResetFromBuySwitch: () => void;
   loadFromDraft: (state: SellWizardState) => void;
+  reorderBulkItemPhotos: (index: number, from: number, to: number) => void;
+  reorderSinglePhotos: (from: number, to: number) => void;
 }
 
 // ─── BulkPreview type + selector ───────────────────────────────────────────
@@ -847,6 +884,9 @@ export function useSellWizard(): [SellWizardState, SellWizardActions] {
     backFromReview: () => dispatch({ type: "BACK_FROM_REVIEW" }),
     partialResetFromBuySwitch: () => dispatch({ type: "PARTIAL_RESET_FROM_BUY_SWITCH" }),
     loadFromDraft: (state) => dispatch({ type: "LOAD_FROM_DRAFT", state }),
+    reorderBulkItemPhotos: (index, from, to) =>
+      dispatch({ type: "REORDER_BULK_ITEM_PHOTOS", index, from, to }),
+    reorderSinglePhotos: (from, to) => dispatch({ type: "REORDER_SINGLE_PHOTOS", from, to }),
   }), []);
 
   return [state, actions];
