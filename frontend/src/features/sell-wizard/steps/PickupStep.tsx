@@ -35,7 +35,7 @@ export function PickupStep({
   return (
     <div className="space-y-5 max-w-md mx-auto">
       <div>
-        <label htmlFor="bulk-pickup-location" className="text-xs text-muted uppercase tracking-wider">
+        <label htmlFor="bulk-pickup-location" className="text-xs text-muted">
           Pickup location
         </label>
         <Input

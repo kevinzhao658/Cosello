@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -16,13 +17,13 @@ import anthropic
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, Community, CommunityMember, WishlistItem, WishlistFolder, PurchaseOrder, Notification, Listing
-from auth import get_current_user
+from auth import get_current_user, get_optional_user
 from routers.auth import router as auth_router
 from routers.communities import router as communities_router
 from routers.events import router as events_router
@@ -207,6 +208,12 @@ def _vision_dict_to_result(d: dict) -> VisionResult:
 def _preprocess_image_bytes(raw: bytes) -> bytes:
     """Apply existing PIL resize/JPEG normalization. Returns processed bytes."""
     pil_img = Image.open(io.BytesIO(raw))
+    # Bake EXIF orientation into pixels so portrait phone shots aren't saved sideways.
+    # exif_transpose returns the image with orientation applied and the tag normalized;
+    # guard against the (theoretical) None return just in case.
+    transposed = ImageOps.exif_transpose(pil_img)
+    if transposed is not None:
+        pil_img = transposed
     if pil_img.mode == "RGBA":
         pil_img = pil_img.convert("RGB")
     if len(raw) > MAX_IMAGE_BYTES or pil_img.width > MAX_IMAGE_DIMENSION or pil_img.height > MAX_IMAGE_DIMENSION:
@@ -311,6 +318,10 @@ def _downscale_for_segmentation(raw: bytes) -> bytes:
     which keeps Sonnet's multi-image latency in single-digit seconds.
     """
     pil_img = Image.open(io.BytesIO(raw))
+    # Bake EXIF orientation so the AI sees the image the right way up (better grouping).
+    transposed = ImageOps.exif_transpose(pil_img)
+    if transposed is not None:
+        pil_img = transposed
     if pil_img.mode != "RGB":
         pil_img = pil_img.convert("RGB")
     pil_img.thumbnail((SEGMENTATION_THUMBNAIL_DIM, SEGMENTATION_THUMBNAIL_DIM), Image.LANCZOS)
@@ -907,7 +918,7 @@ async def create_signed_upload_urls(
 async def segment_photos(
     images: list[UploadFile] = File(default_factory=list),
     image_urls: str = Form(""),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     parsed_image_urls: list[str] = []
     if image_urls:
@@ -979,7 +990,7 @@ class GenerateListingsRequest(BaseModel):
 @app.post("/api/generate-listings")
 async def generate_listings(
     req: GenerateListingsRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     if len(req.image_urls) != len(req.vision_signals):
         raise HTTPException(
@@ -1070,6 +1081,7 @@ async def create_listing(
     visibility: str = Form("public"),
     pickup_location: str = Form(""),
     draft_urls: str = Form(""),
+    image_order: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1165,14 +1177,94 @@ async def create_listing(
     listing_id = uuid.uuid4().hex[:12]
 
     # Push all images to Supabase Storage. Drafts move server-side (no bytes
-    # transferred); freshly attached files upload as before. Drafts come first.
+    # transferred); freshly attached files upload as before.
+    #
+    # When image_order is provided it is a JSON array of tokens of the form
+    # "draft:<i>" or "upload:<j>", defining the exact final order (first token
+    # = cover photo). When absent the legacy behaviour is preserved: all drafts
+    # first, then all uploaded files.
     image_urls: list[str] = []
-    for url in parsed_draft_urls:
-        image_urls.append(storage.move_image(url, "listings", listing_id))
-    for img in images:
-        ext = img.filename.rsplit(".", 1)[-1] if img.filename and "." in img.filename else "jpg"
-        contents = await img.read()
-        image_urls.append(storage.upload_image("listings", listing_id, contents, ext))
+    if image_order:
+        # --- Manifest path ---
+        try:
+            order_tokens: list = json.loads(image_order)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="image_order must be valid JSON")
+        if not isinstance(order_tokens, list) or not all(isinstance(t, str) for t in order_tokens):
+            raise HTTPException(status_code=400, detail="image_order must be a JSON array of strings")
+
+        _token_re = re.compile(r"^(draft|upload):(\d+)$")
+        draft_indices_seen: list[int] = []
+        upload_indices_seen: list[int] = []
+        for token in order_tokens:
+            m = _token_re.match(token)
+            if not m:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"image_order token '{token}' does not match 'draft:<i>' or 'upload:<j>'",
+                )
+            kind, idx_str = m.group(1), m.group(2)
+            idx = int(idx_str)
+            if kind == "draft":
+                if idx < 0 or idx >= len(parsed_draft_urls):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"image_order draft index {idx} is out of range (0..{len(parsed_draft_urls) - 1})",
+                    )
+                draft_indices_seen.append(idx)
+            else:
+                if idx < 0 or idx >= len(images):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"image_order upload index {idx} is out of range (0..{len(images) - 1})",
+                    )
+                upload_indices_seen.append(idx)
+
+        # Every draft and upload index must appear exactly once.
+        expected_drafts = list(range(len(parsed_draft_urls)))
+        expected_uploads = list(range(len(images)))
+        if sorted(draft_indices_seen) != expected_drafts:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"image_order must reference every draft index exactly once; "
+                    f"expected {expected_drafts}, got {sorted(draft_indices_seen)}"
+                ),
+            )
+        if sorted(upload_indices_seen) != expected_uploads:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"image_order must reference every upload index exactly once; "
+                    f"expected {expected_uploads}, got {sorted(upload_indices_seen)}"
+                ),
+            )
+
+        # Pre-read all upload file bytes indexed by position so we can access
+        # them in arbitrary order dictated by the manifest.
+        upload_contents: dict[int, tuple[bytes, str]] = {}
+        for j, img in enumerate(images):
+            ext = img.filename.rsplit(".", 1)[-1] if img.filename and "." in img.filename else "jpg"
+            contents = await img.read()
+            upload_contents[j] = (contents, ext)
+
+        # Walk the manifest in order to build image_urls.
+        for token in order_tokens:
+            m = _token_re.match(token)
+            kind, idx = m.group(1), int(m.group(2))  # already validated above
+            if kind == "draft":
+                image_urls.append(storage.move_image(parsed_draft_urls[idx], "listings", listing_id))
+            else:
+                contents, ext = upload_contents[idx]
+                image_urls.append(storage.upload_image("listings", listing_id, contents, ext))
+    else:
+        # --- Legacy path (backward-compatible) — drafts first, then uploads ---
+        for url in parsed_draft_urls:
+            image_urls.append(storage.move_image(url, "listings", listing_id))
+        for img in images:
+            ext = img.filename.rsplit(".", 1)[-1] if img.filename and "." in img.filename else "jpg"
+            contents = await img.read()
+            image_urls.append(storage.upload_image("listings", listing_id, contents, ext))
 
     # Resolve brand + name. Prefer the new top-level fields. If a transitional
     # client still sends only `title`, derive (brand, name) by stripping a

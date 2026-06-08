@@ -43,6 +43,10 @@ export interface Draft {
   createdAt: number;
   updatedAt: number;
   mode: "single" | "bulk";
+  // User-supplied custom name for the draft (the editable "New listing"
+  // heading). Optional — older drafts and unnamed drafts have none, and the
+  // gallery falls back to an item-count label. Not indexed; no DB version bump.
+  name?: string;
   // PR-3-era component-level state that lives outside the reducer:
   selectedCommunityIds: number[];
   singlePostPhase: "review" | "pickup";

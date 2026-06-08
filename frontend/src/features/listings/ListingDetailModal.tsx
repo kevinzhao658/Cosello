@@ -443,7 +443,7 @@ export function ListingDetailModal({
                   );
                   return (
                     <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 pt-2 border-t border-hairline">
-                      <dt className="text-xs uppercase tracking-widest text-muted">Condition</dt>
+                      <dt className="text-xs text-muted">Condition</dt>
                       <dd className="text-sm text-ink">{listing.condition}</dd>
                       {entries.map(([k, v]) => {
                         const label =
@@ -453,7 +453,7 @@ export function ListingDetailModal({
                           : k.charAt(0).toUpperCase() + k.slice(1);
                         return (
                           <div key={k} className="contents">
-                            <dt className="text-xs uppercase tracking-widest text-muted">{label}</dt>
+                            <dt className="text-xs text-muted">{label}</dt>
                             <dd className="text-sm text-ink">{String(v)}</dd>
                           </div>
                         );
@@ -493,7 +493,7 @@ export function ListingDetailModal({
                       <div className="flex items-center gap-1.5 text-sm font-semibold text-ink truncate">
                         <span className="truncate">{sellerProfile.display_name ?? "Seller"}</span>
                         {sellerProfile.is_friend && (
-                          <span className="text-[10px] uppercase tracking-widest text-primary bg-primary-soft px-1.5 py-0.5 rounded-sm shrink-0">
+                          <span className="text-[10px] text-primary bg-primary-soft px-1.5 py-0.5 rounded-sm shrink-0">
                             Friend
                           </span>
                         )}
@@ -540,15 +540,15 @@ export function ListingDetailModal({
                 </div>
 
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-3">
-                  <dt className="text-xs uppercase tracking-widest text-muted">Neighborhood</dt>
+                  <dt className="text-xs text-muted">Neighborhood</dt>
                   <dd className="text-sm text-ink">{listing.location || "—"}</dd>
 
-                  <dt className="text-xs uppercase tracking-widest text-muted">Distance from you</dt>
+                  <dt className="text-xs text-muted">Distance from you</dt>
                   {/* Distance is gated on lat/long — same as the
                       Marketplace distance slider. */}
                   <dd className="text-sm text-ink font-semibold">Not available yet</dd>
 
-                  <dt className="text-xs uppercase tracking-widest text-muted">Pickup</dt>
+                  <dt className="text-xs text-muted">Pickup</dt>
                   <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
                 </dl>
               </div>
@@ -612,13 +612,13 @@ export function ListingDetailModal({
 
               {/* Location dl */}
               <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-3">
-                <dt className="text-xs uppercase tracking-widest text-muted">Neighborhood</dt>
+                <dt className="text-xs text-muted">Neighborhood</dt>
                 <dd className="text-sm text-ink">{listing.location || "—"}</dd>
 
-                <dt className="text-xs uppercase tracking-widest text-muted">Distance from you</dt>
+                <dt className="text-xs text-muted">Distance from you</dt>
                 <dd className="text-sm text-ink font-semibold">Not available yet</dd>
 
-                <dt className="text-xs uppercase tracking-widest text-muted">Pickup</dt>
+                <dt className="text-xs text-muted">Pickup</dt>
                 <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
               </dl>
             </div>

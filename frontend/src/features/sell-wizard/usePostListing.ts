@@ -67,16 +67,31 @@ export function usePostListing({
 
     try {
       const formData = new FormData();
-      const draftUrls = segmentation
-        ? segmentation.image_urls.filter(
-            (url): url is string => typeof url === "string" && url.length > 0,
-          )
-        : [];
+      // Build an ordered manifest so that photos added (or reordered) during
+      // single review are included and the cover is always uploadedImages[0].
+      // segmentation.image_urls is aligned index-wise with uploadedImages:
+      //   a non-empty string → draft URL (already on server)
+      //   "" / undefined     → added photo with no server URL → upload it
+      const draftUrls: string[] = [];
+      const orderedImages: File[] = [];
+      const imageOrder: string[] = [];
+      uploadedImages.forEach((img, i) => {
+        const url = segmentation?.image_urls?.[i];
+        if (typeof url === "string" && url.length > 0) {
+          imageOrder.push(`draft:${draftUrls.length}`);
+          draftUrls.push(url);
+        } else {
+          imageOrder.push(`upload:${orderedImages.length}`);
+          orderedImages.push(img.file);
+        }
+      });
       if (draftUrls.length > 0) {
         formData.append("draft_urls", JSON.stringify(draftUrls));
-      } else {
-        uploadedImages.forEach((img) => formData.append("images", img.file));
       }
+      for (const file of orderedImages) {
+        formData.append("images", file);
+      }
+      formData.append("image_order", JSON.stringify(imageOrder));
       const { identifierConfidence: _, retrieval_fallback: _rf, ...rest } = details;
       void _; void _rf;
       const postData = { ...rest, priceCents };
@@ -124,20 +139,24 @@ export function usePostListing({
       const results = await Promise.allSettled(
         bulkItems.map(async (item) => {
           const formData = new FormData();
-          const draftUrlsForItem = segmentation
-            ? item.imageIndices
-                .map((i) => segmentation.image_urls[i])
-                .filter((url): url is string => typeof url === "string" && url.length > 0)
-            : [];
-          if (draftUrlsForItem.length > 0) {
-            formData.append("draft_urls", JSON.stringify(draftUrlsForItem));
-          } else {
-            for (const imgIdx of item.imageIndices) {
-              if (uploadedImages[imgIdx]) {
-                formData.append("images", uploadedImages[imgIdx].file);
-              }
+          const draftUrls: string[] = [];
+          const orderedImages: File[] = [];
+          const imageOrder: string[] = [];
+          for (const imgIdx of item.imageIndices) {
+            const url = segmentation?.image_urls?.[imgIdx];
+            if (typeof url === "string" && url.length > 0) {
+              imageOrder.push(`draft:${draftUrls.length}`);
+              draftUrls.push(url);
+            } else {
+              const file = uploadedImages[imgIdx]?.file;
+              if (!file) continue; // missing image — skip; never emit a token for it
+              imageOrder.push(`upload:${orderedImages.length}`);
+              orderedImages.push(file);
             }
           }
+          if (draftUrls.length > 0) formData.append("draft_urls", JSON.stringify(draftUrls));
+          for (const file of orderedImages) formData.append("images", file);
+          formData.append("image_order", JSON.stringify(imageOrder));
           const { imageIndices: _indices, identifierConfidence: _conf, retrieval_fallback: _rf, pickupLocation: _itemPickup, ...rest } = item;
           void _indices; void _conf; void _rf; void _itemPickup;
           const productData = { ...rest, priceCents: priceStringToCents(item.price) as number };

@@ -1,7 +1,6 @@
 import { PLACEHOLDER_COMMUNITY } from "../lib/listings";
 import { formatTitle } from "../lib/format";
-import { isPricePositive, formatPriceDisplay } from "../lib/price";
-import { ListingChecklist } from "./ListingChecklist";
+import { formatPriceDisplay } from "../lib/price";
 import type { BulkPreview } from "../features/sell-wizard/useSellWizard";
 
 interface BulkPreviewAsideProps {
@@ -11,22 +10,7 @@ interface BulkPreviewAsideProps {
 }
 
 export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsideProps) {
-  const { index, count, item, unit, step, communitySelected, pickupLocationSet } = preview;
-
-  // Checklist evaluation — sourced from BulkPreview.item, defensive against null fields.
-  const hasBrandOrName = Boolean(item.brand.trim() || item.name.trim());
-  const hasPrice = item.price !== null && isPricePositive(item.price);
-  const hasPhoto = item.imageUrl !== null;
-  const hasDescription = item.description !== null && item.description.trim().length >= 20;
-
-  const checklistRows: ReadonlyArray<readonly [string, boolean]> = (() => {
-    switch (step) {
-      case "upload": return [["At least one photo", hasPhoto]];
-      case "groups": return [["Photo", hasPhoto], ["Brand or name", hasBrandOrName], ["Community", communitySelected]];
-      case "review": return [["Photo", hasPhoto], ["Brand or name", hasBrandOrName], ["Price", hasPrice], ["Description", hasDescription], ["Community", communitySelected]];
-      case "pickup": return [["Brand or name", hasBrandOrName], ["Price", hasPrice], ["Community", communitySelected], ["Pickup location", pickupLocationSet]];
-    }
-  })();
+  const { index, count, item, unit } = preview;
 
   const displayPrice = item.price !== null ? formatPriceDisplay(item.price) : "$—";
 
@@ -46,7 +30,7 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
         >
           ‹
         </button>
-        <span className="text-xs font-semibold text-muted uppercase tracking-wider">
+        <span className="text-xs font-semibold text-muted">
           {unit} {index + 1} of {count}
         </span>
         <button
@@ -101,9 +85,6 @@ export function BulkPreviewAside({ preview, onPrev, onNext }: BulkPreviewAsidePr
           <p className="text-base font-semibold text-ink leading-none pt-0.5">{displayPrice}</p>
         </div>
       </article>
-
-      {/* Listing checklist */}
-      <ListingChecklist heading="Listing checklist" rows={checklistRows} />
     </>
   );
 }

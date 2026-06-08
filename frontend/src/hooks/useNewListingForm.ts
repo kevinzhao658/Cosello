@@ -32,12 +32,19 @@ export function useNewListingForm({
   const [aiProductDetails, setAiProductDetails] = useState<ProductDetails | null>(null);
   const [aiCoverImageUrl, setAiCoverImageUrl] = useState<string | null>(null);
   const [bulkPreview, setBulkPreview] = useState<BulkPreview | null>(null);
+  const [checklistSignals, setChecklistSignals] = useState({ communitySelected: false, pickupLocationSet: false });
 
   // New Listing page state (R-4.1). Mode toggles between the existing AI wizard
   // flow and a blank-form manual flow. Manual form fields live here so the page
   // owns the publish payload; the wizard owns the photo state and the publish
   // network call (called via the imperative handle after seeding productDetails).
   const [mode, setMode] = useState<"ai" | "manual">("ai");
+
+  // User-supplied draft name, edited via the "New listing" heading on the page.
+  // Lives here (App owns both the heading and the wizard) and threads into the
+  // wizard's autosave as Draft.name. Empty string = unnamed (heading shows a
+  // placeholder; gallery falls back to an item-count label).
+  const [draftName, setDraftName] = useState("");
 
   // Below lg: the preview/checklist column collapses into a floating overlay
   // that the user opens via a jade circle button — keeps mid-flow vertical
@@ -62,6 +69,7 @@ export function useNewListingForm({
   // publish so a follow-up listing starts blank.
   const reset = useCallback(() => {
     setMode("ai");
+    setDraftName("");
     setBrand("");
     setName("");
     setDescription("");
@@ -75,6 +83,7 @@ export function useNewListingForm({
     setImageCount(0);
     setAiProductDetails(null);
     setAiCoverImageUrl(null);
+    setChecklistSignals({ communitySelected: false, pickupLocationSet: false });
   }, []);
 
   // Manual-mode publish. Seeds the wizard's productDetails from the page-level
@@ -179,6 +188,9 @@ export function useNewListingForm({
     // Mode
     mode,
     setMode,
+    // Draft name
+    draftName,
+    setDraftName,
     // Manual form fields
     brand,
     setBrand,
@@ -213,6 +225,9 @@ export function useNewListingForm({
     setAiCoverImageUrl,
     bulkPreview,
     setBulkPreview,
+    // Checklist signals from wizard (community + pickup)
+    checklistSignals,
+    setChecklistSignals,
     // Preview overlay
     overlayOpen,
     setOverlayOpen,

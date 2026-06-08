@@ -92,7 +92,7 @@ export function ListingCard({
         {listing.status === "sold" && (
           <>
             <span className="absolute inset-0 bg-canvas/75" aria-hidden="true" />
-            <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-bold text-ink bg-canvas/95 border border-hairline px-2 py-1 rounded-full">
+            <span className="absolute top-2 left-2 text-[10px] font-bold text-ink bg-canvas/95 border border-hairline px-2 py-1 rounded-full">
               Sold
             </span>
           </>

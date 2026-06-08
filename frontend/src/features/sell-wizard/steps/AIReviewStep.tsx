@@ -1,15 +1,16 @@
-import React, { useRef, useEffect } from "react";
+import { useRef } from "react";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { PriceInput } from "../../../components/ui/price-input";
 import { CategorySelector, CategoryAttributeFields } from "../../../components/CategoryFields";
-import { AlertTriangle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
 import { Tooltip } from "../../../components/ui/tooltip";
 import { SkeletonImage } from "../../../components/ui/SkeletonImage";
 import { formatTitle } from "../../../lib/format";
 import { CONDITIONS } from "../../../lib/listings";
 import type { CategorySchema } from "../../../lib/types";
 import type { BulkItemDetails, UploadedImage } from "../useSellWizard";
+import { usePhotoDragReorder } from "../usePhotoDragReorder";
 
 export interface AIReviewStepProps {
   bulkItems: BulkItemDetails[];
@@ -30,24 +31,27 @@ export interface AIReviewStepProps {
   updateBulkItemField: (i: number, field: string, value: unknown) => void;
   regenerateBulkItem: (groupIdx: number) => void;
   addPhotoToBulkItem: (index: number, files: FileList) => void;
+  onDeletePhoto: (index: number) => void;
   onAdvance: () => void;
+  reorderBulkItemPhotos: (index: number, from: number, to: number) => void;
 }
 
 export function AIReviewStep({
   bulkItems, currentCardIndex, uploadedImages, imageUrls, categorySchemas, editingTitle, newTag,
   isGenerating, setEditingTitle, setNewTag, setCurrentCardIndex, deleteBulkItem,
-  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onAdvance,
+  updateBulkItem, updateBulkItemField, regenerateBulkItem, addPhotoToBulkItem, onDeletePhoto,
+  onAdvance, reorderBulkItemPhotos,
 }: AIReviewStepProps) {
   const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
-  const activeThumbRef = useRef<HTMLButtonElement>(null);
   const swipeDown = useRef<{ x: number; y: number } | null>(null);
 
-  // Auto-scroll the active thumbnail into view when the index changes.
-  useEffect(() => {
-    activeThumbRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [currentCardIndex]);
-
   const currentItem = bulkItems[currentCardIndex];
+
+  const { dragIndex, overIndex, getItemProps } = usePhotoDragReorder(
+    currentItem?.imageIndices.length ?? 0,
+    (from, to) => reorderBulkItemPhotos(currentCardIndex, from, to),
+  );
+
   if (!currentItem) return null;
 
   return (
@@ -56,45 +60,6 @@ export function AIReviewStep({
         <span className="text-muted shrink-0">
           Item {currentCardIndex + 1} of {bulkItems.length}
         </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label="Previous item"
-          disabled={currentCardIndex === 0}
-          onClick={() => setCurrentCardIndex(Math.max(0, currentCardIndex - 1))}
-          className="size-7 rounded-full border border-hairline flex items-center justify-center disabled:opacity-30 shrink-0 text-ink hover:bg-surface-soft transition-colors"
-        >
-          ‹
-        </button>
-        <div className="flex gap-2 overflow-x-auto p-1 flex-1">
-          {bulkItems.map((it, i) => {
-            const src = imageUrls?.[it.imageIndices[0]] ?? uploadedImages[it.imageIndices[0]]?.preview ?? "";
-            const isActive = i === currentCardIndex;
-            return (
-              <button
-                key={i}
-                ref={isActive ? activeThumbRef : undefined}
-                type="button"
-                aria-label={`Item ${i + 1}`}
-                aria-current={isActive ? "true" : undefined}
-                onClick={() => setCurrentCardIndex(i)}
-                className={`size-7 shrink-0 rounded-md overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isActive ? "ring-2 ring-primary" : ""}`}
-              >
-                <img src={src} alt="" className="size-full object-cover" />
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          aria-label="Next item"
-          disabled={currentCardIndex === bulkItems.length - 1}
-          onClick={() => setCurrentCardIndex(Math.min(bulkItems.length - 1, currentCardIndex + 1))}
-          className="size-7 rounded-full border border-hairline flex items-center justify-center disabled:opacity-30 shrink-0 text-ink hover:bg-surface-soft transition-colors"
-        >
-          ›
-        </button>
       </div>
 
       <div
@@ -114,16 +79,51 @@ export function AIReviewStep({
         }}
       >
         <div className="flex items-center gap-2 mb-1">
-          {currentItem.imageIndices.map((imgIdx) => {
+          {currentItem.imageIndices.map((imgIdx, i) => {
             // Prefer persistent server URL over local blob URL (iOS Safari
             // can drop blob URLs after backgrounding).
             const src = imageUrls?.[imgIdx] ?? uploadedImages[imgIdx]?.preview ?? null;
+            const isCover = i === 0;
+            const isDraggingThis = dragIndex === i;
+            const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
+            const itemProps = getItemProps(i);
             return (
-              <div key={imgIdx} className="relative size-16 rounded-md border border-hairline overflow-hidden">
-                <SkeletonImage src={src} alt="Item" />
+              <div
+                key={imgIdx}
+                {...itemProps}
+                className={[
+                  "relative size-16 rounded-md border select-none transition-opacity",
+                  isDraggingThis ? "border-primary opacity-70" : "border-hairline opacity-100",
+                  isDropTarget ? "ring-2 ring-primary ring-offset-1 ring-offset-canvas" : "",
+                ].join(" ")}
+              >
+                <SkeletonImage src={src} alt="Item" className="rounded-md" />
+                {isCover && (
+                  <span className="absolute top-1 left-1 z-10 px-1 py-px rounded-sm bg-primary text-on-primary text-[8px] font-bold uppercase leading-none pointer-events-none">
+                    Cover
+                  </span>
+                )}
+                {currentItem.imageIndices.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label="Delete photo"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeletePhoto(imgIdx); }}
+                    className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
               </div>
             );
           })}
+          <button
+            type="button"
+            onClick={() => bulkPhotoInputRef.current?.click()}
+            aria-label="Add more photos"
+            className="size-16 shrink-0 rounded-md border-2 border-dashed border-border-strong inline-flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          >
+            <Plus className="size-5" />
+          </button>
           <input
             ref={bulkPhotoInputRef}
             type="file"
@@ -166,7 +166,7 @@ export function AIReviewStep({
           </div>
         )}
         <div>
-          <label htmlFor={`bulk-title-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Title</label>
+          <label htmlFor={`bulk-title-${currentCardIndex}`} className="text-xs text-muted">Title</label>
           <Input
             id={`bulk-title-${currentCardIndex}`}
             value={editingTitle ?? formatTitle(currentItem.brand, currentItem.name)}
@@ -190,7 +190,7 @@ export function AIReviewStep({
           />
         </div>
         <div>
-          <label htmlFor={`bulk-description-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Description</label>
+          <label htmlFor={`bulk-description-${currentCardIndex}`} className="text-xs text-muted">Description</label>
           <textarea
             id={`bulk-description-${currentCardIndex}`}
             value={currentItem.description}
@@ -201,7 +201,7 @@ export function AIReviewStep({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor={`bulk-price-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Price ($)</label>
+            <label htmlFor={`bulk-price-${currentCardIndex}`} className="text-xs text-muted">Price ($)</label>
             <PriceInput
               id={`bulk-price-${currentCardIndex}`}
               value={currentItem.price}
@@ -210,7 +210,7 @@ export function AIReviewStep({
             />
           </div>
           <div>
-            <label htmlFor={`bulk-condition-${currentCardIndex}`} className="text-xs text-muted uppercase tracking-wider">Condition</label>
+            <label htmlFor={`bulk-condition-${currentCardIndex}`} className="text-xs text-muted">Condition</label>
             <select
               id={`bulk-condition-${currentCardIndex}`}
               value={currentItem.condition}
@@ -247,7 +247,7 @@ export function AIReviewStep({
           </>
         )}
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Tags</label>
+          <label className="text-xs text-muted">Tags</label>
           <div className="flex flex-wrap gap-2 mt-1">
             {currentItem.tags.map((tag, index) => (
               <span

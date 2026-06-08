@@ -34,16 +34,20 @@ function relativeTime(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
+// Number of items in the draft, independent of the single/bulk distinction
+// (which is unreliable — a single AI item still ran segmentation). Drafts save
+// only after a commit, so one of these always resolves.
+function itemCount(draft: Draft): number {
+  if (draft.state.bulkItems.length > 0) return draft.state.bulkItems.length;
+  if (draft.state.segmentation?.groupings?.length) return draft.state.segmentation.groupings.length;
+  return 1;
+}
+
 function draftTitle(draft: Draft): string {
-  if (draft.mode === "bulk" && draft.state.bulkItems.length > 0) {
-    return `Bulk · ${draft.state.bulkItems.length} items`;
-  }
-  const brand = draft.state.productDetails?.brand?.trim() ?? "";
-  const name = draft.state.productDetails?.name?.trim() ?? "";
-  const title = [brand, name].filter(Boolean).join(" ");
-  if (title) return title;
-  const photoCount = draft.files.length;
-  return `Untitled · ${photoCount} photo${photoCount === 1 ? "" : "s"}`;
+  const custom = draft.name?.trim();
+  if (custom) return custom;
+  const n = itemCount(draft);
+  return `${n} item${n === 1 ? "" : "s"}`;
 }
 
 export function DraftsGallery({
@@ -146,8 +150,8 @@ export function DraftsGallery({
       {/* Drafts header (only when drafts exist) */}
       {hasDrafts && (
         <div className="flex items-baseline justify-between">
-          <h2 className="text-[10px] font-bold tracking-[0.18em] uppercase text-muted">Drafts</h2>
-          <span className="text-[10px] uppercase tracking-wider text-muted-soft">
+          <h2 className="text-lg font-bold tracking-tight text-ink">Drafts</h2>
+          <span className="text-[11px] text-muted-soft">
             {drafts.length} in progress
           </span>
         </div>
@@ -168,9 +172,9 @@ export function DraftsGallery({
               <SkeletonImage src={previewUrls.get(draft.id) ?? null} alt="" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-ink truncate">{draftTitle(draft)}</div>
-              <div className="text-xs text-muted truncate">
-                {draft.mode === "single" ? "Single" : "Bulk"} · {relativeTime(draft.updatedAt)}
+              <div className="text-lg font-bold text-ink truncate">{draftTitle(draft)}</div>
+              <div className="text-sm text-muted truncate">
+                {relativeTime(draft.updatedAt)}
               </div>
             </div>
           </button>

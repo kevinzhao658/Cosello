@@ -103,7 +103,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   First Name
                 </label>
                 <Input
@@ -114,7 +114,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                 />
               </div>
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   Last Name
                 </label>
                 <Input
@@ -127,7 +127,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
             </div>
 
             <div>
-              <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+              <label className="block text-xs text-muted mb-1.5 font-semibold">
                 Default Pickup Address
               </label>
               <Input
@@ -142,7 +142,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
             </div>
 
             <div className="relative">
-              <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+              <label className="block text-xs text-muted mb-1.5 font-semibold">
                 Neighborhood
               </label>
               {isLoadingNeighborhoods ? (
@@ -214,7 +214,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   City
                 </label>
                 <Input
@@ -225,7 +225,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                 />
               </div>
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   State
                 </label>
                 <Input
@@ -238,7 +238,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
             </div>
 
             <div>
-              <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+              <label className="block text-xs text-muted mb-1.5 font-semibold">
                 Zip Code
               </label>
               <Input

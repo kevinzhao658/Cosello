@@ -2177,7 +2177,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 </div>
 
                 <div className="mb-4">
-                  <h4 className="text-xs text-muted mb-2 uppercase tracking-wider">Members</h4>
+                  <h4 className="text-xs text-muted mb-2">Members</h4>
                   <div className="max-h-48 overflow-y-auto">
                     {isLoadingMembers ? (
                       <div className="flex justify-center py-6"><Loader2 className="size-5 text-muted animate-spin" /></div>
@@ -2220,7 +2220,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
                 {!selectedCommunity.is_public && selectedCommunity.created_by === user?.id && (
                   <div className="mb-4">
-                    <h4 className="text-xs text-muted mb-2 uppercase tracking-wider">
+                    <h4 className="text-xs text-muted mb-2">
                       Pending requests
                       {pendingRequests.length > 0 && (
                         <span className="ml-1.5 text-warning bg-warning/10 px-1.5 py-0.5 rounded-full text-[10px] normal-case">{pendingRequests.length}</span>
@@ -2436,7 +2436,7 @@ function OverviewCommunitiesRow({
                     role="menu"
                     className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
                   >
-                    <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-muted px-2.5 pt-1.5 pb-1">
+                    <div className="text-[11px] font-semibold text-muted px-2.5 pt-1.5 pb-1">
                       More communities
                     </div>
                     {extra.map((c) => (
@@ -2587,7 +2587,7 @@ function OverviewListingsPanel({
       {listingsTab === "selling" ? (
         isLoadingMyListings && myListings.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2612,7 +2612,7 @@ function OverviewListingsPanel({
                 x-position across all rows regardless of pill content length.
                 Identical to the Buying table below so the two read as one
                 visual system. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2707,7 +2707,7 @@ function OverviewListingsPanel({
       ) : (
         isLoadingMyOrders && myPurchases.length === 0 ? (
           <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -2728,7 +2728,7 @@ function OverviewListingsPanel({
           <div className="flex-1 overflow-y-auto">
             {/* 3-col grid: Item (with community subtitle) / Price / Status —
                 identical template to the Selling table above. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted uppercase tracking-wider pb-2 border-b border-hairline">
+            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
               <span>Item</span>
               <span>Price</span>
               <span>Status</span>
@@ -3174,7 +3174,7 @@ function ListingsTabContent({
           ? Array.from({ length: 4 }).map((_, i) => <KpiCardSkeleton key={i} />)
           : (listingsTab === "selling" ? sellingKpis : buyingKpis).map((kpi) => (
               <div key={kpi.label} className="bg-surface-card border border-hairline rounded-md p-4">
-                <p className="text-[11px] text-muted uppercase tracking-wider">{kpi.label}</p>
+                <p className="text-[11px] text-muted">{kpi.label}</p>
                 <p className={`text-3xl font-extrabold tracking-display mt-1 ${kpi.value === "—" ? "text-muted-soft" : "text-ink"}`}>{kpi.value}</p>
                 <p className={`text-[11px] mt-0.5 ${kpi.value === "—" ? "text-muted-soft" : "text-muted"}`}>{kpi.sub}</p>
               </div>
@@ -3412,7 +3412,7 @@ function ListingsTabContent({
                   <div className="relative aspect-square bg-surface-soft">
                     <ListingImage src={order.listing_image} alt="" size="card" className="absolute inset-0 size-full object-cover" />
                     {isPending ? (
-                      <span className="absolute top-2 left-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-primary px-2 py-1 rounded-sm">
+                      <span className="absolute top-2 left-2 text-[10px] font-semibold text-on-primary bg-primary px-2 py-1 rounded-sm">
                         Pending
                       </span>
                     ) : (
@@ -3557,7 +3557,7 @@ function SavedTabContent({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6">
       <aside className="space-y-1">
-        <h3 className="text-[11px] text-muted uppercase tracking-wider px-2 pb-1">Collections</h3>
+        <h3 className="text-[11px] text-muted px-2 pb-1">Collections</h3>
         {!foldersAvailable && (
           <div className="px-3 py-2 mb-2 rounded-md bg-warning/10 border border-warning/20 text-[11px] text-body">
             Folders coming soon — backend in progress.
@@ -3824,7 +3824,7 @@ function SavedTabContent({
                       {selected ? <Check className="size-3.5" /> : <span className="size-3 rounded-full border-2 border-current" />}
                     </button>
                     {listing.status === "sold" && (
-                      <span className="absolute top-2 right-2 text-[10px] uppercase tracking-widest font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
+                      <span className="absolute top-2 right-2 text-[10px] font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
                         Sold
                       </span>
                     )}
@@ -4023,11 +4023,10 @@ function SettingsTabContent({
             subtitle="Tighten spacing across cards, sections, and layouts."
             control={<ToggleSwitch checked={settings.compactMode} onChange={(v) => updateSetting("compactMode", v)} label="Compact mode" />}
           />
-          {/* Dark mode + Color-blind mode wire the integration points
-              (data-theme / data-cb on <html>) but the Brutalist Trade
-              theme is light-only with a single jade accent today —
-              they're visually inert until the parallel token blocks
-              ship (see backlog.md). */}
+          {/* Dark mode sets data-theme="dark" on <html>; SettingsContext
+              persists the choice to localStorage and restores on reload.
+              The Electric Violet token set (UI redesign v3) fully supports
+              dark mode via the [data-theme="dark"] block in theme.css. */}
           <SettingRow
             title="Dark mode"
             subtitle="Use a dark surface palette across Cosello."

@@ -1,11 +1,14 @@
-import { AlertTriangle, X } from "lucide-react";
+import { useRef } from "react";
+import { AlertTriangle, Plus, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { PriceInput } from "../../components/ui/price-input";
+import { SkeletonImage } from "../../components/ui/SkeletonImage";
 import { CategorySelector, CategoryAttributeFields } from "../../components/CategoryFields";
 import { CONDITIONS } from "../../lib/listings";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
-import type { ProductDetails } from "./useSellWizard";
+import type { ProductDetails, UploadedImage } from "./useSellWizard";
+import { usePhotoDragReorder } from "./usePhotoDragReorder";
 
 interface SingleListingFormProps {
   productDetails: ProductDetails;
@@ -16,12 +19,25 @@ interface SingleListingFormProps {
   setNewTag: (v: string) => void;
   onContinue: () => void;
   isAuthenticated: boolean;
+  uploadedImages: UploadedImage[];
+  imageUrls: string[];
+  onAddPhotos: (files: FileList) => void;
+  onDeletePhoto: (index: number) => void;
+  onReorderPhotos: (from: number, to: number) => void;
 }
 
 export function SingleListingForm({
   productDetails, setProductDetails, categorySchemas, setSingleCategory,
   newTag, setNewTag, onContinue, isAuthenticated,
+  uploadedImages, imageUrls, onAddPhotos, onDeletePhoto, onReorderPhotos,
 }: SingleListingFormProps) {
+  const singlePhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const { dragIndex, overIndex, getItemProps } = usePhotoDragReorder(
+    uploadedImages.length,
+    onReorderPhotos,
+  );
+
   return (
     <div className="mt-6 p-6 bg-surface-card rounded-lg border border-hairline space-y-4 text-left">
       {productDetails.retrieval_fallback === true && (
@@ -33,9 +49,69 @@ export function SingleListingForm({
           </div>
         </div>
       )}
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        {uploadedImages.map((img, i) => {
+          // Use || instead of ?? so that padded "" entries (from REORDER_SINGLE_PHOTOS)
+          // fall through to the blob preview rather than rendering a broken image.
+          const src = (imageUrls[i] || img.preview) || null;
+          const isCover = i === 0;
+          const isDraggingThis = dragIndex === i;
+          const isDropTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
+          const itemProps = getItemProps(i);
+          return (
+            <div
+              key={i}
+              {...itemProps}
+              className={[
+                "relative size-16 shrink-0 rounded-md border select-none transition-opacity",
+                isDraggingThis ? "border-primary opacity-70" : "border-hairline opacity-100",
+                isDropTarget ? "ring-2 ring-primary ring-offset-1 ring-offset-canvas" : "",
+              ].join(" ")}
+            >
+              <SkeletonImage src={src} alt="Photo" className="rounded-md" />
+              {isCover && (
+                <span className="absolute top-1 left-1 z-10 px-1 py-px rounded-sm bg-primary text-on-primary text-[8px] font-bold uppercase leading-none pointer-events-none">
+                  Cover
+                </span>
+              )}
+              {uploadedImages.length > 1 && (
+                <button
+                  type="button"
+                  aria-label="Delete photo"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeletePhoto(i); }}
+                  className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => singlePhotoInputRef.current?.click()}
+          aria-label="Add more photos"
+          className="size-16 shrink-0 rounded-md border-2 border-dashed border-border-strong inline-flex items-center justify-center text-muted hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          <Plus className="size-5" />
+        </button>
+        <input
+          ref={singlePhotoInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              onAddPhotos(e.target.files);
+              e.target.value = "";
+            }
+          }}
+        />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Brand</label>
+          <label className="text-xs text-muted">Brand</label>
           <Input
             value={productDetails.brand}
             onChange={(e) => setProductDetails({ ...productDetails, brand: e.target.value })}
@@ -43,7 +119,7 @@ export function SingleListingForm({
           />
         </div>
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Name</label>
+          <label className="text-xs text-muted">Name</label>
           <Input
             value={productDetails.name}
             onChange={(e) => setProductDetails({ ...productDetails, name: e.target.value })}
@@ -52,7 +128,7 @@ export function SingleListingForm({
         </div>
       </div>
       <div>
-        <label className="text-xs text-muted uppercase tracking-wider">Description</label>
+        <label className="text-xs text-muted">Description</label>
         <textarea
           value={productDetails.description}
           onChange={(e) => setProductDetails({ ...productDetails, description: e.target.value })}
@@ -62,7 +138,7 @@ export function SingleListingForm({
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Price ($)</label>
+          <label className="text-xs text-muted">Price ($)</label>
           <PriceInput
             value={productDetails.price}
             onChange={(next) => setProductDetails({ ...productDetails, price: next })}
@@ -70,7 +146,7 @@ export function SingleListingForm({
           />
         </div>
         <div>
-          <label className="text-xs text-muted uppercase tracking-wider">Condition</label>
+          <label className="text-xs text-muted">Condition</label>
           <select
             value={productDetails.condition}
             onChange={(e) => setProductDetails({ ...productDetails, condition: e.target.value })}
@@ -102,7 +178,7 @@ export function SingleListingForm({
         </>
       )}
       <div>
-        <label className="text-xs text-muted uppercase tracking-wider">Tags</label>
+        <label className="text-xs text-muted">Tags</label>
         <div className="flex flex-wrap gap-2 mt-1">
           {productDetails.tags.map((tag, index) => (
             <span

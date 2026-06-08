@@ -39,7 +39,7 @@ import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
 import { useListingDetail } from "./hooks/useListingDetail";
 import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
-import { formatPriceDisplay } from "./lib/price";
+import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
@@ -52,6 +52,11 @@ export default function App() {
   // Temporary token for new users who haven't completed profile yet
   const [pendingSignupToken, setPendingSignupToken] = useState<string | null>(null);
   const [pendingSignupUser, setPendingSignupUser] = useState<AuthUser | null>(null);
+
+  // Return-intent: when a guest hits Publish in the sell wizard they're sent to
+  // sign-in. This flag causes onSuccess/onComplete to route back to "newlisting"
+  // (where wizard state is still intact) instead of "home"/"account".
+  const [pendingSellPublish, setPendingSellPublish] = useState(false);
 
   const [homeSearch, setHomeSearch] = useState("");
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
@@ -79,6 +84,9 @@ export default function App() {
     | { kind: "load"; id: string }
   >({ kind: "gallery" });
   const [draftsRefreshNonce, setDraftsRefreshNonce] = useState(0);
+  // Listing-name edit mode. The name reads as a heading by default (with a
+  // pencil affordance); tapping it switches to an input. Enter/Escape/blur exit.
+  const [isEditingName, setIsEditingName] = useState(false);
 
   // Bumped each time a nav element wants to land on a specific MyAccount tab.
   // MyAccountPage watches the [tab, nonce] pair so re-clicking the same nav
@@ -91,12 +99,20 @@ export default function App() {
   }, []);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
 
+  // Shared handler: guest taps Publish → set return-intent + go to sign-in.
+  // Both the manual-publish path (onRequireSignIn) and the AI/bulk publish path
+  // (SellWizard's onRequestSignIn) use this so the intent is always set.
+  const requestSignInForPublish = useCallback(() => {
+    setPendingSellPublish(true);
+    setPage("signin");
+  }, []);
+
   const newListing = useNewListingForm({
     sellWizardRef,
     isAuthenticated,
     user,
     page,
-    onRequireSignIn: () => setPage("signin"),
+    onRequireSignIn: requestSignInForPublish,
     onRequireAiConfirm: () => setShowPostConfirm(true),
   });
 
@@ -360,12 +376,19 @@ export default function App() {
     }
   }, [isAuthenticated, page, pendingSignupToken]);
 
-  // If user needs registration and we have a pending token, redirect to signup
+  // If a live session still needs registration, backfill pendingSignupToken
+  // from the session token (lost on reload since it only lives in App state)
+  // and force the signup page. This prevents a half-registered user from
+  // browsing the app as if they were fully signed in.
   useEffect(() => {
-    if (needsRegistration && pendingSignupToken && page !== "signup") {
+    if (!needsRegistration) return;
+    if (!pendingSignupToken && token) {
+      setPendingSignupToken(token);
+    }
+    if (page !== "signup") {
       setPage("signup");
     }
-  }, [needsRegistration, pendingSignupToken]);
+  }, [needsRegistration, pendingSignupToken, token, page]);
 
   const userInitials = (() => {
     const name = user?.display_name?.trim();
@@ -384,29 +407,84 @@ export default function App() {
   // Rendered both inside the lg:+ sticky aside and inside the below-lg:
   // floating drawer so the two share a single source of truth.
   //
-  // Mode selection:
-  //   newListing.imageCount === 0     → TopSearches (no photos yet)
-  //   newListing.bulkPreview !== null → BulkPreviewAside (AI bulk mode, ≥1 item)
-  //   else                            → single-item preview (manual or AI single)
+  // The checklist is ALWAYS the same 6 rows in the same order whenever
+  // imageCount > 0. Only the check states change as the user progresses.
+  // The preview card changes per mode/step but the checklist is static.
+  //
+  // Mode selection for the preview card:
+  //   newListing.imageCount === 0     → TopSearches (no checklist)
+  //   newListing.bulkPreview !== null → BulkPreviewAside card (AI bulk)
+  //   else                            → single-item preview card (manual or AI single)
   const newListingPreviewContent = (() => {
     if (newListing.imageCount === 0) {
       return <TopSearches />;
     }
 
+    // Build the static 6-row checklist, mode-aware for fields 2–4.
+    const { communitySelected, pickupLocationSet } = newListing.checklistSignals;
+    const checklistRows: ReadonlyArray<readonly [string, boolean]> = (() => {
+      if (newListing.mode === "manual") {
+        // Manual mode: drive rows 2-4 from the page-level form fields.
+        const hasBrandOrName = newListing.brand.trim().length > 0 || newListing.name.trim().length > 0;
+        const hasPrice = /^[0-9]+$/.test(newListing.price) && Number.parseInt(newListing.price, 10) > 0;
+        const hasDescription = newListing.description.trim().length >= 20;
+        return [
+          ["Photo added", newListing.imageCount > 0],
+          ["Brand or name", hasBrandOrName],
+          ["Price set", hasPrice],
+          ["Description (20+ chars)", hasDescription],
+          ["Community", communitySelected],
+          ["Pickup location", pickupLocationSet],
+        ] as const;
+      }
+      if (newListing.bulkPreview !== null) {
+        // AI bulk mode: drive rows 2-4 from the focused bulk preview item.
+        const it = newListing.bulkPreview.item;
+        const hasBrandOrName = Boolean(it.brand.trim() || it.name.trim());
+        const hasPrice = it.price !== null && isPricePositive(it.price);
+        const hasDescription = it.description !== null && it.description.trim().length >= 20;
+        return [
+          ["Photo added", newListing.imageCount > 0],
+          ["Brand or name", hasBrandOrName],
+          ["Price set", hasPrice],
+          ["Description (20+ chars)", hasDescription],
+          ["Community", communitySelected],
+          ["Pickup location", pickupLocationSet],
+        ] as const;
+      }
+      // AI single mode: drive rows 2-4 from aiProductDetails.
+      const hasBrandOrName = Boolean(
+        newListing.aiProductDetails?.brand?.trim() || newListing.aiProductDetails?.name?.trim(),
+      );
+      const hasPrice = isPricePositive(newListing.aiProductDetails?.price ?? "");
+      const hasDescription = (newListing.aiProductDetails?.description?.trim().length ?? 0) >= 20;
+      return [
+        ["Photo added", newListing.imageCount > 0],
+        ["Brand or name", hasBrandOrName],
+        ["Price set", hasPrice],
+        ["Description (20+ chars)", hasDescription],
+        ["Community", communitySelected],
+        ["Pickup location", pickupLocationSet],
+      ] as const;
+    })();
+
     if (newListing.bulkPreview !== null) {
       return (
-        <BulkPreviewAside
-          preview={newListing.bulkPreview}
-          onPrev={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index - 1)}
-          onNext={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index + 1)}
-        />
+        <>
+          <BulkPreviewAside
+            preview={newListing.bulkPreview}
+            onPrev={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index - 1)}
+            onNext={() => sellWizardRef.current?.setBulkCardIndex(newListing.bulkPreview!.index + 1)}
+          />
+          <ListingChecklist heading="Listing checklist" rows={checklistRows} />
+        </>
       );
     }
 
-    // Single-item preview (manual or AI single mode) — unchanged.
+    // Single-item preview card (manual or AI single mode).
     return (
       <>
-        <p className="text-xs font-semibold text-muted uppercase tracking-wider">Listing preview</p>
+        <p className="text-xs font-semibold text-muted">Listing preview</p>
         <article>
           {/* Community byline — above the photo */}
           <div className="flex items-center gap-1.5 mb-1.5">
@@ -466,34 +544,7 @@ export default function App() {
           </div>
         </article>
 
-        <ListingChecklist
-          heading="Listing checklist"
-          rows={(() => {
-            const isManual = newListing.mode === "manual";
-            const hasBrandOrName = isManual
-              ? (newListing.brand.trim().length > 0 || newListing.name.trim().length > 0)
-              : Boolean(newListing.aiProductDetails?.brand?.trim() || newListing.aiProductDetails?.name?.trim());
-            const hasPrice = (() => {
-              if (isManual) {
-                // integer-only by design (whole-dollar prices); see lib/price.ts for the float-based preview helpers
-                return /^[0-9]+$/.test(newListing.price) && Number.parseInt(newListing.price, 10) > 0;
-              }
-              const raw = newListing.aiProductDetails?.price?.replace(/^\$/, "").trim();
-              const num = raw ? Number.parseFloat(raw) : NaN;
-              return Number.isFinite(num) && num > 0;
-            })();
-            const hasDescription = isManual
-              ? newListing.description.trim().length >= 20
-              : (newListing.aiProductDetails?.description?.trim().length ?? 0) >= 20;
-            const rows: ReadonlyArray<readonly [string, boolean]> = [
-              ["At least one photo", newListing.imageCount > 0],
-              ["Brand or name", hasBrandOrName],
-              ["Price set", hasPrice],
-              ["Description 20+ chars", hasDescription],
-            ];
-            return rows;
-          })()}
-        />
+        <ListingChecklist heading="Listing checklist" rows={checklistRows} />
       </>
     );
   })();
@@ -717,16 +768,26 @@ export default function App() {
           <SignInPage
             onSuccess={(newToken, userExists, newUser) => {
               if (!userExists || !newUser?.display_name || !newUser?.neighborhood) {
-                // Don't log in yet — hold token until profile is completed
+                // Don't log in yet — hold token until profile is completed.
+                // pendingSellPublish stays set so the signup onComplete can pick
+                // it up and route back to newlisting after registration.
                 setPendingSignupToken(newToken);
                 setPendingSignupUser(newUser);
                 setPage("signup");
               } else {
                 login(newToken, newUser);
-                setPage("home");
+                if (pendingSellPublish) {
+                  setPendingSellPublish(false);
+                  setPage("newlisting");
+                } else {
+                  setPage("home");
+                }
               }
             }}
-            onCancel={() => setPage("home")}
+            onCancel={() => {
+              setPendingSellPublish(false);
+              setPage("home");
+            }}
           />
         </Suspense>
       )}
@@ -740,12 +801,22 @@ export default function App() {
               login(pendingSignupToken, completedUser);
               setPendingSignupToken(null);
               setPendingSignupUser(null);
-              setPage("account");
+              if (pendingSellPublish) {
+                setPendingSellPublish(false);
+                setPage("newlisting");
+              } else {
+                setPage("account");
+              }
             }}
             onCancel={() => {
-              setPendingSignupToken(null);
-              setPendingSignupUser(null);
-              setPage("home");
+              // Sign out the Supabase session so the half-registered user
+              // does not remain "signed in" with an incomplete profile.
+              void logout().then(() => {
+                setPendingSignupToken(null);
+                setPendingSignupUser(null);
+                setPendingSellPublish(false);
+                setPage("home");
+              });
             }}
           />
         </Suspense>
@@ -762,7 +833,7 @@ export default function App() {
             <DraftsGallery
               userId={user?.id ?? null}
               onSelectDraft={(id) => setDraftRouteState({ kind: "load", id })}
-              onStartNew={() => setDraftRouteState({ kind: "new" })}
+              onStartNew={() => { newListing.setDraftName(""); setDraftRouteState({ kind: "new" }); }}
               refreshNonce={draftsRefreshNonce}
             />
           ) : (
@@ -770,9 +841,40 @@ export default function App() {
             {/* Breadcrumb + title + toolbar */}
             <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
               <div className="min-w-0">
-                <h1 className="text-3xl font-extrabold tracking-display text-ink leading-[1.05]">
-                  New listing
-                </h1>
+                {isEditingName ? (
+                  <input
+                    type="text"
+                    value={newListing.draftName}
+                    onChange={(e) => newListing.setDraftName(e.target.value)}
+                    onBlur={() => setIsEditingName(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Escape") {
+                        e.preventDefault();
+                        setIsEditingName(false);
+                      }
+                    }}
+                    placeholder="New listing"
+                    maxLength={80}
+                    aria-label="Listing name"
+                    autoFocus
+                    className="w-full bg-transparent border-0 border-b-2 border-primary p-0 pb-0.5 text-3xl font-extrabold tracking-display text-ink leading-[1.05] placeholder:text-muted-soft focus:outline-none focus:ring-0"
+                  />
+                ) : (
+                  <div className="flex items-center gap-3 max-w-full">
+                    <h1 className={`min-w-0 truncate text-3xl font-extrabold tracking-display leading-[1.05] ${newListing.draftName ? "text-ink" : "text-muted-soft"}`}>
+                      {newListing.draftName || "New listing"}
+                    </h1>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingName(true)}
+                      aria-label="Rename listing"
+                      className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-border-strong text-muted text-[11.5px] font-bold hover:border-primary hover:text-primary hover:bg-primary-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                      Rename
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -789,11 +891,10 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
               {/* Left — form column */}
               <div className="space-y-6 min-w-0">
-                {/* Photos section eyebrow */}
+                {/* The "Photos" label now lives inside SellWizard, directly above
+                    the upload box (below the step progress bar), so the bar no
+                    longer separates the label from the box. */}
                 <section>
-                  <header className="flex items-baseline justify-between mb-3">
-                    <h2 className="text-sm font-semibold text-ink uppercase tracking-wider">Photos</h2>
-                  </header>
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
                       AI mode it expands into the full wizard flow. */}
@@ -806,7 +907,7 @@ export default function App() {
                     publicCommunities={publicCommunities}
                     privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
-                    onRequestSignIn={() => setPage("signin")}
+                    onRequestSignIn={requestSignInForPublish}
                     onPosted={() => {
                       newListing.reset();
                       setPage("market");
@@ -825,6 +926,8 @@ export default function App() {
                       // continues editing the loaded state without further loads.
                       setDraftRouteState({ kind: "new" });
                     }}
+                    draftName={newListing.draftName}
+                    onDraftNameLoaded={newListing.setDraftName}
                     onPublishedDraft={async (draftId) => {
                       if (draftId) {
                         await draftStorage.deleteDraft(draftId);
@@ -833,11 +936,15 @@ export default function App() {
                     }}
                     onBackToDrafts={() => setDraftRouteState({ kind: "gallery" })}
                     onBulkPreviewChange={newListing.setBulkPreview}
+                    onChecklistSignalsChange={newListing.setChecklistSignals}
                   />
                 </section>
 
-                {/* AI / Manual toggle — green callout */}
-                {newListing.wizardPhase === null && (
+                {/* AI / Manual toggle — only on the upload step (step 1). Hidden
+                    once the wizard advances: bulk sets wizardPhase, and the
+                    single-item flow sets aiProductDetails (which resets
+                    wizardPhase to null), so we check both to hide it uniformly. */}
+                {newListing.wizardPhase === null && newListing.aiProductDetails === null && (
                   <div className="bg-primary-soft border border-primary/20 rounded-md p-5">
                     <div role="tablist" aria-label="Listing creation mode" className="grid grid-cols-2 gap-2">
                       <button
@@ -879,10 +986,10 @@ export default function App() {
                 {newListing.mode === "manual" && (
                   <>
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
-                      <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Product details</h3>
+                      <h3 className="text-xs font-semibold text-muted">Product details</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="block">
-                          <span className="text-xs text-muted uppercase tracking-wider">Brand</span>
+                          <span className="text-xs text-muted">Brand</span>
                           <Input
                             value={newListing.brand}
                             onChange={(e) => newListing.setBrand(e.target.value)}
@@ -891,7 +998,7 @@ export default function App() {
                           />
                         </label>
                         <label className="block">
-                          <span className="text-xs text-muted uppercase tracking-wider">Name / model</span>
+                          <span className="text-xs text-muted">Name / model</span>
                           <Input
                             value={newListing.name}
                             onChange={(e) => newListing.setName(e.target.value)}
@@ -901,7 +1008,7 @@ export default function App() {
                         </label>
                       </div>
                       <div>
-                        <span className="text-xs text-muted uppercase tracking-wider">Category</span>
+                        <span className="text-xs text-muted">Category</span>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {(Object.entries(categorySchemas).length > 0
                             ? Object.entries(categorySchemas).map(([slug, schema]) => ({ slug: slug as CategorySlug, label: schema.label }))
@@ -949,7 +1056,7 @@ export default function App() {
                         )}
                       </div>
                       <div>
-                        <span className="text-xs text-muted uppercase tracking-wider">Condition</span>
+                        <span className="text-xs text-muted">Condition</span>
                         <div role="radiogroup" aria-label="Condition" className="flex flex-wrap gap-2 mt-2">
                           {CONDITIONS.map((c) => {
                             const active = newListing.condition === c;
@@ -972,7 +1079,7 @@ export default function App() {
 
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-3">
                       <header className="flex items-baseline justify-between">
-                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Description</h3>
+                        <h3 className="text-xs font-semibold text-muted">Description</h3>
                         <span className={`text-xs ${newListing.description.length >= 20 ? "text-primary" : "text-muted"}`}>
                           {newListing.description.length} / 20+ chars
                         </span>
@@ -985,7 +1092,7 @@ export default function App() {
                         className="w-full min-h-32 bg-surface-soft border border-hairline rounded-md p-3 text-sm text-ink placeholder:text-muted-soft resize-y focus:outline-none focus:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                       />
                       <div>
-                        <span className="text-xs text-muted uppercase tracking-wider">Tags</span>
+                        <span className="text-xs text-muted">Tags</span>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {newListing.tags.map((t) => (
                             <span key={t} className={getChipClass(true)}>
@@ -1020,7 +1127,7 @@ export default function App() {
 
                     <section className="bg-canvas border border-hairline rounded-md p-5 space-y-4">
                       <header className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-xs font-semibold text-muted uppercase tracking-wider">Pricing &amp; pickup</h3>
+                        <h3 className="text-xs font-semibold text-muted">Pricing &amp; pickup</h3>
                         {/* Price suggestion is faked for now; real suggestion logic
                             is queued in backlog.md (sell-flow pricing). */}
                         <span className="bg-primary-soft text-primary px-2 py-1 rounded-full text-xs font-medium">
@@ -1029,7 +1136,7 @@ export default function App() {
                       </header>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <span className="text-xs text-muted uppercase tracking-wider">Price</span>
+                          <span className="text-xs text-muted">Price</span>
                           <div className="flex items-center gap-1 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
                             <span className="text-3xl font-extrabold tracking-display text-ink">$</span>
                             <input
@@ -1044,7 +1151,7 @@ export default function App() {
                           </div>
                         </div>
                         <div>
-                          <span className="text-xs text-muted uppercase tracking-wider">Pickup neighborhood</span>
+                          <span className="text-xs text-muted">Pickup neighborhood</span>
                           <div className="flex items-center gap-2 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
                             <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
                             <input
@@ -1139,12 +1246,12 @@ export default function App() {
         <section className="min-h-[calc(100vh-64px)] flex items-start justify-center px-4 sm:px-6 lg:px-8 pt-8 pb-16 sm:pt-12 sm:pb-16">
           <div className="w-full max-w-[760px]">
             <div className="mb-8">
-              <p className="text-[12px] font-semibold tracking-[0.18em] uppercase text-muted mb-5">
+              <p className="text-base sm:text-lg leading-relaxed text-muted mb-5">
                 {(() => {
                   const d = new Date();
                   const wk = d.toLocaleDateString("en-US", { weekday: "long" });
                   const mo = d.toLocaleDateString("en-US", { month: "long" });
-                  return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`.toUpperCase();
+                  return `${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`;
                 })()}
               </p>
               <h1 className="text-5xl sm:text-6xl font-extrabold tracking-display text-ink leading-[1.05] mb-5">
@@ -1854,7 +1961,7 @@ export default function App() {
             </p>
             <div className="space-y-3">
               <div>
-                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Neighborhood
                 </label>
                 <input
@@ -1867,7 +1974,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <label htmlFor="cl-zip" className="block text-[11px] font-semibold tracking-[0.18em] uppercase text-muted mb-1.5">
+                <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
                 <input

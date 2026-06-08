@@ -81,18 +81,18 @@ export const GroupCard = memo(function GroupCard({
               draggable={bulkReviewPhase === "review"}
               onDragStart={bulkReviewPhase === "review" ? () => onDragStart(imgIdx, groupIdx) : undefined}
               onDragEnd={bulkReviewPhase === "review" ? onDragEnd : undefined}
-              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 overflow-hidden ${
+              className={`relative size-16 rounded-md border border-hairline transition-opacity shrink-0 ${
                 bulkReviewPhase === "review" ? "cursor-grab active:cursor-grabbing" : ""
               } ${isDragging ? "opacity-40" : "opacity-100"}`}
             >
-              <SkeletonImage src={previewSrc} alt={`Photo ${imgIdx + 1}`} />
+              <SkeletonImage src={previewSrc} alt={`Photo ${imgIdx + 1}`} className="rounded-md" />
               {bulkReviewPhase === "review" && (
                 <button
                   type="button"
                   aria-label={`Delete photo ${imgIdx + 1}`}
                   onMouseDown={onDeleteMouseDown}
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteClick(imgIdx); }}
-                  className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                  className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                 >
                   <X className="size-3" />
                 </button>
@@ -121,7 +121,7 @@ export const GroupCard = memo(function GroupCard({
               style={{ fieldSizing: "content" } as React.CSSProperties}
               className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-border-strong pb-0.5 text-xs text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors text-center"
             />
-            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-muted uppercase leading-none">Brand</label>
+            <label htmlFor={`brand-hint-${groupIdx}`} className="text-[10px] text-muted leading-none">Brand</label>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <input
@@ -135,7 +135,7 @@ export const GroupCard = memo(function GroupCard({
               style={{ fieldSizing: "content" } as React.CSSProperties}
               className="min-w-[3rem] max-w-[10rem] bg-transparent border-b border-border-strong pb-0.5 text-xs text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary transition-colors text-center"
             />
-            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-muted uppercase leading-none">Name</label>
+            <label htmlFor={`name-hint-${groupIdx}`} className="text-[10px] text-muted leading-none">Name</label>
           </div>
         </div>
       )}

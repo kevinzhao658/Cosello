@@ -3,6 +3,7 @@ import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "
 import { useAuth } from "../../contexts/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
+import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
@@ -25,6 +26,8 @@ import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
+import { StepProgressBar } from "./StepProgressBar";
+import { computeWizardStep } from "./wizardStep";
 
 export interface SellWizardHandle {
   postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
@@ -62,10 +65,15 @@ export interface SellWizardProps {
   onImagesChange?: (count: number) => void;
   onProductDetailsChange?: (details: ProductDetails | null) => void;
   onCoverImageChange?: (url: string | null) => void;
+  onChecklistSignalsChange?: (s: { communitySelected: boolean; pickupLocationSet: boolean }) => void;
   // Drafts. Parent sets pendingDraftId when the user taps a draft card; the
   // wizard loads it on mount and clears the parent's state via onDraftLoaded.
   pendingDraftId?: string | null;
   onDraftLoaded?: () => void;
+  // Editable draft name, owned by the page heading. Threaded into autosave as
+  // Draft.name; onDraftNameLoaded pushes a loaded draft's name back to the page.
+  draftName?: string;
+  onDraftNameLoaded?: (name: string) => void;
   onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
   onBackToDrafts?: () => void;
 }
@@ -99,8 +107,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onImagesChange,
   onProductDetailsChange,
   onCoverImageChange,
+  onChecklistSignalsChange,
   pendingDraftId = null,
   onDraftLoaded,
+  draftName = "",
+  onDraftNameLoaded,
   onPublishedDraft,
   onBackToDrafts,
 }, ref) {
@@ -126,6 +137,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // Single-listing wizard has its own two-phase split (review → pickup) to
   // mirror bulk's PickupStep. Bulk uses bulkReviewPhase; single uses this.
   const [singlePostPhase, setSinglePostPhase] = useState<"review" | "pickup">("review");
+  // High-water mark for the step bar: the furthest step reached this session.
+  // Lets the user jump forward again to steps they've already completed after
+  // navigating back. Reset to 1 on a fresh upload; rewound when a back-jump
+  // invalidates later steps (single flow dropping its generated item).
+  const [maxReachedStep, setMaxReachedStep] = useState(1);
+  const [isCompressing, setIsCompressing] = useState(false);
   const [state, actions] = useSellWizard();
 
   const {
@@ -173,6 +190,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     initializedFromNeighborhoodRef,
     pendingDraftId,
     onDraftLoaded,
+    draftName,
+    onDraftNameLoaded,
   });
 
   const post = usePostListing({
@@ -258,10 +277,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       if (bulkItems.length > 0) {
         base = selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages);
         step = bulkReviewPhase === "pickup" ? "pickup" : "review";
-      } else if (segmentation) {
+      } else if (segmentation && !productDetails) {
+        // Groups phase only (pre-generation). Once a single listing is
+        // generated (productDetails set) the aside switches to the single
+        // preview, whose cover is uploadedImages[0] — so reordering photos to
+        // change the cover is reflected. selectGroupsPreview reads a fixed
+        // groupings index and would go stale after REORDER_SINGLE_PHOTOS.
         base = selectGroupsPreview(segmentation, brandHints, names, currentCardIndex, uploadedImages);
         step = "groups";
-      } else if (uploadedImages.length > 0) {
+      } else if (uploadedImages.length > 0 && !productDetails) {
         base = selectUploadPreview(uploadedImages, currentCardIndex);
         step = "upload";
       }
@@ -271,7 +295,17 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
+
+  // Emit checklist signals (community + pickup) to the parent so it can render
+  // a single static checklist regardless of step/mode.
+  useEffect(() => {
+    const communitySelected = selectedCommunityIds.length > 0;
+    // Use the single-listing pickup when a single item has been generated;
+    // fall back to the bulk pickup location otherwise.
+    const pickupLocationSet = (productDetails ? postPickupLocation : bulkPickupLocation).trim() !== "";
+    onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
+  }, [selectedCommunityIds, postPickupLocation, bulkPickupLocation, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -311,10 +345,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
 
   const segmentPhotos = useCallback(async (files: File[], signal?: AbortSignal): Promise<SegmentationResult> => {
     if (files.length > 20) throw new Error("Maximum 20 photos per upload");
-    if (!token) throw new Error("Sign in to upload");
-    const urls = await uploadToStorage(files, token);
     const formData = new FormData();
-    formData.append("image_urls", JSON.stringify(urls));
+    if (token) {
+      // Authenticated path: pre-upload to Supabase Storage, then send URLs.
+      const urls = await uploadToStorage(files, token);
+      formData.append("image_urls", JSON.stringify(urls));
+    } else {
+      // Guest path: skip storage upload, send raw files directly as multipart.
+      // Backend saves them via _save_uploaded_images and returns image_urls.
+      for (const f of files) {
+        formData.append("images", f);
+      }
+    }
     const res = await apiFetch("/api/segment-photos", {
       method: "POST",
       body: formData,
@@ -336,7 +378,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     rationale: string;
     rationale_other: string;
   }): Promise<BulkItemDetails[]> => {
-    if (!token) throw new Error("Sign in to upload");
     const res = await apiFetch("/api/generate-listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -366,7 +407,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
       return;
     }
-    const newImages = incoming.map((file) => ({
+    setIsCompressing(true);
+    const compressed = await Promise.all(incoming.map(compressImage));
+    setIsCompressing(false);
+    const newImages = compressed.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -424,7 +468,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       deletePhoto(originalIndex);
     };
 
-  const addPhotoToBulkItem = (index: number, files: FileList) => {
+  const addPhotoToBulkItem = async (index: number, files: FileList) => {
     const remaining = 20 - uploadedImages.length;
     if (remaining <= 0) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
@@ -435,7 +479,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       actions.setSegmentationError("Maximum 20 photos per listing batch");
       return;
     }
-    const newImages = incoming.map((file) => ({
+    setIsCompressing(true);
+    const compressed = await Promise.all(incoming.map(compressImage));
+    setIsCompressing(false);
+    const newImages = compressed.map((file) => ({
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -456,10 +503,6 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (uploadedImages.length === 0) return;
     if (uploadedImages.length > 20) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
-      return;
-    }
-    if (!token) {
-      actions.setSegmentationError("Sign in to upload");
       return;
     }
     actions.segmentationStart();
@@ -648,11 +691,16 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (incoming.length > remaining) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
     }
-    const newImages = trimmed.map((file) => ({
-      file,
-      preview: URL.createObjectURL(file),
-    }));
-    actions.appendImages(newImages);
+    setIsCompressing(true);
+    void Promise.all(trimmed.map(compressImage))
+      .then((compressed) => {
+        const newImages = compressed.map((file) => ({
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        actions.appendImages(newImages);
+      })
+      .finally(() => setIsCompressing(false));
   }, [uploadedImages.length, actions]);
 
   useImperativeHandle(ref, () => ({
@@ -699,6 +747,57 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     [bulkReviewPhase],
   );
 
+  const wizardStep = computeWizardStep({
+    mode,
+    productDetails,
+    singlePostPhase,
+    bulkReviewPhase,
+  });
+
+  // Track the furthest step reached. A fresh upload (step 1) resets the mark;
+  // otherwise it only ever ratchets up. Back-jumps that invalidate later steps
+  // rewind it explicitly in handleStepJump rather than here.
+  const stepCurrent = wizardStep?.current ?? null;
+  useEffect(() => {
+    if (stepCurrent === null) return;
+    if (stepCurrent === 1) setMaxReachedStep(1);
+    else if (stepCurrent > maxReachedStep) setMaxReachedStep(stepCurrent);
+  }, [stepCurrent, maxReachedStep]);
+
+  // Jump to any completed step from the progress bar — backward OR forward to a
+  // step already reached. Bulk phases all share the same persisted data, so any
+  // jump among reached steps is safe. Step 1 (upload) is never jumpable.
+  const handleStepJump = (step: number) => {
+    // Bulk flow (steps 2-5 map to bulk phases).
+    if (inWizardPhase) {
+      const phaseForStep: Record<number, "review" | "reason" | "cards" | "pickup"> = {
+        2: "review",
+        3: "reason",
+        4: "cards",
+        5: "pickup",
+      };
+      const target = phaseForStep[step];
+      if (target && target !== bulkReviewPhase) transitionToPhase(target);
+      return;
+    }
+    // Single flow (productDetails set): step 4 = Review form, step 5 = Pickup —
+    // both jump freely since the generated item persists. Steps 2/3 jump back to
+    // the bulk grouping / reason: segmentation persists, so we drop the generated
+    // single (it can be re-run) and restore that phase. Dropping it invalidates
+    // steps 4-5, so rewind the high-water mark to the step we land on.
+    if (productDetails) {
+      if (step === 4) {
+        setSinglePostPhase("review");
+      } else if (step === 5) {
+        setSinglePostPhase("pickup");
+      } else if (step === 2 || step === 3) {
+        setMaxReachedStep(step);
+        actions.setProductDetails(null);
+        actions.setPhase(step === 2 ? "review" : "reason");
+      }
+    }
+  };
+
   if (!isActive) return null;
 
   return (
@@ -735,6 +834,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           )}
         </div>
       )}
+      {wizardStep && (
+        <StepProgressBar
+          current={wizardStep.current}
+          total={wizardStep.total}
+          labels={wizardStep.labels}
+          maxReached={maxReachedStep}
+          onStepClick={handleStepJump}
+        />
+      )}
       {prunedCommunityCount > 0 && (
         <div className="mx-4 mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-body">
           <AlertTriangle className="size-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
@@ -751,6 +859,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           </button>
         </div>
       )}
+      {bulkReviewPhase === null && (
+        <header className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm font-semibold text-ink">Photos</h2>
+        </header>
+      )}
       <UploadStep
         uploadedImagesCount={uploadedImages.length}
         isGenerating={isGenerating}
@@ -760,6 +873,13 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         onSubmit={handleSellSubmit}
         onSwitchToBuy={onSwitchToBuy}
       />
+
+      {isCompressing && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-muted" aria-live="polite">
+          <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+          <span>Preparing photos…</span>
+        </div>
+      )}
 
       {uploadedImages.length > 0 && (
         <>
@@ -864,7 +984,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
                               aria-label={`Delete photo ${imgIdx + 1}`}
                               onMouseDown={handleDeletePhotoMouseDown}
                               onClick={handleDeletePhotoClick(imgIdx)}
-                              className="absolute -top-2 -right-2 size-5 flex items-center justify-center rounded-full bg-ink/70 text-on-dark hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                              className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                             >
                               <X className="size-3" />
                             </button>
@@ -920,18 +1040,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             >
               <div className="flex flex-wrap items-center gap-2">
                 {uploadedImages.map((img, index) => (
-                  <div key={index} className="relative size-[72px] rounded-md overflow-hidden border border-hairline bg-surface-soft">
+                  <div key={index} className="relative size-[72px] rounded-md border border-hairline bg-surface-soft">
                     <img
                       src={img.preview}
                       alt={`Upload ${index + 1}`}
-                      className="size-full object-cover"
+                      className="size-full object-cover rounded-md"
                     />
                     <button
                       type="button"
                       aria-label={`Delete photo ${index + 1}`}
                       onMouseDown={handleDeletePhotoMouseDown}
                       onClick={handleDeletePhotoClick(index)}
-                      className="absolute top-1 right-1 size-5 inline-flex items-center justify-center rounded-full bg-ink/70 text-on-dark text-xs hover:bg-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                      className="absolute -top-1.5 -right-1.5 z-20 size-5 inline-flex items-center justify-center rounded-full bg-ink/45 text-on-dark backdrop-blur-sm hover:bg-ink/65 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-canvas"
                     >
                       <X className="size-3" />
                     </button>
@@ -1051,6 +1171,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             setSinglePostPhase("pickup");
           }}
           isAuthenticated={isAuthenticated}
+          uploadedImages={uploadedImages}
+          imageUrls={segmentation?.image_urls ?? []}
+          onAddPhotos={(files) => addImagesFromFiles(files)}
+          onDeletePhoto={deletePhoto}
+          onReorderPhotos={actions.reorderSinglePhotos}
         />
       )}
 
@@ -1094,7 +1219,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           updateBulkItemField={updateBulkItemField}
           regenerateBulkItem={regenerateBulkItem}
           addPhotoToBulkItem={addPhotoToBulkItem}
+          onDeletePhoto={deletePhoto}
           onAdvance={() => transitionToPhase("pickup")}
+          reorderBulkItemPhotos={actions.reorderBulkItemPhotos}
         />
       )}
 

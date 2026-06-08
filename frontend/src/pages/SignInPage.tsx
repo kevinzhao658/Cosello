@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { Turnstile } from "@marsidev/react-turnstile";
+import type { TurnstileInstance } from "@marsidev/react-turnstile";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, ArrowRight, Phone, ChevronDown, CheckCircle } from "lucide-react";
@@ -39,6 +41,12 @@ function stripNonDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+// Cloudflare's always-passes test key for local dev; production key set via VITE_TURNSTILE_SITE_KEY.
+// When the env var is absent, the widget is not rendered and signInWithOtp is called without a
+// captchaToken, preserving the pre-Turnstile behavior exactly.
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
+const hasSiteKey = Boolean(TURNSTILE_SITE_KEY);
+
 interface SignInPageProps {
   onSuccess: (token: string, userExists: boolean, user: AuthUser | null) => void;
   onCancel: () => void;
@@ -54,8 +62,12 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
   const [error, setError] = useState("");
   const [userExists, setUserExists] = useState<boolean | null>(null);
   const [checkingPhone, setCheckingPhone] = useState(false);
+  // Turnstile token state — string when solved, null when absent/consumed/expired
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const checkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Typed ref for the Turnstile widget instance — used to reset after each OTP send
+  const turnstileRef = useRef<TurnstileInstance | undefined>(undefined);
 
   const country = COUNTRIES[countryIdx];
   const formatted = formatPhone(rawDigits, country.format);
@@ -99,6 +111,13 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
     }
   };
 
+  // Reset the Turnstile widget and clear the local token — called after every OTP send attempt
+  // (success or failure) so that the single-use token is never resubmitted, and before any resend.
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    turnstileRef.current?.reset();
+  };
+
   const handleSendOTP = async () => {
     if (!rawDigits) {
       setError("Please enter a phone number");
@@ -109,12 +128,29 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
     setError("");
 
     try {
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        phone: fullNumber,
-      });
+      // Only pass captchaToken when the site key is configured; otherwise omit entirely
+      // to preserve the pre-Turnstile signInWithOtp behavior (Supabase CAPTCHA toggle is OFF).
+      const { error: otpError } = hasSiteKey
+        ? await supabase.auth.signInWithOtp({
+            phone: fullNumber,
+            options: { captchaToken: captchaToken ?? undefined },
+          })
+        : await supabase.auth.signInWithOtp({
+            phone: fullNumber,
+          });
+
+      // Token is single-use — reset widget regardless of outcome so the next send gets a fresh token.
+      resetCaptcha();
 
       if (otpError) {
-        throw new Error(otpError.message || "Failed to send code");
+        // Surface CAPTCHA-related Supabase errors as human-readable copy rather than raw codes.
+        const msg = otpError.message ?? "";
+        if (msg.toLowerCase().includes("captcha")) {
+          setError("CAPTCHA verification failed. Please complete the security check and try again.");
+        } else {
+          throw new Error(msg || "Failed to send code");
+        }
+        return;
       }
 
       setStep("otp");
@@ -135,6 +171,9 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
     setError("");
 
     try {
+      // Supabase enforces CAPTCHA on the OTP *request* (signInWithOtp), not on verifyOtp.
+      // The verification step does not require a captchaToken under standard Supabase configuration,
+      // so we intentionally omit it here.
       const { error: verifyError } = await supabase.auth.verifyOtp({
         phone: fullNumber,
         token: otp,
@@ -195,7 +234,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
           {step === "phone" ? (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   Phone Number
                 </label>
                 <div className="flex items-stretch gap-0">
@@ -253,11 +292,39 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                 </div>
               </div>
 
+              {/* Turnstile CAPTCHA widget — only rendered when VITE_TURNSTILE_SITE_KEY is set.
+                  Uses managed mode so users typically see nothing (or a brief checkbox if
+                  Cloudflare requests interactivity). theme="light" to match the light UI
+                  (the widget is a cross-origin iframe, so only Turnstile's light/dark/auto
+                  themes are available — no arbitrary CSS). */}
+              {hasSiteKey && (
+                <div className="flex justify-center">
+                  <Turnstile
+                    ref={turnstileRef}
+                    siteKey={TURNSTILE_SITE_KEY!}
+                    onSuccess={(token: string) => setCaptchaToken(token)}
+                    onExpire={() => {
+                      // Token expired (~5 min) — clear state and reset so a fresh token is issued.
+                      setCaptchaToken(null);
+                      turnstileRef.current?.reset();
+                    }}
+                    onError={(code: string) => {
+                      // Widget-level error (network failure, script blocked, etc.) — reset so the
+                      // user can retry, and surface a human-readable message via existing error state.
+                      setCaptchaToken(null);
+                      turnstileRef.current?.reset();
+                      setError(`Security check failed (${code}). Please refresh and try again.`);
+                    }}
+                    options={{ theme: "light", size: "normal" }}
+                  />
+                </div>
+              )}
+
               {error && <p className="text-sm text-error">{error}</p>}
 
               <Button
                 onClick={handleSendOTP}
-                disabled={isLoading || !isPhoneComplete}
+                disabled={isLoading || !isPhoneComplete || (hasSiteKey && !captchaToken)}
                 className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
@@ -281,7 +348,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
           ) : (
             <div className="space-y-4">
               <div>
-                <label className="block text-xs text-muted uppercase tracking-wider mb-1.5 font-semibold">
+                <label className="block text-xs text-muted mb-1.5 font-semibold">
                   Verification Code
                 </label>
                 <Input
@@ -311,6 +378,10 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                   onClick={() => {
                     setOtp("");
                     setError("");
+                    // resetCaptcha() is called inside handleSendOTP after the request, so the
+                    // widget will already be reset by the time the user hits Resend. Calling
+                    // handleSendOTP here directly ensures we never reuse a consumed token — the
+                    // widget re-issues a fresh token for the next send.
                     handleSendOTP();
                   }}
                   disabled={isLoading}
@@ -324,6 +395,10 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                     setStep("phone");
                     setOtp("");
                     setError("");
+                    // Clear any stale captcha token when returning to the phone step.
+                    // The widget remounts naturally (it is only rendered on step === "phone"),
+                    // which resets it and issues a new token automatically.
+                    setCaptchaToken(null);
                   }}
                   className="text-sm text-muted hover:text-ink transition-colors"
                 >
