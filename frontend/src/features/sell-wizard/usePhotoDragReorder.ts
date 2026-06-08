@@ -5,6 +5,12 @@ export interface DragItemProps {
   onPointerMove: (e: React.PointerEvent<HTMLElement>) => void;
   onPointerUp: (e: React.PointerEvent<HTMLElement>) => void;
   onPointerCancel: (e: React.PointerEvent<HTMLElement>) => void;
+  // The thumbnails render an <img> (via SkeletonImage). <img> is draggable by
+  // default, so a press-drag fires the browser's NATIVE image drag, which
+  // hijacks the pointer gesture and breaks the reorder. dragstart bubbles, so
+  // cancelling it here on the wrapper neutralizes the native drag for the image
+  // (and any other child) without touching the shared SkeletonImage.
+  onDragStart: (e: React.DragEvent<HTMLElement>) => void;
   style: React.CSSProperties;
   "data-drag-index": number;
   "data-is-dragging": boolean;
@@ -167,9 +173,18 @@ export function usePhotoDragReorder(
         onPointerMove: handlePointerMove(index),
         onPointerUp: handlePointerUp(index),
         onPointerCancel: handlePointerCancel(index),
-        // touch-action: none prevents the browser from claiming the touch
-        // for page scrolling while a drag is in progress.
-        style: { touchAction: "none", cursor: isDragging ? "grabbing" : "grab" },
+        // Cancel the native image/HTML5 drag (the child <img> is draggable by
+        // default) so it doesn't hijack our pointer-based reorder.
+        onDragStart: (e) => e.preventDefault(),
+        // touch-action: none prevents the browser from claiming the touch for
+        // page scrolling while a drag is in progress; user-select: none stops
+        // text/image selection from interfering with the gesture.
+        style: {
+          touchAction: "none",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+          cursor: isDragging ? "grabbing" : "grab",
+        },
         "data-drag-index": index,
         "data-is-dragging": isDragging,
       };
