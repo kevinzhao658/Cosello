@@ -294,7 +294,9 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
 
               {/* Turnstile CAPTCHA widget — only rendered when VITE_TURNSTILE_SITE_KEY is set.
                   Uses managed mode so users typically see nothing (or a brief checkbox if
-                  Cloudflare requests interactivity). theme="auto" inherits the page preference. */}
+                  Cloudflare requests interactivity). theme="light" to match the light UI
+                  (the widget is a cross-origin iframe, so only Turnstile's light/dark/auto
+                  themes are available — no arbitrary CSS). */}
               {hasSiteKey && (
                 <div className="flex justify-center">
                   <Turnstile
@@ -313,7 +315,7 @@ export default function SignInPage({ onSuccess, onCancel }: SignInPageProps) {
                       turnstileRef.current?.reset();
                       setError(`Security check failed (${code}). Please refresh and try again.`);
                     }}
-                    options={{ theme: "auto", size: "normal" }}
+                    options={{ theme: "light", size: "normal" }}
                   />
                 </div>
               )}
