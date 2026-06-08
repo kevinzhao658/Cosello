@@ -275,10 +275,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       if (bulkItems.length > 0) {
         base = selectBulkPreview(bulkItems, currentCardIndex, segmentation?.image_urls, uploadedImages);
         step = bulkReviewPhase === "pickup" ? "pickup" : "review";
-      } else if (segmentation) {
+      } else if (segmentation && !productDetails) {
+        // Groups phase only (pre-generation). Once a single listing is
+        // generated (productDetails set) the aside switches to the single
+        // preview, whose cover is uploadedImages[0] — so reordering photos to
+        // change the cover is reflected. selectGroupsPreview reads a fixed
+        // groupings index and would go stale after REORDER_SINGLE_PHOTOS.
         base = selectGroupsPreview(segmentation, brandHints, names, currentCardIndex, uploadedImages);
         step = "groups";
-      } else if (uploadedImages.length > 0) {
+      } else if (uploadedImages.length > 0 && !productDetails) {
         base = selectUploadPreview(uploadedImages, currentCardIndex);
         step = "upload";
       }
@@ -288,7 +293,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
