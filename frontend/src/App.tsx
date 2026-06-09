@@ -2027,16 +2027,17 @@ export default function App() {
                 <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
-                <input
+                <select
                   id="cl-zip"
-                  type="text"
-                  inputMode="numeric"
-                  value={changeLocation.zip}
+                  value={NYC_ZIP_SET.has(changeLocation.zip) ? changeLocation.zip : ""}
                   onChange={(e) => changeLocation.setZip(e.target.value)}
-                  placeholder="10013"
-                  maxLength={10}
-                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-                />
+                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="" disabled>Select ZIP</option>
+                  {NYC_ZIPS.map(({ zip, neighborhood }) => (
+                    <option key={zip} value={zip}>{zip} — {neighborhood}</option>
+                  ))}
+                </select>
               </div>
               {changeLocation.error && (
                 <p className="text-sm text-error">{changeLocation.error}</p>
