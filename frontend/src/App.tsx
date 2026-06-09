@@ -42,7 +42,7 @@ import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
 import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
-import { NYC_ZIPS, NYC_ZIP_SET } from "./lib/nycZips";
+import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP, ZIP_NEIGHBORHOOD } from "./lib/nycZips";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
@@ -1388,6 +1388,14 @@ export default function App() {
         <ConfirmZipBanner
           currentZip={user.zip_code}
           onConfirm={async (zip) => {
+            // Keep the neighborhood label in sync with the chosen ZIP: if their
+            // current neighborhood already maps to this ZIP, leave it; otherwise
+            // adopt the canonical neighborhood that contains the ZIP.
+            const keepsCurrent =
+              !!user.neighborhood && NEIGHBORHOOD_ZIP[user.neighborhood] === zip;
+            const neighborhood = keepsCurrent
+              ? user.neighborhood
+              : (ZIP_NEIGHBORHOOD[zip] ?? user.neighborhood);
             const res = await fetch("/api/auth/profile", {
               method: "PUT",
               headers: {
@@ -1396,7 +1404,7 @@ export default function App() {
               },
               body: JSON.stringify({
                 display_name: user.display_name,
-                neighborhood: user.neighborhood,
+                neighborhood,
                 zip_code: zip,
               }),
             });
