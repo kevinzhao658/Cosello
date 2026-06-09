@@ -26,6 +26,7 @@ import { ListingDetailModal } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
 import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
 import { TopSearches } from "./components/TopSearches";
+import { ConfirmZipBanner } from "./components/ConfirmZipBanner";
 import { BulkPreviewAside } from "./components/BulkPreviewAside";
 import { ListingChecklist } from "./components/ListingChecklist";
 import { useMediaQuery } from "./hooks/useMediaQuery";
@@ -47,7 +48,7 @@ import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
-  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser } = useAuth();
+  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser, refreshUser } = useAuth();
   const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
@@ -1382,6 +1383,31 @@ export default function App() {
         </section>
       )}
 
+
+      {page === "market" && isAuthenticated && user && user.zip_confirmed === false && (
+        <ConfirmZipBanner
+          currentZip={user.zip_code}
+          onConfirm={async (zip) => {
+            const res = await fetch("/api/auth/profile", {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token ?? ""}`,
+              },
+              body: JSON.stringify({
+                display_name: user.display_name,
+                neighborhood: user.neighborhood,
+                zip_code: zip,
+              }),
+            });
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({ detail: "Could not confirm ZIP" }));
+              throw new Error((body as { detail?: string }).detail ?? "Could not confirm ZIP");
+            }
+            await refreshUser();
+          }}
+        />
+      )}
 
       {page === "market" && (
         <section className="relative min-h-[calc(100vh-64px)] flex">
