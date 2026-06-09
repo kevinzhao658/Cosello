@@ -29,6 +29,7 @@ import { TopSearches } from "./components/TopSearches";
 import { ConfirmZipBanner } from "./components/ConfirmZipBanner";
 import { BulkPreviewAside } from "./components/BulkPreviewAside";
 import { ListingChecklist } from "./components/ListingChecklist";
+import { LocationCombobox } from "./components/LocationCombobox";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
 import { CategoryAttributeFields } from "./components/CategoryFields";
@@ -43,6 +44,7 @@ import { apiFetch } from "./lib/api";
 import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
 import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP, ZIP_NEIGHBORHOOD } from "./lib/nycZips";
+import { searchLocations } from "./lib/locationSearch";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
@@ -187,6 +189,45 @@ export default function App() {
   // marketplace location header. Edits zip + neighborhood only; full profile
   // edits still go through MyAccount → Edit Profile.
   const changeLocation = useChangeLocation(user, updateUser);
+
+  // Shared helper: persist a ZIP + derived neighborhood to the user profile.
+  // Used by the hero-search location suggestion row (authenticated users).
+  // useChangeLocation has its own inline copy of this logic; we intentionally
+  // leave that hook unchanged to avoid a risky refactor while still avoiding
+  // a second inline duplication here in App.tsx.
+  const [heroLocSaving, setHeroLocSaving] = useState<string | null>(null); // ZIP being saved, or null
+  const [heroLocError, setHeroLocError] = useState<string | null>(null);
+  const setUserLocation = useCallback(
+    async (zip: string): Promise<void> => {
+      const neighborhood = ZIP_NEIGHBORHOOD[zip];
+      if (!neighborhood || !user) return;
+      setHeroLocSaving(zip);
+      setHeroLocError(null);
+      try {
+        const res = await apiFetch("/api/auth/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            display_name: user.display_name,
+            neighborhood,
+            zip_code: zip,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ detail: "Update failed" }));
+          throw new Error((data as { detail?: string }).detail ?? "Update failed");
+        }
+        await refreshUser();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Could not save location";
+        setHeroLocError(msg);
+        throw new Error(msg);
+      } finally {
+        setHeroLocSaving(null);
+      }
+    },
+    [user, refreshUser],
+  );
 
   // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.
 
@@ -1345,19 +1386,66 @@ export default function App() {
                     </button>
                   </form>
 
-                  <div className="flex flex-wrap gap-2 mt-5 items-center">
-                    <span className="text-sm text-muted mr-1">Try</span>
-                    {["Walnut sideboard", "Le Creuset", "Mid-century lamp", "Wool rug", "Vintage Levi's"].map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        onClick={() => setHomeSearch(q)}
-                        className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
+                  {(() => {
+                    const locMatches = isAuthenticated && user ? searchLocations(homeSearch) : [];
+                    if (locMatches.length > 0) {
+                      return (
+                        <div className="mt-3 bg-canvas border border-hairline rounded-md shadow-card overflow-hidden">
+                          {heroLocError && (
+                            <p className="px-3 py-2 text-sm text-error border-b border-hairline">{heroLocError}</p>
+                          )}
+                          {locMatches.map((entry) => {
+                            const isSaving = heroLocSaving === entry.zip;
+                            return (
+                              <button
+                                key={entry.zip}
+                                type="button"
+                                disabled={heroLocSaving !== null}
+                                onClick={async () => {
+                                  try {
+                                    await setUserLocation(entry.zip);
+                                    setHomeSearch("");
+                                    setPage("market");
+                                  } catch {
+                                    // heroLocError is set by setUserLocation; stay on page.
+                                  }
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left hover:bg-surface-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                              >
+                                <MapPin className="size-4 text-muted shrink-0" aria-hidden />
+                                <span>
+                                  {isSaving ? (
+                                    <span className="text-muted">Saving…</span>
+                                  ) : (
+                                    <>
+                                      <span className="text-muted mr-1">Set location:</span>
+                                      <span className="font-semibold text-ink">{entry.zip}</span>
+                                      <span className="text-muted"> — {entry.neighborhood}</span>
+                                    </>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="flex flex-wrap gap-2 mt-5 items-center">
+                        <span className="text-sm text-muted mr-1">Try</span>
+                        {["Walnut sideboard", "Le Creuset", "Mid-century lamp", "Wool rug", "Vintage Levi's"].map((q) => (
+                          <button
+                            key={q}
+                            type="button"
+                            onClick={() => setHomeSearch(q)}
+                            className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 // Homepage Sell tab embeds the drafts gallery so users can
@@ -2022,17 +2110,12 @@ export default function App() {
                 <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
-                <select
+                <LocationCombobox
                   id="cl-zip"
-                  value={NYC_ZIP_SET.has(changeLocation.zip) ? changeLocation.zip : ""}
-                  onChange={(e) => changeLocation.setZip(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="" disabled>Select ZIP</option>
-                  {NYC_ZIPS.map(({ zip, neighborhood }) => (
-                    <option key={zip} value={zip}>{zip} — {neighborhood}</option>
-                  ))}
-                </select>
+                  value={changeLocation.zip}
+                  onChange={changeLocation.setZip}
+                  placeholder="Search ZIP or neighborhood"
+                />
                 {ZIP_NEIGHBORHOOD[changeLocation.zip] && (
                   <p className="text-[11px] text-muted mt-1.5">
                     Neighborhood: <span className="font-semibold text-ink">{ZIP_NEIGHBORHOOD[changeLocation.zip]}</span>
