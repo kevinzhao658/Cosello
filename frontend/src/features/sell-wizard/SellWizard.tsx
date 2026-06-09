@@ -5,6 +5,7 @@ import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
 import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
+import { NYC_ZIP_SET } from "../../lib/nycZips";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
 import {
@@ -148,6 +149,18 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // always well-formed and not mixed with neighborhood text.
   const [postPickupZip, setPostPickupZip] = useState("");
   const [bulkPickupZip, setBulkPickupZip] = useState("");
+
+  // Prefill pickup ZIP from the seller's profile zip (once, when known) so a
+  // returning seller can post without re-opening the dropdown. NYC_ZIP_SET
+  // guards against a non-Manhattan profile zip.
+  useEffect(() => {
+    const z = user?.zip_code;
+    if (z && NYC_ZIP_SET.has(z)) {
+      setPostPickupZip((cur) => (cur === "" ? z : cur));
+      setBulkPickupZip((cur) => (cur === "" ? z : cur));
+    }
+  }, [user?.zip_code]);
+
   const [state, actions] = useSellWizard();
 
   const {

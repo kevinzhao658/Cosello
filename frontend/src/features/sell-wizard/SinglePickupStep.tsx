@@ -1,7 +1,7 @@
 import { Button } from "../../components/ui/button";
 import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
 import { TypedInstruction } from "./TypedInstruction";
-import { NYC_ZIPS, NYC_ZIP_SET } from "../../lib/nycZips";
+import { NYC_ZIPS } from "../../lib/nycZips";
 
 interface SinglePickupStepProps {
   postPickupLocation: string;
@@ -36,12 +36,10 @@ export function SinglePickupStep({
   userZipCode,
   instructionExiting,
 }: SinglePickupStepProps) {
-  // Initialise from profile ZIP on first render. We do this inline rather than
-  // in a useEffect so the select reflects the prefill on the same paint.
-  const effectiveZip =
-    postPickupZip !== "" ? postPickupZip : (userZipCode && NYC_ZIP_SET.has(userZipCode) ? userZipCode : "");
-
-  const canPost = effectiveZip !== "";
+  // postPickupZip is seeded from the user's profile ZIP by the SellWizard
+  // effect before this step renders, so we bind directly to it — no local
+  // display-only fallback needed.
+  const canPost = postPickupZip !== "";
 
   return (
     <>
@@ -67,7 +65,7 @@ export function SinglePickupStep({
             {/* ZIP dropdown */}
             <div className="flex-1">
               <select
-                value={effectiveZip}
+                value={postPickupZip}
                 onChange={(e) => {
                   setPostPickupZip(e.target.value);
                   // Keep legacy free-text field in sync so the checklist signal fires.

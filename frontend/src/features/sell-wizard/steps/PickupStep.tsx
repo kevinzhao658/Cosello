@@ -1,7 +1,7 @@
 import { Button } from "../../../components/ui/button";
 import { Loader2 } from "lucide-react";
 import { CommunityPicker, type CommunityOption } from "../CommunityPicker";
-import { NYC_ZIPS, NYC_ZIP_SET } from "../../../lib/nycZips";
+import { NYC_ZIPS } from "../../../lib/nycZips";
 
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
@@ -40,10 +40,10 @@ export function PickupStep({
   userNeighborhood,
   userZipCode,
 }: PickupStepProps) {
-  const effectiveZip =
-    bulkPickupZip !== "" ? bulkPickupZip : (userZipCode && NYC_ZIP_SET.has(userZipCode) ? userZipCode : "");
-
-  const canPost = !isPostingBulk && effectiveZip !== "";
+  // bulkPickupZip is seeded from the user's profile ZIP by the SellWizard
+  // effect before this step renders, so we bind directly to it — no local
+  // display-only fallback needed.
+  const canPost = !isPostingBulk && bulkPickupZip !== "";
 
   return (
     <div className="space-y-5 max-w-md mx-auto">
@@ -63,7 +63,7 @@ export function PickupStep({
           {/* ZIP dropdown */}
           <div className="flex-1">
             <select
-              value={effectiveZip}
+              value={bulkPickupZip}
               onChange={(e) => {
                 onZipChange(e.target.value);
                 // Keep legacy pickup-location field in sync so checklist fires.
