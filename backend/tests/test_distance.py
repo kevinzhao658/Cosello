@@ -64,23 +64,38 @@ def test_create_listing_no_zip_leaves_coords_null(authed_client, test_user, db_s
     assert row.latitude is None and row.longitude is None
 
 
-def test_listings_returns_distance_and_filters(authed_client, test_user, db_session, mock_storage):
+def test_listings_returns_distance_and_filters(authed_client, test_user, db_session, mock_storage, make_user, override_auth_user):
     from models import ZipCentroid
     for z, la, lo in [("10014", 40.734, -74.006), ("10040", 40.858, -73.929)]:
         if db_session.get(ZipCentroid, z) is None:
             db_session.add(ZipCentroid(zip_code=z, latitude=la, longitude=lo, borough="Manhattan"))
-    # buyer in West Village
+    db_session.commit()
+
+    # Create two sellers (different users) so their listings are visible to the buyer.
+    seller_near = make_user(zip_code="10014")
+    seller_far = make_user(zip_code="10040")
+
+    # Post a near listing as seller_near
+    override_auth_user(seller_near)
+    authed_client.post("/api/listings", files={
+        "data": (None, json.dumps({"brand": "B", "name": "N-10014", "description": "d",
+                 "priceCents": 1000, "condition": "Good", "tags": [], "category": "other",
+                 "categoryAttributes": {}})),
+        "communities": (None, ""), "visibility": (None, "public"),
+        "pickup_location": (None, "X"), "images": ("t.png", _img_bytes(), "image/png")})
+
+    # Post a far listing as seller_far
+    override_auth_user(seller_far)
+    authed_client.post("/api/listings", files={
+        "data": (None, json.dumps({"brand": "B", "name": "N-10040", "description": "d",
+                 "priceCents": 1000, "condition": "Good", "tags": [], "category": "other",
+                 "categoryAttributes": {}})),
+        "communities": (None, ""), "visibility": (None, "public"),
+        "pickup_location": (None, "X"), "images": ("t.png", _img_bytes(), "image/png")})
+
+    # Browse as the buyer (West Village, 10014)
     test_user.zip_code = "10014"; db_session.commit()
-    # one near listing (10014), one far (10040 ~ 8.5 mi)
-    for z in ("10014", "10040"):
-        test_user.zip_code = z; db_session.commit()  # seller zip drives listing centroid
-        authed_client.post("/api/listings", files={
-            "data": (None, json.dumps({"brand": "B", "name": f"N-{z}", "description": "d",
-                     "priceCents": 1000, "condition": "Good", "tags": [], "category": "other",
-                     "categoryAttributes": {}})),
-            "communities": (None, ""), "visibility": (None, "public"),
-            "pickup_location": (None, "X"), "images": ("t.png", _img_bytes(), "image/png")})
-    test_user.zip_code = "10014"; db_session.commit()  # browse as West Village buyer
+    override_auth_user(test_user)
 
     full = authed_client.get("/api/listings").json()
     items = full if isinstance(full, list) else full.get("listings", full.get("results", []))
