@@ -1329,6 +1329,12 @@ async def create_listing(
             detail='identifierConfidence must be "high", "medium", or "low"',
         )
 
+    from services.geo import centroid_for_zip, round_coord as _round_coord
+    seller_zip = (current_user.zip_code or "").strip() or None
+    _centroid = centroid_for_zip(db, seller_zip)
+    listing_lat = _round_coord(_centroid[0]) if _centroid else None
+    listing_lng = _round_coord(_centroid[1]) if _centroid else None
+
     posted_at = time.time()
     listing = Listing(
         id=listing_id,
@@ -1354,6 +1360,9 @@ async def create_listing(
         posted_at=posted_at,
         original_posted_at=posted_at,
         relist_count=0,
+        zip_code=seller_zip,
+        latitude=listing_lat,
+        longitude=listing_lng,
     )
     db.add(listing)
     db.commit()

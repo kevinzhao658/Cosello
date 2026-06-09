@@ -25,3 +25,12 @@ def haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float
 def round_coord(value: float) -> float:
     """Round a coordinate to ~110 m so an exact point is never published."""
     return round(value, 3)
+
+
+def centroid_for_zip(db, zip_code: str | None):
+    """Return (lat, lng) for a ZIP, or None if missing/unseeded."""
+    if not zip_code:
+        return None
+    from models import ZipCentroid
+    row = db.get(ZipCentroid, zip_code)
+    return (row.latitude, row.longitude) if row else None
