@@ -5,6 +5,7 @@ import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
 import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
+import { NYC_ZIP_SET } from "../../lib/nycZips";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
 import {
@@ -30,7 +31,7 @@ import { StepProgressBar } from "./StepProgressBar";
 import { computeWizardStep } from "./wizardStep";
 
 export interface SellWizardHandle {
-  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
+  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string; pickupZip: string }) => Promise<void>;
   resetForLogout: () => void;
   addImages: (files: FileList | File[]) => void;
   getImageCount: () => number;
@@ -143,6 +144,23 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // invalidates later steps (single flow dropping its generated item).
   const [maxReachedStep, setMaxReachedStep] = useState(1);
   const [isCompressing, setIsCompressing] = useState(false);
+  // ZIP codes for the pickup steps. Separate from the free-text
+  // bulkPickupLocation/postPickupLocation so the backend-required field is
+  // always well-formed and not mixed with neighborhood text.
+  const [postPickupZip, setPostPickupZip] = useState("");
+  const [bulkPickupZip, setBulkPickupZip] = useState("");
+
+  // Prefill pickup ZIP from the seller's profile zip (once, when known) so a
+  // returning seller can post without re-opening the dropdown. NYC_ZIP_SET
+  // guards against a non-Manhattan profile zip.
+  useEffect(() => {
+    const z = user?.zip_code;
+    if (z && NYC_ZIP_SET.has(z)) {
+      setPostPickupZip((cur) => (cur === "" ? z : cur));
+      setBulkPickupZip((cur) => (cur === "" ? z : cur));
+    }
+  }, [user?.zip_code]);
+
   const [state, actions] = useSellWizard();
 
   const {
@@ -201,6 +219,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     currentDraftId,
     setCurrentDraftId,
     selectedCommunityIds,
+    postPickupZip,
+    bulkPickupZip,
     onPosted,
     onPublishedDraft,
     onRequestSignIn,
@@ -291,21 +311,20 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       }
     }
     const communitySelected = selectedCommunityIds.length > 0;
-    const pickupLocationSet = bulkPickupLocation.trim() !== "";
+    const pickupLocationSet = bulkPickupZip !== "";
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupZip, onBulkPreviewChange]);
 
   // Emit checklist signals (community + pickup) to the parent so it can render
   // a single static checklist regardless of step/mode.
   useEffect(() => {
     const communitySelected = selectedCommunityIds.length > 0;
-    // Use the single-listing pickup when a single item has been generated;
-    // fall back to the bulk pickup location otherwise.
-    const pickupLocationSet = (productDetails ? postPickupLocation : bulkPickupLocation).trim() !== "";
+    // A ZIP selection satisfies the pickup requirement (required by backend).
+    const pickupLocationSet = productDetails ? postPickupZip !== "" : bulkPickupZip !== "";
     onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
-  }, [selectedCommunityIds, postPickupLocation, bulkPickupLocation, productDetails, onChecklistSignalsChange]);
+  }, [selectedCommunityIds, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -673,6 +692,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setSelectedCommunityIds([]);
     setSinglePostPhase("review");
     setPrunedCommunityCount(0);
+    setPostPickupZip("");
+    setBulkPickupZip("");
     draft.resetSaveStatus();
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
@@ -1138,10 +1159,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         >
           <PickupStep
             bulkPickupLocation={bulkPickupLocation}
+            bulkPickupZip={bulkPickupZip}
             bulkItemsCount={bulkItems.length}
             isPostingBulk={isPostingBulk}
             isAuthenticated={isAuthenticated}
             onChange={actions.setBulkPickupLocation}
+            onZipChange={setBulkPickupZip}
             onPost={() => {
               if (!isAuthenticated) { onRequestSignIn(); return; }
               post.postBulkFromPickup();
@@ -1154,6 +1177,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               );
             }}
             userNeighborhood={user?.neighborhood ?? null}
+            userZipCode={user?.zip_code ?? null}
           />
         </div>
       )}
@@ -1183,6 +1207,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         <SinglePickupStep
           postPickupLocation={postPickupLocation}
           setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+          postPickupZip={postPickupZip}
+          setPostPickupZip={setPostPickupZip}
           onBack={() => setSinglePostPhase("review")}
           onPost={() => {
             if (!isAuthenticated) { onRequestSignIn(); return; }
@@ -1197,6 +1223,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             );
           }}
           userNeighborhood={user?.neighborhood ?? null}
+          userZipCode={user?.zip_code ?? null}
           instructionExiting={instructionExiting}
         />
       )}

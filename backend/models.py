@@ -179,6 +179,9 @@ class Listing(Base):
     posted_at = Column(Float, nullable=False, index=True)
     original_posted_at = Column(Float, nullable=True)
     relist_count = Column(Integer, default=0, nullable=False)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    zip_code = Column(String(10), nullable=True)
 
     @property
     def title_str(self) -> str:
@@ -232,7 +235,18 @@ class Listing(Base):
             "postedAt": self.posted_at,
             "originalPostedAt": self.original_posted_at,
             "relistCount": int(self.relist_count) if self.relist_count is not None else 0,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "zip_code": self.zip_code or "",
         }
+
+
+class ZipCentroid(Base):
+    __tablename__ = "zip_centroids"
+    zip_code = Column(String(10), primary_key=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    borough = Column(String(40), nullable=True)
 
 
 class ListingView(Base):

@@ -21,6 +21,10 @@ export interface UsePostListingDeps {
   currentDraftId: string | null;
   setCurrentDraftId: (id: string | null) => void;
   selectedCommunityIds: number[];
+  /** Required NYC ZIP for the single-listing pickup step. */
+  postPickupZip: string;
+  /** Required NYC ZIP shared across all bulk items. */
+  bulkPickupZip: string;
   onPosted: () => void;
   onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
   onRequestSignIn: () => void;
@@ -28,7 +32,7 @@ export interface UsePostListingDeps {
 }
 
 export interface UsePostListingReturn {
-  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
+  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string; pickupZip: string }) => Promise<void>;
   postBulk: () => Promise<void>;
   postBulkFromPickup: () => Promise<void>;
 }
@@ -40,6 +44,8 @@ export function usePostListing({
   currentDraftId,
   setCurrentDraftId,
   selectedCommunityIds,
+  postPickupZip,
+  bulkPickupZip,
   onPosted,
   onPublishedDraft,
   onRequestSignIn,
@@ -54,13 +60,15 @@ export function usePostListing({
     bulkPickupLocation,
   } = state;
 
-  const postSingleListing = useCallback(async (override?: { details: ProductDetails; pickupLocation: string }) => {
+  const postSingleListing = useCallback(async (override?: { details: ProductDetails; pickupLocation: string; pickupZip: string }) => {
     // Override path lets the New Listing page publish in Manual mode without
     // waiting for setProductDetails to flush through React state.
     const details = override?.details ?? productDetails;
     const pickup = override?.pickupLocation ?? postPickupLocation;
+    const zip = override?.pickupZip ?? postPickupZip;
     if (!details || uploadedImages.length === 0) return;
     if (!isAuthenticated) { onRequestSignIn(); return; }
+    if (!zip) { alert("Select a pickup ZIP code before posting."); return; }
 
     const priceCents = priceStringToCents(details.price);
     if (priceCents === null) { alert("Enter a valid price before posting."); return; }
@@ -101,9 +109,13 @@ export function usePostListing({
       formData.append("communities", selectedCommunityIds.join(","));
       formData.append("visibility", "public");
       formData.append("pickup_location", pickup);
+      formData.append("pickup_zip", zip);
 
       const res = await apiFetch("/api/listings", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Failed to post listing");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ detail: "Failed to post listing" }));
+        throw new Error(typeof errBody.detail === "string" ? errBody.detail : "Failed to post listing");
+      }
       await res.json();
 
       // Cleanup: revoke blob URLs before resetting state.
@@ -117,11 +129,12 @@ export function usePostListing({
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn, clearDraftCreatedAt]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, postPickupZip, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn, clearDraftCreatedAt]);
 
   const postBulk = async () => {
     if (bulkItems.length === 0 || uploadedImages.length === 0) return;
     if (!isAuthenticated) { onRequestSignIn(); return; }
+    if (!bulkPickupZip) { alert("Select a pickup ZIP code before posting."); return; }
 
     const invalidIdx = bulkItems.findIndex((item) => priceStringToCents(item.price) === null);
     if (invalidIdx !== -1) {
@@ -169,9 +182,14 @@ export function usePostListing({
               ? item.pickupLocation
               : fallbackPickup;
           formData.append("pickup_location", itemPickup);
+          // Shared ZIP for the whole batch — backend requires this field.
+          formData.append("pickup_zip", bulkPickupZip);
 
           const res = await apiFetch("/api/listings", { method: "POST", body: formData });
-          if (!res.ok) throw new Error(`Failed to post listing: ${formatTitle(item.brand, item.name)}`);
+          if (!res.ok) {
+            const errBody = await res.json().catch(() => ({ detail: `Failed to post listing: ${formatTitle(item.brand, item.name)}` }));
+            throw new Error(typeof errBody.detail === "string" ? errBody.detail : `Failed to post listing: ${formatTitle(item.brand, item.name)}`);
+          }
         }),
       );
 

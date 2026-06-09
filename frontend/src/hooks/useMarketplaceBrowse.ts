@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { apiFetch } from "../lib/api";
 import { useDebouncedValue } from "./useDebouncedValue";
 import type { Listing, CategorySlug } from "../lib/types";
@@ -55,10 +55,9 @@ export function useMarketplaceBrowse({
   // to backend `sort=newest` (FYP path kicks in when no community is selected
   // and no search is active) until dedicated backend sort modes ship.
   const [sort, setSort] = useState<MarketSort>("recommended");
-  // Distance is purely a visual placeholder for now — no backend filter, no
-  // distance data on the listing payload. Hooked to local state so the slider
-  // is interactive; will start filtering once Listing carries lat/long.
-  const [distanceMiles, setDistanceMiles] = useState<number>(5);
+  // Default to the slider's top (10 = "10+", i.e. any distance) so first-load
+  // browse shows everything; the user narrows by dragging below 10.
+  const [distanceMiles, setDistanceMiles] = useState<number>(10);
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
   const [visibleCount, setVisibleCount] = useState<number>(24);
@@ -129,6 +128,8 @@ export function useMarketplaceBrowse({
     // TODO: add a real `trending` sort backend-side (view count window).
     const backendSort = sort === "newest" ? "newest" : "newest";
     params.set("sort", backendSort);
+    // Distance is filtered client-side (see filteredListings) — the backend
+    // returns distance_miles on every listing, so the slider needs no refetch.
     if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
     if (isAuthenticated && token) {
@@ -158,7 +159,8 @@ export function useMarketplaceBrowse({
     }
   }, [showMyListings, isAuthenticated, token, debouncedSearch, sort, selectedCategories, selectedCommunities, userNeighborhood]);
 
-  // Market fetch effect
+  // Market fetch effect — note: distanceMiles is NOT a dep; the slider filters
+  // client-side without refetching.
   useEffect(() => {
     if (page === "market") fetchListings();
   }, [page, debouncedSearch, selectedCommunities, sort, selectedCategories, isAuthenticated, showMyListings]);
@@ -174,8 +176,20 @@ export function useMarketplaceBrowse({
     setListingsLoaded(false);
   }, []);
 
+  // Distance filtering applied client-side on the already-fetched feed (every
+  // listing carries distance_miles), so dragging the slider is instant — no
+  // refetch. Listings with no distance (buyer has no zip, or no coords) are
+  // never filtered out, so the slider gracefully no-ops for zip-less buyers.
+  const filteredListings = useMemo(
+    () =>
+      distanceMiles >= 10
+        ? listings
+        : listings.filter((l) => l.distance_miles == null || l.distance_miles <= distanceMiles),
+    [listings, distanceMiles],
+  );
+
   return {
-    listings,
+    listings: filteredListings,
     listingsLoaded,
     visibleCount,
     sentinelRef,

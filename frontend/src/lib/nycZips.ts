@@ -1,0 +1,52 @@
+/**
+ * Manhattan ZIP codes — exact match with backend/scripts/seed_zip_centroids.py.
+ * Keeping these in sync prevents "valid in dropdown but rejected by backend" drift.
+ * Sorted ascending by ZIP string.
+ */
+export const NYC_ZIPS: readonly { zip: string; neighborhood: string }[] = [
+  { zip: "10001", neighborhood: "Chelsea / Penn Station" },
+  { zip: "10002", neighborhood: "Lower East Side" },
+  { zip: "10003", neighborhood: "East Village" },
+  { zip: "10004", neighborhood: "Financial District / Governors Island" },
+  { zip: "10005", neighborhood: "Financial District" },
+  { zip: "10006", neighborhood: "Financial District / City Hall" },
+  { zip: "10007", neighborhood: "Tribeca / City Hall" },
+  { zip: "10009", neighborhood: "Alphabet City" },
+  { zip: "10010", neighborhood: "Gramercy" },
+  { zip: "10011", neighborhood: "Chelsea" },
+  { zip: "10012", neighborhood: "NoHo / SoHo" },
+  { zip: "10013", neighborhood: "Tribeca / SoHo" },
+  { zip: "10014", neighborhood: "West Village" },
+  { zip: "10016", neighborhood: "Murray Hill" },
+  { zip: "10017", neighborhood: "Midtown East" },
+  { zip: "10018", neighborhood: "Hell's Kitchen / Garment District" },
+  { zip: "10019", neighborhood: "Midtown West" },
+  { zip: "10021", neighborhood: "Upper East Side" },
+  { zip: "10022", neighborhood: "Midtown East" },
+  { zip: "10023", neighborhood: "Upper West Side" },
+  { zip: "10024", neighborhood: "Upper West Side" },
+  { zip: "10025", neighborhood: "Morningside Heights" },
+  { zip: "10026", neighborhood: "Central Harlem" },
+  { zip: "10027", neighborhood: "Harlem" },
+  { zip: "10028", neighborhood: "Upper East Side" },
+  { zip: "10029", neighborhood: "East Harlem" },
+  { zip: "10030", neighborhood: "Harlem" },
+  { zip: "10031", neighborhood: "Hamilton Heights" },
+  { zip: "10032", neighborhood: "Washington Heights" },
+  { zip: "10033", neighborhood: "Washington Heights" },
+  { zip: "10034", neighborhood: "Inwood" },
+  { zip: "10035", neighborhood: "East Harlem" },
+  { zip: "10036", neighborhood: "Hell's Kitchen" },
+  { zip: "10037", neighborhood: "Harlem" },
+  { zip: "10038", neighborhood: "Fulton Seaport" },
+  { zip: "10039", neighborhood: "Harlem" },
+  { zip: "10040", neighborhood: "Washington Heights" },
+  { zip: "10044", neighborhood: "Roosevelt Island" },
+  { zip: "10065", neighborhood: "Upper East Side" },
+  { zip: "10075", neighborhood: "Upper East Side" },
+  { zip: "10128", neighborhood: "Yorkville" },
+  { zip: "10280", neighborhood: "Battery Park City" },
+] as const;
+
+/** Set of valid ZIP strings — O(1) membership check. */
+export const NYC_ZIP_SET: ReadonlySet<string> = new Set(NYC_ZIPS.map((z) => z.zip));

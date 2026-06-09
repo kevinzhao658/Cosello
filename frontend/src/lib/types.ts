@@ -51,6 +51,10 @@ export interface Listing {
   categoryAttributes?: Record<string, string>;
   identifierConfidence?: "high" | "medium" | "low";
   retrieval_fallback?: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  zip_code: string;
+  distance_miles: number | null;
   // Server still returns a stored `title` column for legacy clients during
   // the transition; modern UI ignores it and recomputes via formatTitle.
   title?: string;

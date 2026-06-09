@@ -41,6 +41,7 @@ import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
 import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
+import { NYC_ZIPS, NYC_ZIP_SET } from "./lib/nycZips";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
@@ -1151,16 +1152,34 @@ export default function App() {
                           </div>
                         </div>
                         <div>
-                          <span className="text-xs text-muted">Pickup neighborhood</span>
-                          <div className="flex items-center gap-2 mt-1 border border-border-strong rounded-md bg-canvas focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30 px-3 h-12">
-                            <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
-                            <input
-                              type="text"
-                              value={newListing.pickup}
-                              onChange={(e) => newListing.setPickup(e.target.value)}
-                              placeholder={user?.neighborhood || "West Village"}
-                              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-sm text-ink placeholder:text-muted-soft"
-                            />
+                          <span className="text-xs text-muted">Pickup ZIP</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            {/* City — read-only */}
+                            <div className="flex items-center gap-2 border border-border-strong rounded-md bg-surface-soft px-3 h-12 flex-none">
+                              <MapPin className="size-4 text-primary shrink-0" aria-hidden="true" />
+                              <span className="text-sm text-muted select-none">New York</span>
+                            </div>
+                            {/* ZIP select */}
+                            <select
+                              value={
+                                newListing.pickupZip !== ""
+                                  ? newListing.pickupZip
+                                  : user?.zip_code && NYC_ZIP_SET.has(user.zip_code)
+                                    ? user.zip_code
+                                    : ""
+                              }
+                              onChange={(e) => newListing.setPickupZip(e.target.value)}
+                              required
+                              aria-label="Pickup ZIP code"
+                              className="flex-1 h-12 px-3 rounded-md border border-border-strong bg-canvas text-sm text-ink focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 appearance-none"
+                            >
+                              <option value="" disabled>Select ZIP</option>
+                              {NYC_ZIPS.map(({ zip, neighborhood }) => (
+                                <option key={zip} value={zip}>
+                                  {zip} — {neighborhood}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </div>
                       </div>
@@ -1170,7 +1189,12 @@ export default function App() {
                     </section>
                     <button
                       type="button"
-                      disabled={newListing.isPublishing || newListing.imageCount === 0}
+                      disabled={
+                        newListing.isPublishing ||
+                        newListing.imageCount === 0 ||
+                        (newListing.pickupZip === "" &&
+                          !(user?.zip_code && NYC_ZIP_SET.has(user.zip_code)))
+                      }
                       onClick={newListing.publish}
                       className="w-full inline-flex items-center justify-center h-11 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                     >

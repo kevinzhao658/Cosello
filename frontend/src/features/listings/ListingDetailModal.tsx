@@ -386,9 +386,12 @@ export function ListingDetailModal({
                   </button>
                 </>
               ) : null}
-              {/* Distance pill — only when a numeric distance is available.
-                  The Listing type does not currently expose this field; leave
-                  conditional and unrendered until the field exists. */}
+              {listing.distance_miles !== null && listing.distance_miles !== undefined && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-surface-soft border border-hairline text-muted">
+                  <MapPin className="size-3" aria-hidden />
+                  ~{listing.distance_miles.toFixed(1)} mi away
+                </span>
+              )}
             </div>
 
             {/* Price */}
@@ -535,7 +538,7 @@ export function ListingDetailModal({
                     <MapPin className="size-10 text-primary motion-safe:animate-bounce" aria-hidden="true" />
                   </div>
                   <span className="absolute top-2 right-2 text-xs text-muted bg-canvas/80 backdrop-blur-sm px-2 py-1 rounded-full border border-hairline">
-                    Map placeholder · Integrate with Google Maps geotag
+                    Map placeholder · Integrate with Mapbox (Phase 2)
                   </span>
                 </div>
 
@@ -544,9 +547,11 @@ export function ListingDetailModal({
                   <dd className="text-sm text-ink">{listing.location || "—"}</dd>
 
                   <dt className="text-xs text-muted">Distance from you</dt>
-                  {/* Distance is gated on lat/long — same as the
-                      Marketplace distance slider. */}
-                  <dd className="text-sm text-ink font-semibold">Not available yet</dd>
+                  <dd className="text-sm text-ink font-semibold">
+                    {listing.distance_miles !== null && listing.distance_miles !== undefined
+                      ? `~${listing.distance_miles.toFixed(1)} mi away`
+                      : "Not available yet"}
+                  </dd>
 
                   <dt className="text-xs text-muted">Pickup</dt>
                   <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
@@ -606,7 +611,7 @@ export function ListingDetailModal({
                   <MapPin className="size-10 text-primary motion-safe:animate-bounce" aria-hidden="true" />
                 </div>
                 <span className="absolute top-2 right-2 text-xs text-muted bg-canvas/80 backdrop-blur-sm px-2 py-1 rounded-full border border-hairline">
-                  Map placeholder · Integrate with Google Maps geotag
+                  Map placeholder · Integrate with Mapbox (Phase 2)
                 </span>
               </div>
 
@@ -616,7 +621,11 @@ export function ListingDetailModal({
                 <dd className="text-sm text-ink">{listing.location || "—"}</dd>
 
                 <dt className="text-xs text-muted">Distance from you</dt>
-                <dd className="text-sm text-ink font-semibold">Not available yet</dd>
+                <dd className="text-sm text-ink font-semibold">
+                  {listing.distance_miles !== null && listing.distance_miles !== undefined
+                    ? `~${listing.distance_miles.toFixed(1)} mi away`
+                    : "Not available yet"}
+                </dd>
 
                 <dt className="text-xs text-muted">Pickup</dt>
                 <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>

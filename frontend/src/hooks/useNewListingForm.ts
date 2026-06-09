@@ -3,6 +3,7 @@ import type { AuthUser } from "../contexts/AuthContext";
 import type { SellWizardHandle } from "../features/sell-wizard/SellWizard";
 import type { ProductDetails, BulkPreview } from "../features/sell-wizard/useSellWizard";
 import type { CategorySlug } from "../lib/types";
+import { NYC_ZIP_SET } from "../lib/nycZips";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
@@ -60,6 +61,8 @@ export function useNewListingForm({
   const [condition, setCondition] = useState<string>("Good");
   const [category, setCategory] = useState<CategorySlug>("other");
   const [pickup, setPickup] = useState("");
+  /** Required NYC ZIP for the manual listing's pickup step. */
+  const [pickupZip, setPickupZip] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [categoryAttributes, setCategoryAttributes] = useState<Record<string, string>>({});
@@ -77,6 +80,7 @@ export function useNewListingForm({
     setCondition("Good");
     setCategory("other");
     setPickup("");
+    setPickupZip("");
     setTags([]);
     setTagInput("");
     setCategoryAttributes({});
@@ -115,6 +119,17 @@ export function useNewListingForm({
       alert("Add a brand or item name before publishing.");
       return;
     }
+    // Resolve zip: prefer explicit selection, then profile ZIP if valid.
+    const resolvedZip =
+      pickupZip !== ""
+        ? pickupZip
+        : user?.zip_code && NYC_ZIP_SET.has(user.zip_code)
+          ? user.zip_code
+          : "";
+    if (!resolvedZip) {
+      alert("Select a pickup ZIP code before publishing.");
+      return;
+    }
     const wizard = sellWizardRef.current;
     if (!wizard) return;
 
@@ -134,7 +149,7 @@ export function useNewListingForm({
         retrieval_fallback: false,
       };
       const pickupLocation = pickup.trim() || user?.pickup_address || "";
-      await wizard.postSingleListing({ details, pickupLocation });
+      await wizard.postSingleListing({ details, pickupLocation, pickupZip: resolvedZip });
       reset();
     } finally {
       setIsPublishing(false);
@@ -151,6 +166,7 @@ export function useNewListingForm({
     category,
     categoryAttributes,
     pickup,
+    pickupZip,
     tags,
     user,
     sellWizardRef,
@@ -206,6 +222,8 @@ export function useNewListingForm({
     setCategory,
     pickup,
     setPickup,
+    pickupZip,
+    setPickupZip,
     tags,
     setTags,
     tagInput,

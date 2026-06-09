@@ -1080,6 +1080,7 @@ async def create_listing(
     communities: str = Form(""),
     visibility: str = Form("public"),
     pickup_location: str = Form(""),
+    pickup_zip: str = Form(""),
     draft_urls: str = Form(""),
     image_order: str = Form(""),
     current_user: User = Depends(get_current_user),
@@ -1329,6 +1330,17 @@ async def create_listing(
             detail='identifierConfidence must be "high", "medium", or "low"',
         )
 
+    from services.geo import centroid_for_zip, round_coord as _round_coord
+    import re as _re
+    _zip = pickup_zip.strip()
+    if not _re.fullmatch(r"\d{5}", _zip):
+        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+    _centroid = centroid_for_zip(db, _zip)
+    if _centroid is None:
+        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+    listing_lat = _round_coord(_centroid[0])
+    listing_lng = _round_coord(_centroid[1])
+
     posted_at = time.time()
     listing = Listing(
         id=listing_id,
@@ -1354,6 +1366,9 @@ async def create_listing(
         posted_at=posted_at,
         original_posted_at=posted_at,
         relist_count=0,
+        zip_code=_zip,
+        latitude=listing_lat,
+        longitude=listing_lng,
     )
     db.add(listing)
     db.commit()
@@ -1368,6 +1383,7 @@ async def get_listings(
     sort: Optional[str] = Query("newest"),
     community: Optional[str] = Query(None),
     neighborhood: Optional[str] = Query(None),
+    max_distance: Optional[float] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1376,6 +1392,18 @@ async def get_listings(
     rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
     rows_by_id: dict[str, Listing] = {r.id: r for r in rows}
     results = [r.to_dict() for r in rows]
+
+    # --- Distance computation + max_distance filter ---
+    from services.geo import centroid_for_zip, haversine_miles
+    buyer = centroid_for_zip(db, (current_user.zip_code or "").strip() or None) if current_user else None
+    for item in results:
+        lat, lng = item.get("latitude"), item.get("longitude")
+        if buyer is not None and lat is not None and lng is not None:
+            item["distance_miles"] = round(haversine_miles(buyer[0], buyer[1], lat, lng), 1)
+        else:
+            item["distance_miles"] = None
+    if max_distance is not None and buyer is not None:
+        results = [it for it in results if it["distance_miles"] is not None and it["distance_miles"] <= max_distance]
 
     # FYP mode is the default feed: no search, no community filter (or "All").
     # Search relevance and explicit community browses retain their existing

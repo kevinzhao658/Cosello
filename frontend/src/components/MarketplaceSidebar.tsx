@@ -68,8 +68,8 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
 
   const visibleComms = useMemo(() => filterCommunities.slice(0, 4), [filterCommunities]);
   const extraComms = useMemo(() => filterCommunities.slice(4), [filterCommunities]);
-  const sliderFill = `${((Math.min(Math.max(distanceMiles, 1), 25) - 1) / 24) * 100}%`;
-  const distanceLabel = distanceMiles >= 25 ? "25+ mi" : `${distanceMiles} mi`;
+  const sliderFill = `${((Math.min(Math.max(distanceMiles, 1), 10) - 1) / 9) * 100}%`;
+  const distanceLabel = distanceMiles >= 10 ? "10+ mi" : `${distanceMiles} mi`;
 
   const sidebarHidden = collapsed;
   const panel = (
@@ -232,13 +232,13 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
             <label className="text-[11px] font-semibold text-muted">Distance</label>
             <span className="text-[11px] text-muted">{distanceLabel}</span>
           </div>
-          {/* TODO: backend has no distance filter today and listings carry no
-              distance data — the slider is a visual placeholder hooked to
-              local state until lat/long lands on User + Listing. */}
+          {/* Filters listings to within N miles of the user's ZIP centroid via
+              the `max_distance` query param. Top stop (25 = "Any") sends no
+              filter, so default browse shows everything. */}
           <input
             type="range"
             min={1}
-            max={25}
+            max={10}
             step={1}
             value={distanceMiles}
             onChange={(e) => onDistanceChange(Number(e.target.value))}
@@ -246,10 +246,10 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
             style={{ ["--mkt-range-fill" as string]: sliderFill }}
             aria-label="Distance in miles"
           />
+          {/* Minimal scale — endpoint labels only (1 at 0%, 10+ at 100%). */}
           <div className="flex justify-between text-[10px] text-muted px-0.5">
             <span>1</span>
-            <span>10</span>
-            <span>25+</span>
+            <span>10+</span>
           </div>
         </div>
       </div>
