@@ -246,23 +246,11 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
             style={{ ["--mkt-range-fill" as string]: sliderFill }}
             aria-label="Distance in miles"
           />
-          {/* Tick labels positioned at their true value on the 1–25 track
-              (fill = (v-1)/24), so e.g. "10" sits at 37.5%, not the visual
-              midpoint (which is value 13). */}
-          <div className="relative h-3 text-[10px] text-muted">
-            {[1, 5, 10, 15, 20, 25].map((v, i, arr) => {
-              const transform =
-                i === 0 ? "none" : i === arr.length - 1 ? "translateX(-100%)" : "translateX(-50%)";
-              return (
-                <span
-                  key={v}
-                  className="absolute top-0"
-                  style={{ left: `${((v - 1) / 24) * 100}%`, transform }}
-                >
-                  {v === 25 ? "25+" : v}
-                </span>
-              );
-            })}
+          {/* Minimal scale — endpoint labels only (1 at 0%, 25+ at 100%, the
+              true end values, so justify-between is accurate). */}
+          <div className="flex justify-between text-[10px] text-muted px-0.5">
+            <span>1</span>
+            <span>25+</span>
           </div>
         </div>
       </div>
