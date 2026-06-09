@@ -17,6 +17,7 @@ class User(Base):
     profile_picture = Column(String(255), nullable=True)
     pickup_address = Column(String(255), nullable=True)
     zip_code = Column(String(10), nullable=True)
+    zip_confirmed = Column(Boolean, nullable=False, server_default="false", default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

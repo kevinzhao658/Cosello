@@ -38,6 +38,7 @@ class UserOut(BaseModel):
     profile_picture: Optional[str] = None
     pickup_address: Optional[str] = None
     zip_code: Optional[str] = None
+    zip_confirmed: bool = False
 
 
 def _phone_for_user(db: Session, user_id: str) -> str:
@@ -58,6 +59,7 @@ def _user_to_out(db: Session, user: User) -> UserOut:
         profile_picture=user.profile_picture,
         pickup_address=user.pickup_address,
         zip_code=user.zip_code,
+        zip_confirmed=bool(user.zip_confirmed),
     )
 
 
