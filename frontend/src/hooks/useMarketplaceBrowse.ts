@@ -55,7 +55,9 @@ export function useMarketplaceBrowse({
   // to backend `sort=newest` (FYP path kicks in when no community is selected
   // and no search is active) until dedicated backend sort modes ship.
   const [sort, setSort] = useState<MarketSort>("recommended");
-  const [distanceMiles, setDistanceMiles] = useState<number>(5);
+  // Default to the slider's top (25 = "Any distance") so first-load browse
+  // shows everything; the user narrows by dragging below 25.
+  const [distanceMiles, setDistanceMiles] = useState<number>(25);
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
   const [visibleCount, setVisibleCount] = useState<number>(24);
@@ -126,7 +128,8 @@ export function useMarketplaceBrowse({
     // TODO: add a real `trending` sort backend-side (view count window).
     const backendSort = sort === "newest" ? "newest" : "newest";
     params.set("sort", backendSort);
-    params.set("max_distance", String(distanceMiles));
+    // Only filter when the user has narrowed below the slider's top (25 = "Any").
+    if (distanceMiles < 25) params.set("max_distance", String(distanceMiles));
     if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
     if (isAuthenticated && token) {
