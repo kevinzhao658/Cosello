@@ -1470,12 +1470,9 @@ export default function App() {
             const neighborhood = keepsCurrent
               ? user.neighborhood
               : (ZIP_NEIGHBORHOOD[zip] ?? user.neighborhood);
-            const res = await fetch("/api/auth/profile", {
+            const res = await apiFetch("/api/auth/profile", {
               method: "PUT",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token ?? ""}`,
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 display_name: user.display_name,
                 neighborhood,
