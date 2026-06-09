@@ -1080,6 +1080,7 @@ async def create_listing(
     communities: str = Form(""),
     visibility: str = Form("public"),
     pickup_location: str = Form(""),
+    pickup_zip: str = Form(""),
     draft_urls: str = Form(""),
     image_order: str = Form(""),
     current_user: User = Depends(get_current_user),
@@ -1330,10 +1331,15 @@ async def create_listing(
         )
 
     from services.geo import centroid_for_zip, round_coord as _round_coord
-    seller_zip = (current_user.zip_code or "").strip() or None
-    _centroid = centroid_for_zip(db, seller_zip)
-    listing_lat = _round_coord(_centroid[0]) if _centroid else None
-    listing_lng = _round_coord(_centroid[1]) if _centroid else None
+    import re as _re
+    _zip = pickup_zip.strip()
+    if not _re.fullmatch(r"\d{5}", _zip):
+        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+    _centroid = centroid_for_zip(db, _zip)
+    if _centroid is None:
+        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+    listing_lat = _round_coord(_centroid[0])
+    listing_lng = _round_coord(_centroid[1])
 
     posted_at = time.time()
     listing = Listing(
@@ -1360,7 +1366,7 @@ async def create_listing(
         posted_at=posted_at,
         original_posted_at=posted_at,
         relist_count=0,
-        zip_code=seller_zip,
+        zip_code=_zip,
         latitude=listing_lat,
         longitude=listing_lng,
     )
