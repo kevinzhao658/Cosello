@@ -41,6 +41,7 @@ import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
 import { useListingDetail } from "./hooks/useListingDetail";
 import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
+import { setLocationOnProfile } from "./lib/setLocationOnProfile";
 import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
 import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP, ZIP_NEIGHBORHOOD } from "./lib/nycZips";
@@ -190,34 +191,19 @@ export default function App() {
   // edits still go through MyAccount → Edit Profile.
   const changeLocation = useChangeLocation(user, updateUser);
 
-  // Shared helper: persist a ZIP + derived neighborhood to the user profile.
+  // Delegates to setLocationOnProfile (lib/setLocationOnProfile.ts) — the
+  // single source of truth for the derive-neighborhood → PUT sequence.
   // Used by the hero-search location suggestion row (authenticated users).
-  // useChangeLocation has its own inline copy of this logic; we intentionally
-  // leave that hook unchanged to avoid a risky refactor while still avoiding
-  // a second inline duplication here in App.tsx.
   const [heroLocSaving, setHeroLocSaving] = useState<string | null>(null); // ZIP being saved, or null
   const [heroLocError, setHeroLocError] = useState<string | null>(null);
   const setUserLocation = useCallback(
     async (zip: string): Promise<void> => {
-      const neighborhood = ZIP_NEIGHBORHOOD[zip];
-      if (!neighborhood || !user) return;
+      if (!user) return;
       setHeroLocSaving(zip);
       setHeroLocError(null);
       try {
-        const res = await apiFetch("/api/auth/profile", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            display_name: user.display_name,
-            neighborhood,
-            zip_code: zip,
-          }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({ detail: "Update failed" }));
-          throw new Error((data as { detail?: string }).detail ?? "Update failed");
-        }
-        await refreshUser();
+        const updated = await setLocationOnProfile(zip);
+        updateUser(updated);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Could not save location";
         setHeroLocError(msg);
@@ -226,7 +212,7 @@ export default function App() {
         setHeroLocSaving(null);
       }
     },
-    [user, refreshUser],
+    [user, updateUser],
   );
 
   // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.

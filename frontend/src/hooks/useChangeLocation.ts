@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
-import { apiFetch } from "../lib/api";
-import { ZIP_NEIGHBORHOOD } from "../lib/nycZips";
+import { NYC_ZIP_SET } from "../lib/nycZips";
+import { setLocationOnProfile } from "../lib/setLocationOnProfile";
 import type { AuthUser } from "../contexts/AuthContext";
 
 export interface UseChangeLocationReturn {
@@ -37,25 +37,18 @@ export function useChangeLocation(
   }, []);
 
   const submit = useCallback(async () => {
-    const z = zip.trim();
-    const neighborhood = ZIP_NEIGHBORHOOD[z];
-    if (!neighborhood) {
+    // Belt-and-suspenders pre-check: surface the error before toggling the
+    // submitting spinner so the UX matches today's behaviour (the Save button
+    // is already disabled unless a valid ZIP is selected, so this guard should
+    // rarely trigger in practice).
+    if (!NYC_ZIP_SET.has(zip.trim())) {
       setError("Select a ZIP code");
       return;
     }
     setIsSubmitting(true);
     setError("");
     try {
-      const res = await apiFetch("/api/auth/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ neighborhood, zip_code: z }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ detail: "Update failed" }));
-        throw new Error(data.detail || "Update failed");
-      }
-      const updated = await res.json();
+      const updated = await setLocationOnProfile(zip);
       updateUser(updated);
       setOpen(false);
     } catch (err) {
