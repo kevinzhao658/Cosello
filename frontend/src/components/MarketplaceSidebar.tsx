@@ -68,8 +68,8 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
 
   const visibleComms = useMemo(() => filterCommunities.slice(0, 4), [filterCommunities]);
   const extraComms = useMemo(() => filterCommunities.slice(4), [filterCommunities]);
-  const sliderFill = `${((Math.min(Math.max(distanceMiles, 1), 25) - 1) / 24) * 100}%`;
-  const distanceLabel = distanceMiles >= 25 ? "Any" : `${distanceMiles} mi`;
+  const sliderFill = `${((Math.min(Math.max(distanceMiles, 1), 10) - 1) / 9) * 100}%`;
+  const distanceLabel = distanceMiles >= 10 ? "10+ mi" : `${distanceMiles} mi`;
 
   const sidebarHidden = collapsed;
   const panel = (
@@ -238,7 +238,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
           <input
             type="range"
             min={1}
-            max={25}
+            max={10}
             step={1}
             value={distanceMiles}
             onChange={(e) => onDistanceChange(Number(e.target.value))}
@@ -246,11 +246,10 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
             style={{ ["--mkt-range-fill" as string]: sliderFill }}
             aria-label="Distance in miles"
           />
-          {/* Minimal scale — endpoint labels only (1 at 0%, 25+ at 100%, the
-              true end values, so justify-between is accurate). */}
+          {/* Minimal scale — endpoint labels only (1 at 0%, 10+ at 100%). */}
           <div className="flex justify-between text-[10px] text-muted px-0.5">
             <span>1</span>
-            <span>25+</span>
+            <span>10+</span>
           </div>
         </div>
       </div>
