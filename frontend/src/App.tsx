@@ -2019,19 +2019,6 @@ export default function App() {
             </p>
             <div className="space-y-3">
               <div>
-                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold text-muted mb-1.5">
-                  Neighborhood
-                </label>
-                <input
-                  id="cl-neighborhood"
-                  type="text"
-                  value={changeLocation.neighborhood}
-                  onChange={(e) => changeLocation.setNeighborhood(e.target.value)}
-                  placeholder="e.g. Chinatown"
-                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-              <div>
                 <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
@@ -2046,6 +2033,11 @@ export default function App() {
                     <option key={zip} value={zip}>{zip} — {neighborhood}</option>
                   ))}
                 </select>
+                {ZIP_NEIGHBORHOOD[changeLocation.zip] && (
+                  <p className="text-[11px] text-muted mt-1.5">
+                    Neighborhood: <span className="font-semibold text-ink">{ZIP_NEIGHBORHOOD[changeLocation.zip]}</span>
+                  </p>
+                )}
               </div>
               {changeLocation.error && (
                 <p className="text-sm text-error">{changeLocation.error}</p>
@@ -2062,7 +2054,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={changeLocation.submit}
-                disabled={changeLocation.isSubmitting || !changeLocation.neighborhood.trim()}
+                disabled={changeLocation.isSubmitting || !NYC_ZIP_SET.has(changeLocation.zip)}
                 className="h-9 px-4 rounded-md bg-primary hover:bg-primary-hover text-on-primary text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
                 {changeLocation.isSubmitting ? "Saving…" : "Save"}
