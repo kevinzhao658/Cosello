@@ -235,6 +235,14 @@ class Listing(Base):
         }
 
 
+class ZipCentroid(Base):
+    __tablename__ = "zip_centroids"
+    zip_code = Column(String(10), primary_key=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    borough = Column(String(40), nullable=True)
+
+
 class ListingView(Base):
     __tablename__ = "listing_views"
 
