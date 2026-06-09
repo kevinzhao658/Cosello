@@ -55,9 +55,6 @@ export function useMarketplaceBrowse({
   // to backend `sort=newest` (FYP path kicks in when no community is selected
   // and no search is active) until dedicated backend sort modes ship.
   const [sort, setSort] = useState<MarketSort>("recommended");
-  // Distance is purely a visual placeholder for now — no backend filter, no
-  // distance data on the listing payload. Hooked to local state so the slider
-  // is interactive; will start filtering once Listing carries lat/long.
   const [distanceMiles, setDistanceMiles] = useState<number>(5);
   // Client-side pagination: backend returns the full feed, we reveal in
   // chunks (24 initial, +18 per IO trigger).
@@ -129,6 +126,7 @@ export function useMarketplaceBrowse({
     // TODO: add a real `trending` sort backend-side (view count window).
     const backendSort = sort === "newest" ? "newest" : "newest";
     params.set("sort", backendSort);
+    params.set("max_distance", String(distanceMiles));
     if (selectedCategories.length > 0) params.set("category", selectedCategories.join(","));
 
     if (isAuthenticated && token) {
@@ -156,12 +154,12 @@ export function useMarketplaceBrowse({
         setListingsLoaded(true);
       }
     }
-  }, [showMyListings, isAuthenticated, token, debouncedSearch, sort, selectedCategories, selectedCommunities, userNeighborhood]);
+  }, [showMyListings, isAuthenticated, token, debouncedSearch, sort, distanceMiles, selectedCategories, selectedCommunities, userNeighborhood]);
 
   // Market fetch effect
   useEffect(() => {
     if (page === "market") fetchListings();
-  }, [page, debouncedSearch, selectedCommunities, sort, selectedCategories, isAuthenticated, showMyListings]);
+  }, [page, debouncedSearch, selectedCommunities, sort, distanceMiles, selectedCategories, isAuthenticated, showMyListings]);
 
   // Reset the visible window whenever the underlying feed changes so the user
   // doesn't land deep into a now-shorter list.
