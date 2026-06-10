@@ -143,7 +143,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div>
               <label className="block text-xs text-muted mb-1.5 font-semibold">
-                Default Pickup Address
+                Pickup Address
               </label>
               <Input
                 type="text"
@@ -260,7 +260,6 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
                 id="signup-zip"
                 value={zipCode}
                 onChange={(zip) => { setZipCode(zip); setZipTouched(true); }}
-                placeholder="Search ZIP or neighborhood"
               />
             </div>
 

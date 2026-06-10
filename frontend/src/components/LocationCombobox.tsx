@@ -32,7 +32,7 @@ export function LocationCombobox({
   value,
   onChange,
   id,
-  placeholder = "Search ZIP or neighborhood",
+  placeholder = "Search by ZIP or neighborhood",
   autoFocus = false,
 }: LocationComboboxProps) {
   // The text shown in the input while the user is typing.

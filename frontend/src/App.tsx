@@ -2097,7 +2097,6 @@ export default function App() {
                   id="cl-zip"
                   value={changeLocation.zip}
                   onChange={changeLocation.setZip}
-                  placeholder="Search ZIP or neighborhood"
                 />
                 {ZIP_NEIGHBORHOOD[changeLocation.zip] && (
                   <p className="text-[11px] text-muted mt-1.5">
