@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
 import { useNeighborhoods } from "../lib/useNeighborhoods";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP } from "../lib/nycZips";
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -21,6 +22,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
   const [pickupAddress, setPickupAddress] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [zipCode, setZipCode] = useState("");
+  const [zipTouched, setZipTouched] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,6 +38,14 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
         n.toLowerCase().includes(neighborhood.trim().toLowerCase())
       )
     : neighborhoods;
+
+  // Prefill ZIP from neighborhood when neighborhood becomes valid and user hasn't manually set ZIP
+  useEffect(() => {
+    if (isValidNeighborhood && !zipTouched) {
+      const prefill = NEIGHBORHOOD_ZIP[neighborhood.trim()] ?? "";
+      if (prefill) setZipCode(prefill);
+    }
+  }, [isValidNeighborhood, neighborhood, zipTouched]);
 
   // Close suggestions on click outside
   useClickOutside(
@@ -53,6 +63,10 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
       setError("Please select a valid Manhattan neighborhood");
       return;
     }
+    if (!NYC_ZIP_SET.has(zipCode)) {
+      setError("Select your ZIP code");
+      return;
+    }
 
     setIsLoading(true);
     setError("");
@@ -68,7 +82,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
           display_name: `${firstName.trim()} ${lastName.trim()}`,
           neighborhood: neighborhood.trim(),
           pickup_address: pickupAddress.trim() || undefined,
-          zip_code: zipCode.trim() || undefined,
+          zip_code: zipCode,
         }),
       });
 
@@ -239,24 +253,29 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div>
               <label className="block text-xs text-muted mb-1.5 font-semibold">
-                Zip Code
+                Zip Code <span className="text-error">*</span>
               </label>
-              <Input
-                type="text"
-                placeholder="e.g., 10001"
+              <select
                 value={zipCode}
                 onChange={(e) => {
-                  const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
-                  setZipCode(val);
+                  setZipCode(e.target.value);
+                  setZipTouched(true);
                 }}
-              />
+                className="w-full rounded-md border border-input bg-canvas px-3 py-2 text-sm text-ink shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                required
+              >
+                <option value="" disabled>Select ZIP</option>
+                {NYC_ZIPS.map(({ zip, neighborhood: n }) => (
+                  <option key={zip} value={zip}>{zip} — {n}</option>
+                ))}
+              </select>
             </div>
 
             {error && <p className="text-sm text-error">{error}</p>}
 
             <Button
               onClick={handleRegister}
-              disabled={isLoading || isLoadingNeighborhoods || !isValidNeighborhood || !firstName.trim() || !lastName.trim()}
+              disabled={isLoading || isLoadingNeighborhoods || !isValidNeighborhood || !firstName.trim() || !lastName.trim() || !NYC_ZIP_SET.has(zipCode)}
               className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isLoading ? (

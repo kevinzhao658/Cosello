@@ -26,6 +26,7 @@ import { ListingDetailModal } from "./features/listings/ListingDetailModal";
 import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
 import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
 import { TopSearches } from "./components/TopSearches";
+import { ConfirmZipBanner } from "./components/ConfirmZipBanner";
 import { BulkPreviewAside } from "./components/BulkPreviewAside";
 import { ListingChecklist } from "./components/ListingChecklist";
 import { useMediaQuery } from "./hooks/useMediaQuery";
@@ -41,13 +42,13 @@ import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
 import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
-import { NYC_ZIPS, NYC_ZIP_SET } from "./lib/nycZips";
+import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP, ZIP_NEIGHBORHOOD } from "./lib/nycZips";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
-  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser } = useAuth();
+  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser, refreshUser } = useAuth();
   const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
@@ -1383,6 +1384,39 @@ export default function App() {
       )}
 
 
+      {page === "market" && isAuthenticated && user && user.zip_confirmed === false && (
+        <ConfirmZipBanner
+          currentZip={user.zip_code}
+          onConfirm={async (zip) => {
+            // Keep the neighborhood label in sync with the chosen ZIP: if their
+            // current neighborhood already maps to this ZIP, leave it; otherwise
+            // adopt the canonical neighborhood that contains the ZIP.
+            const keepsCurrent =
+              !!user.neighborhood && NEIGHBORHOOD_ZIP[user.neighborhood] === zip;
+            const neighborhood = keepsCurrent
+              ? user.neighborhood
+              : (ZIP_NEIGHBORHOOD[zip] ?? user.neighborhood);
+            const res = await fetch("/api/auth/profile", {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token ?? ""}`,
+              },
+              body: JSON.stringify({
+                display_name: user.display_name,
+                neighborhood,
+                zip_code: zip,
+              }),
+            });
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({ detail: "Could not confirm ZIP" }));
+              throw new Error((body as { detail?: string }).detail ?? "Could not confirm ZIP");
+            }
+            await refreshUser();
+          }}
+        />
+      )}
+
       {page === "market" && (
         <section className="relative min-h-[calc(100vh-64px)] flex">
           <MarketplaceSidebar
@@ -2001,16 +2035,17 @@ export default function App() {
                 <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
-                <input
+                <select
                   id="cl-zip"
-                  type="text"
-                  inputMode="numeric"
-                  value={changeLocation.zip}
+                  value={NYC_ZIP_SET.has(changeLocation.zip) ? changeLocation.zip : ""}
                   onChange={(e) => changeLocation.setZip(e.target.value)}
-                  placeholder="10013"
-                  maxLength={10}
-                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-                />
+                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="" disabled>Select ZIP</option>
+                  {NYC_ZIPS.map(({ zip, neighborhood }) => (
+                    <option key={zip} value={zip}>{zip} — {neighborhood}</option>
+                  ))}
+                </select>
               </div>
               {changeLocation.error && (
                 <p className="text-sm text-error">{changeLocation.error}</p>

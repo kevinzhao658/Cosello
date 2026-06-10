@@ -14,6 +14,30 @@ from services.neighborhood import set_user_neighborhood
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+# ---------- Helpers ----------
+
+def _validate_and_set_zip(db: Session, user: "User", zip_code: str) -> None:
+    """Validate zip_code against zip_centroids and set it on user.
+
+    Raises HTTP 400 if the ZIP is absent or not seeded. Sets user.zip_code and
+    user.zip_confirmed = True on success.
+
+    Uses db.merge() so the write is tracked by `db` regardless of which session
+    originally loaded the User object (test overrides inject a fixture-session
+    object; production always has the same session, but merge is safe either way).
+    """
+    from models import ZipCentroid
+    z = (zip_code or "").strip()
+    if not z or db.get(ZipCentroid, z) is None:
+        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+    merged = db.merge(user)
+    merged.zip_code = z
+    merged.zip_confirmed = True
+    # Propagate back so callers holding the original reference see the update.
+    user.zip_code = z
+    user.zip_confirmed = True
+
+
 # ---------- Request / Response schemas ----------
 
 class RegisterRequest(BaseModel):
@@ -38,6 +62,7 @@ class UserOut(BaseModel):
     profile_picture: Optional[str] = None
     pickup_address: Optional[str] = None
     zip_code: Optional[str] = None
+    zip_confirmed: bool = False
 
 
 def _phone_for_user(db: Session, user_id: str) -> str:
@@ -58,6 +83,7 @@ def _user_to_out(db: Session, user: User) -> UserOut:
         profile_picture=user.profile_picture,
         pickup_address=user.pickup_address,
         zip_code=user.zip_code,
+        zip_confirmed=bool(user.zip_confirmed),
     )
 
 
@@ -94,7 +120,7 @@ async def register(
     if req.pickup_address is not None:
         existing.pickup_address = req.pickup_address
     if req.zip_code is not None:
-        existing.zip_code = req.zip_code
+        _validate_and_set_zip(db, existing, req.zip_code)
     db.commit()  # flush profile fields first
 
     # Then handle neighborhood + auto-join membership in one tx
@@ -118,7 +144,7 @@ async def update_profile(
     if req.pickup_address is not None:
         current_user.pickup_address = req.pickup_address
     if req.zip_code is not None:
-        current_user.zip_code = req.zip_code
+        _validate_and_set_zip(db, current_user, req.zip_code)
     db.commit()  # flush non-neighborhood fields first
 
     if req.neighborhood is not None:

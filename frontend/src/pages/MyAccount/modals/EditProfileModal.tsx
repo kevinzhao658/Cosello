@@ -4,6 +4,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { X, User, Loader2 } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
+import { NYC_ZIPS, NYC_ZIP_SET } from "../../../lib/nycZips";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold text-muted mb-1.5";
@@ -173,15 +174,16 @@ export function EditProfileModal({
 
           <div>
             <label className={LABEL_CLASS}>Zip Code</label>
-            <Input
-              type="text"
-              placeholder="e.g., 10001"
-              value={editZipCode}
-              onChange={(e) => {
-                const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
-                setEditZipCode(val);
-              }}
-            />
+            <select
+              value={NYC_ZIP_SET.has(editZipCode) ? editZipCode : ""}
+              onChange={(e) => setEditZipCode(e.target.value)}
+              className="w-full rounded-md border border-input bg-canvas px-3 py-2 text-sm text-ink shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <option value="" disabled>Select ZIP</option>
+              {NYC_ZIPS.map(({ zip, neighborhood }) => (
+                <option key={zip} value={zip}>{zip} — {neighborhood}</option>
+              ))}
+            </select>
           </div>
 
           {editProfileError && <p className="text-sm text-error">{editProfileError}</p>}
