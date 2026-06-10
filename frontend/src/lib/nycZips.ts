@@ -123,3 +123,21 @@ export const ZIP_NEIGHBORHOOD: Readonly<Record<string, string>> = {
   "10044": "Roosevelt Island", "10065": "Lenox Hill", "10075": "Upper East Side",
   "10128": "Carnegie Hill", "10280": "Battery Park City",
 } as const;
+
+/**
+ * Returns the first ZIP (ascending by ZIP string) whose canonical neighborhood
+ * in ZIP_NEIGHBORHOOD matches `canonicalNeighborhood`. Falls back to
+ * NEIGHBORHOOD_ZIP[canonicalNeighborhood] for neighborhoods whose ZIPs are all
+ * shared with sibling areas (may return undefined).
+ */
+export function topZipForNeighborhood(
+  canonicalNeighborhood: string,
+): string | undefined {
+  // NYC_ZIPS is already sorted ascending by ZIP string.
+  for (const entry of NYC_ZIPS) {
+    if (ZIP_NEIGHBORHOOD[entry.zip] === canonicalNeighborhood) {
+      return entry.zip;
+    }
+  }
+  return NEIGHBORHOOD_ZIP[canonicalNeighborhood];
+}

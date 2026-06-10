@@ -5,7 +5,7 @@ import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
 import { useNeighborhoods } from "../lib/useNeighborhoods";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { NYC_ZIP_SET, NEIGHBORHOOD_ZIP } from "../lib/nycZips";
+import { NYC_ZIP_SET, topZipForNeighborhood } from "../lib/nycZips";
 import { LocationCombobox } from "../components/LocationCombobox";
 
 interface SignUpPageProps {
@@ -43,7 +43,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
   // Prefill ZIP from neighborhood when neighborhood becomes valid and user hasn't manually set ZIP
   useEffect(() => {
     if (isValidNeighborhood && !zipTouched) {
-      const prefill = NEIGHBORHOOD_ZIP[neighborhood.trim()] ?? "";
+      const prefill = topZipForNeighborhood(neighborhood.trim());
       if (prefill) setZipCode(prefill);
     }
   }, [isValidNeighborhood, neighborhood, zipTouched]);
