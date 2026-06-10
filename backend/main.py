@@ -78,6 +78,18 @@ async def get_categories():
 
 client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
 
+# ---------------------------------------------------------------------------
+# Phase-2 Mapbox config — backend-proxied token, never sent to the browser.
+# Gracefully absent until the user provides a key; all Mapbox features degrade
+# to null/204 when MAPBOX_TOKEN is unset.
+# ---------------------------------------------------------------------------
+_MAPBOX_TOKEN: str | None = os.getenv("MAPBOX_TOKEN") or None
+
+# In-process walk-time cache: { (buyer_zip, listing_id) -> int | None }.
+# Prevents re-calling the Mapbox Directions API on every repeated modal open
+# for the same buyer+listing pair. Resets on process restart (acceptable for MVP).
+_walk_cache: dict[tuple[str, str], int | None] = {}
+
 import random
 
 LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -1784,6 +1796,106 @@ async def get_my_listings(
 
         enriched.append(listing_copy)
     return enriched
+
+
+@app.get("/api/listings/{listing_id}")
+async def get_listing_detail(
+    listing_id: str,
+    current_user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    """Single-listing detail endpoint.  Returns the listing dict enriched with:
+
+    - All the standard fields from ``Listing.to_dict()``
+    - ``walk_minutes: int | null`` — Mapbox Directions walking estimate between
+      the buyer's ZIP centroid and the listing's coarse coordinates.  Null when
+      ``MAPBOX_TOKEN`` is unset, buyer ZIP is unknown, listing coords are null,
+      or the Directions call fails.  Result is cached per ``(buyer_zip,
+      listing_id)`` in ``_walk_cache`` to avoid redundant API calls.
+
+    **Cost guard:** ``walk_minutes`` is computed ONLY here (single-listing
+    detail).  It is NOT computed in the list/feed endpoint where calling
+    Directions for every item would be slow and expensive.
+    """
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    result = listing.to_dict()
+
+    # --- walk_minutes ---
+    walk: int | None = None
+    if (
+        _MAPBOX_TOKEN
+        and listing.latitude is not None
+        and listing.longitude is not None
+        and current_user is not None
+    ):
+        buyer_zip = (current_user.zip_code or "").strip() or None
+        if buyer_zip:
+            cache_key = (buyer_zip, listing_id)
+            if cache_key in _walk_cache:
+                walk = _walk_cache[cache_key]
+            else:
+                from services.geo import centroid_for_zip
+                from services.mapbox import walking_minutes as _walking_minutes
+                buyer_coords = centroid_for_zip(db, buyer_zip)
+                if buyer_coords is not None:
+                    walk = _walking_minutes(
+                        buyer_coords[0], buyer_coords[1],
+                        listing.latitude, listing.longitude,
+                        _MAPBOX_TOKEN,
+                    )
+                _walk_cache[cache_key] = walk
+
+    result["walk_minutes"] = walk
+    return result
+
+
+@app.get("/api/listings/{listing_id}/map.png")
+async def get_listing_map(
+    listing_id: str,
+    db: Session = Depends(get_db),
+):
+    """Stream a Mapbox static map PNG for the listing's approximate pickup area.
+
+    The map shows a translucent circle centred on the listing's coarsened
+    coordinates (already rounded to ~110 m at creation time) with a radius of
+    ``LOCATION_FUZZ_RADIUS_MI`` miles — communicating the neighbourhood without
+    revealing an exact address.  No marker/pin is drawn.
+
+    Response codes:
+    - ``200 image/png``  — success; PNG bytes from Mapbox, cached 24 h.
+    - ``204 No Content`` — ``MAPBOX_TOKEN`` unset OR listing has null lat/lng.
+                           Frontend renders its existing placeholder.
+    - ``404``            — listing not found.
+    - ``503``            — Mapbox call returned an error/timeout.
+
+    The Mapbox token is NEVER included in the response body or headers.
+    The exact lat/lng coordinates are NEVER included in the response.
+    No authentication required — buyers browsing must see the map.
+    """
+    from services.geo import LOCATION_FUZZ_RADIUS_MI
+
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    if not _MAPBOX_TOKEN or listing.latitude is None or listing.longitude is None:
+        return Response(status_code=204)
+
+    from services.mapbox import fetch_static_map_png
+    png_bytes = fetch_static_map_png(
+        listing.latitude, listing.longitude, LOCATION_FUZZ_RADIUS_MI, _MAPBOX_TOKEN
+    )
+    if png_bytes is None:
+        raise HTTPException(status_code=503, detail="Map image unavailable")
+
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.post("/api/listings/{listing_id}/relist")
