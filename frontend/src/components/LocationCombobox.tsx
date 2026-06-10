@@ -148,7 +148,7 @@ export function LocationCombobox({
           setHighlightIndex(0);
         }}
         onKeyDown={handleKeyDown}
-        className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+        className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-base text-ink md:text-sm placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
       />
 
       {showDropdown && (
