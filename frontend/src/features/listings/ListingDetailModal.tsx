@@ -5,6 +5,8 @@ import { ModalShell } from "../../components/ui/ModalShell";
 import { formatTitle } from "../../lib/format";
 import { PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { Tooltip } from "../../components/ui/tooltip";
+import { ListingMap } from "../../components/ListingMap";
+import { apiFetch } from "../../lib/api";
 import type { Listing } from "../../lib/types";
 
 export type SellerProfile = {
@@ -195,11 +197,42 @@ export function ListingDetailModal({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const listingId = listing?.id;
 
+  // ── Walking estimate ────────────────────────────────────────────────────────
+  // Fetched from GET /api/listings/{id} (detail endpoint) when the modal opens.
+  // The feed does NOT include walk_minutes; this call is the only source.
+  // null = not available (no token, no buyer ZIP, no coords, or Mapbox error).
+  // "loading" distinguishes the in-flight state from a resolved null.
+  const [walkMinutes, setWalkMinutes] = useState<number | null | "loading">("loading");
+
   useEffect(() => {
     setImageIndex(0);
     setTab("details");
     setLocationDrawerOpen(false);
     setLightboxOpen(false);
+    // Reset walk estimate whenever the listing changes.
+    setWalkMinutes("loading");
+  }, [listingId]);
+
+  // Fetch the detail endpoint to obtain walk_minutes. Does not block the modal
+  // or the map. Errors and null responses are handled gracefully.
+  useEffect(() => {
+    if (!listingId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/listings/${listingId}`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data: Listing = await res.json();
+          setWalkMinutes(data.walk_minutes ?? null);
+        } else {
+          setWalkMinutes(null);
+        }
+      } catch {
+        if (!cancelled) setWalkMinutes(null);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [listingId]);
 
   /* Close location drawer or lightbox on Escape */
@@ -529,18 +562,7 @@ export function ListingDetailModal({
             ) : (
               /* Location tab — desktop only (tab strip is hidden on mobile) */
               <div className="space-y-4">
-                {/* Map placeholder */}
-                <div className="relative aspect-[16/10] bg-surface-soft border border-hairline rounded-md overflow-hidden">
-                  <div className="absolute inset-0 ld-map-grid" aria-hidden="true" />
-                  <div className="absolute -top-12 -left-12 size-48 rounded-full bg-primary/15 blur-3xl" aria-hidden="true" />
-                  <div className="absolute -bottom-16 -right-16 size-56 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <MapPin className="size-10 text-primary motion-safe:animate-bounce" aria-hidden="true" />
-                  </div>
-                  <span className="absolute top-2 right-2 text-xs text-muted bg-canvas/80 backdrop-blur-sm px-2 py-1 rounded-full border border-hairline">
-                    Map placeholder · Integrate with Mapbox (Phase 2)
-                  </span>
-                </div>
+                <ListingMap listingId={listing.id} />
 
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-3">
                   <dt className="text-xs text-muted">Neighborhood</dt>
@@ -552,6 +574,13 @@ export function ListingDetailModal({
                       ? `~${listing.distance_miles.toFixed(1)} mi away`
                       : "Not available yet"}
                   </dd>
+
+                  {typeof walkMinutes === "number" && (
+                    <>
+                      <dt className="text-xs text-muted">Walking</dt>
+                      <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
+                    </>
+                  )}
 
                   <dt className="text-xs text-muted">Pickup</dt>
                   <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
@@ -602,17 +631,9 @@ export function ListingDetailModal({
                 </button>
               </div>
 
-              {/* Map placeholder */}
-              <div className="relative aspect-[16/10] bg-surface-soft border border-hairline rounded-md overflow-hidden mb-4">
-                <div className="absolute inset-0 ld-map-grid" aria-hidden="true" />
-                <div className="absolute -top-12 -left-12 size-48 rounded-full bg-primary/15 blur-3xl" aria-hidden="true" />
-                <div className="absolute -bottom-16 -right-16 size-56 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <MapPin className="size-10 text-primary motion-safe:animate-bounce" aria-hidden="true" />
-                </div>
-                <span className="absolute top-2 right-2 text-xs text-muted bg-canvas/80 backdrop-blur-sm px-2 py-1 rounded-full border border-hairline">
-                  Map placeholder · Integrate with Mapbox (Phase 2)
-                </span>
+              {/* Map */}
+              <div className="mb-4">
+                <ListingMap listingId={listing.id} />
               </div>
 
               {/* Location dl */}
@@ -626,6 +647,13 @@ export function ListingDetailModal({
                     ? `~${listing.distance_miles.toFixed(1)} mi away`
                     : "Not available yet"}
                 </dd>
+
+                {typeof walkMinutes === "number" && (
+                  <>
+                    <dt className="text-xs text-muted">Walking</dt>
+                    <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
+                  </>
+                )}
 
                 <dt className="text-xs text-muted">Pickup</dt>
                 <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
