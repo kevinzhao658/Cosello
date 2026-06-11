@@ -22,6 +22,12 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Buyer-facing approximate-area circle radius (miles). 0.15 mi at zoom 15 keeps
+# the circle well inside the frame with street labels visible around it (user-
+# aligned 2026-06-11; was LOCATION_FUZZ_RADIUS_MI=0.4 which swallowed the frame).
+# Becomes the default for per-listing `map_radius_mi` when Phase 2b lands.
+MAP_CIRCLE_RADIUS_MI = 0.15
+
 # Mapbox Static Images endpoint base
 _STATIC_BASE = "https://api.mapbox.com/styles/v1/mapbox/streets-v12/static"
 

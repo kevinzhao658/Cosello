@@ -1861,7 +1861,7 @@ async def get_listing_map(
 
     The map shows a translucent circle centred on the listing's coarsened
     coordinates (already rounded to ~110 m at creation time) with a radius of
-    ``LOCATION_FUZZ_RADIUS_MI`` miles — communicating the neighbourhood without
+    ``MAP_CIRCLE_RADIUS_MI`` miles — communicating the approximate area without
     revealing an exact address.  No marker/pin is drawn.
 
     Response codes:
@@ -1875,8 +1875,6 @@ async def get_listing_map(
     The exact lat/lng coordinates are NEVER included in the response.
     No authentication required — buyers browsing must see the map.
     """
-    from services.geo import LOCATION_FUZZ_RADIUS_MI
-
     listing = db.query(Listing).filter(Listing.id == listing_id).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -1884,9 +1882,9 @@ async def get_listing_map(
     if not _MAPBOX_TOKEN or listing.latitude is None or listing.longitude is None:
         return Response(status_code=204)
 
-    from services.mapbox import fetch_static_map_png
+    from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png
     png_bytes = fetch_static_map_png(
-        listing.latitude, listing.longitude, LOCATION_FUZZ_RADIUS_MI, _MAPBOX_TOKEN
+        listing.latitude, listing.longitude, MAP_CIRCLE_RADIUS_MI, _MAPBOX_TOKEN
     )
     if png_bytes is None:
         raise HTTPException(status_code=503, detail="Map image unavailable")
