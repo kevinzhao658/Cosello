@@ -5,7 +5,8 @@ import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
 import { useNeighborhoods } from "../lib/useNeighborhoods";
 import { useClickOutside } from "../hooks/useClickOutside";
-import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP } from "../lib/nycZips";
+import { NYC_ZIP_SET, topZipForNeighborhood } from "../lib/nycZips";
+import { LocationCombobox } from "../components/LocationCombobox";
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -42,7 +43,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
   // Prefill ZIP from neighborhood when neighborhood becomes valid and user hasn't manually set ZIP
   useEffect(() => {
     if (isValidNeighborhood && !zipTouched) {
-      const prefill = NEIGHBORHOOD_ZIP[neighborhood.trim()] ?? "";
+      const prefill = topZipForNeighborhood(neighborhood.trim());
       if (prefill) setZipCode(prefill);
     }
   }, [isValidNeighborhood, neighborhood, zipTouched]);
@@ -142,7 +143,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div>
               <label className="block text-xs text-muted mb-1.5 font-semibold">
-                Default Pickup Address
+                Pickup Address
               </label>
               <Input
                 type="text"
@@ -255,20 +256,11 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
               <label className="block text-xs text-muted mb-1.5 font-semibold">
                 Zip Code <span className="text-error">*</span>
               </label>
-              <select
+              <LocationCombobox
+                id="signup-zip"
                 value={zipCode}
-                onChange={(e) => {
-                  setZipCode(e.target.value);
-                  setZipTouched(true);
-                }}
-                className="w-full rounded-md border border-input bg-canvas px-3 py-2 text-sm text-ink shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                required
-              >
-                <option value="" disabled>Select ZIP</option>
-                {NYC_ZIPS.map(({ zip, neighborhood: n }) => (
-                  <option key={zip} value={zip}>{zip} — {n}</option>
-                ))}
-              </select>
+                onChange={(zip) => { setZipCode(zip); setZipTouched(true); }}
+              />
             </div>
 
             {error && <p className="text-sm text-error">{error}</p>}
