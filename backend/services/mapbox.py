@@ -81,8 +81,10 @@ def build_static_map_url(lat: float, lng: float, radius_mi: float, token: str) -
     geojson_str = _circle_geojson(lat, lng, radius_mi)
     encoded = urllib.parse.quote(geojson_str, safe="")
     overlay = f"geojson({encoded})"
-    # Zoom 14 ≈ neighbourhood-level; @2x for crisp display on HiDPI screens
-    position = f"{lng},{lat},14,0"
+    # Zoom 15 — streets-v12 renders numbered cross-street labels (25th St,
+    # 40th St…) from z15; z14 left the map mostly label-less. The 0.4 mi
+    # circle still fits the 640x400 frame at this zoom. @2x for HiDPI.
+    position = f"{lng},{lat},15,0"
     url = (
         f"{_STATIC_BASE}"
         f"/{overlay}"

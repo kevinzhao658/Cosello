@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, MapPin, User, Loader2, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, MapPin, User, Loader2, Pencil, Check, ChevronLeft, ChevronRight, Navigation } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { formatTitle } from "../../lib/format";
@@ -235,6 +235,28 @@ export function ListingDetailModal({
     })();
     return () => { cancelled = true; };
   }, [listingId]);
+
+  // Apple Maps walking directions to the listing's APPROXIMATE area. The
+  // coords are the coarse ZIP-centroid already exposed on the listing payload
+  // (never the seller's address), so the link leaks nothing new pre-acceptance.
+  const directionsUrl =
+    listing?.latitude != null && listing?.longitude != null
+      ? `https://maps.apple.com/?daddr=${listing.latitude},${listing.longitude}&dirflg=w`
+      : null;
+  const directionsLink = listing && directionsUrl && (
+    <a
+      href={directionsUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-sm"
+    >
+      <Navigation className="size-4" aria-hidden="true" />
+      Get directions
+      {listing.distance_miles !== null && listing.distance_miles !== undefined
+        ? ` (~${listing.distance_miles.toFixed(1)} mi)`
+        : ""}
+    </a>
+  );
 
   /* Close location drawer or lightbox on Escape */
   useEffect(() => {
@@ -564,6 +586,7 @@ export function ListingDetailModal({
               /* Location tab — desktop only (tab strip is hidden on mobile) */
               <div className="space-y-4">
                 <ListingMap listingId={listing.id} />
+                {directionsLink}
 
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-3">
                   <dt className="text-xs text-muted">Neighborhood</dt>
@@ -638,8 +661,9 @@ export function ListingDetailModal({
               </div>
 
               {/* Map */}
-              <div className="mb-4">
+              <div className="mb-4 space-y-3">
                 <ListingMap listingId={listing.id} />
+                {directionsLink}
               </div>
 
               {/* Location dl */}
