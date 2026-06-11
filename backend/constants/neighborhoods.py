@@ -18,7 +18,7 @@ MANHATTAN_NEIGHBORHOODS: list[str] = [
     "Chelsea",
     "Chinatown",
     "Civic Center",
-    "Clinton (Hell's Kitchen)",
+    "Hell's Kitchen",
     "East Harlem",
     "East Village",
     "Financial District",

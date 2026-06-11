@@ -87,7 +87,7 @@ export function EditProfileModal({
           </div>
 
           <div>
-            <label className={LABEL_CLASS}>Default Pickup Address</label>
+            <label className={LABEL_CLASS}>Pickup Address</label>
             <Input
               type="text"
               placeholder="Street address"

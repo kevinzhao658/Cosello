@@ -29,6 +29,7 @@ import { TopSearches } from "./components/TopSearches";
 import { ConfirmZipBanner } from "./components/ConfirmZipBanner";
 import { BulkPreviewAside } from "./components/BulkPreviewAside";
 import { ListingChecklist } from "./components/ListingChecklist";
+import { LocationCombobox } from "./components/LocationCombobox";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { PLACEHOLDER_COMMUNITY, CONDITIONS, getChipClass } from "./lib/listings";
 import { CategoryAttributeFields } from "./components/CategoryFields";
@@ -40,9 +41,11 @@ import { useMarketplaceBrowse } from "./hooks/useMarketplaceBrowse";
 import { useListingDetail } from "./hooks/useListingDetail";
 import { useNotifications } from "./hooks/useNotifications";
 import { apiFetch } from "./lib/api";
+import { setLocationOnProfile } from "./lib/setLocationOnProfile";
 import { formatPriceDisplay, isPricePositive } from "./lib/price";
 import { logSearch } from "./lib/events";
 import { NYC_ZIPS, NYC_ZIP_SET, NEIGHBORHOOD_ZIP, ZIP_NEIGHBORHOOD } from "./lib/nycZips";
+import { searchLocations } from "./lib/locationSearch";
 import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "./lib/types";
 
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
@@ -187,6 +190,30 @@ export default function App() {
   // marketplace location header. Edits zip + neighborhood only; full profile
   // edits still go through MyAccount → Edit Profile.
   const changeLocation = useChangeLocation(user, updateUser);
+
+  // Delegates to setLocationOnProfile (lib/setLocationOnProfile.ts) — the
+  // single source of truth for the derive-neighborhood → PUT sequence.
+  // Used by the hero-search location suggestion row (authenticated users).
+  const [heroLocSaving, setHeroLocSaving] = useState<string | null>(null); // ZIP being saved, or null
+  const [heroLocError, setHeroLocError] = useState<string | null>(null);
+  const setUserLocation = useCallback(
+    async (zip: string): Promise<void> => {
+      if (!user) return;
+      setHeroLocSaving(zip);
+      setHeroLocError(null);
+      try {
+        const updated = await setLocationOnProfile(zip);
+        updateUser(updated);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Could not save location";
+        setHeroLocError(msg);
+        throw new Error(msg);
+      } finally {
+        setHeroLocSaving(null);
+      }
+    },
+    [user, updateUser],
+  );
 
   // marketSentinelRef and its IntersectionObserver live in useMarketplaceBrowse.
 
@@ -1345,19 +1372,66 @@ export default function App() {
                     </button>
                   </form>
 
-                  <div className="flex flex-wrap gap-2 mt-5 items-center">
-                    <span className="text-sm text-muted mr-1">Try</span>
-                    {["Walnut sideboard", "Le Creuset", "Mid-century lamp", "Wool rug", "Vintage Levi's"].map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        onClick={() => setHomeSearch(q)}
-                        className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-                      >
-                        {q}
-                      </button>
-                    ))}
-                  </div>
+                  {(() => {
+                    const locMatches = isAuthenticated && user ? searchLocations(homeSearch) : [];
+                    if (locMatches.length > 0) {
+                      return (
+                        <div className="mt-3 bg-canvas border border-hairline rounded-md shadow-card overflow-hidden">
+                          {heroLocError && (
+                            <p className="px-3 py-2 text-sm text-error border-b border-hairline">{heroLocError}</p>
+                          )}
+                          {locMatches.map((entry) => {
+                            const isSaving = heroLocSaving === entry.zip;
+                            return (
+                              <button
+                                key={entry.zip}
+                                type="button"
+                                disabled={heroLocSaving !== null}
+                                onClick={async () => {
+                                  try {
+                                    await setUserLocation(entry.zip);
+                                    setHomeSearch("");
+                                    setPage("market");
+                                  } catch {
+                                    // heroLocError is set by setUserLocation; stay on page.
+                                  }
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left hover:bg-surface-soft transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                              >
+                                <MapPin className="size-4 text-muted shrink-0" aria-hidden />
+                                <span>
+                                  {isSaving ? (
+                                    <span className="text-muted">Saving…</span>
+                                  ) : (
+                                    <>
+                                      <span className="text-muted mr-1">Set location:</span>
+                                      <span className="font-semibold text-ink">{entry.zip}</span>
+                                      <span className="text-muted"> — {entry.neighborhood}</span>
+                                    </>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="flex flex-wrap gap-2 mt-5 items-center">
+                        <span className="text-sm text-muted mr-1">Try</span>
+                        {["Walnut sideboard", "Le Creuset", "Mid-century lamp", "Wool rug", "Vintage Levi's"].map((q) => (
+                          <button
+                            key={q}
+                            type="button"
+                            onClick={() => setHomeSearch(q)}
+                            className="text-sm font-medium text-body bg-transparent border border-hairline rounded-full px-3 py-1.5 hover:border-border-strong hover:text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 // Homepage Sell tab embeds the drafts gallery so users can
@@ -1396,12 +1470,9 @@ export default function App() {
             const neighborhood = keepsCurrent
               ? user.neighborhood
               : (ZIP_NEIGHBORHOOD[zip] ?? user.neighborhood);
-            const res = await fetch("/api/auth/profile", {
+            const res = await apiFetch("/api/auth/profile", {
               method: "PUT",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token ?? ""}`,
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 display_name: user.display_name,
                 neighborhood,
@@ -2019,33 +2090,19 @@ export default function App() {
             </p>
             <div className="space-y-3">
               <div>
-                <label htmlFor="cl-neighborhood" className="block text-[11px] font-semibold text-muted mb-1.5">
-                  Neighborhood
-                </label>
-                <input
-                  id="cl-neighborhood"
-                  type="text"
-                  value={changeLocation.neighborhood}
-                  onChange={(e) => changeLocation.setNeighborhood(e.target.value)}
-                  placeholder="e.g. Chinatown"
-                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-              <div>
                 <label htmlFor="cl-zip" className="block text-[11px] font-semibold text-muted mb-1.5">
                   Zip code
                 </label>
-                <select
+                <LocationCombobox
                   id="cl-zip"
-                  value={NYC_ZIP_SET.has(changeLocation.zip) ? changeLocation.zip : ""}
-                  onChange={(e) => changeLocation.setZip(e.target.value)}
-                  className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="" disabled>Select ZIP</option>
-                  {NYC_ZIPS.map(({ zip, neighborhood }) => (
-                    <option key={zip} value={zip}>{zip} — {neighborhood}</option>
-                  ))}
-                </select>
+                  value={changeLocation.zip}
+                  onChange={changeLocation.setZip}
+                />
+                {ZIP_NEIGHBORHOOD[changeLocation.zip] && (
+                  <p className="text-[11px] text-muted mt-1.5">
+                    Neighborhood: <span className="font-semibold text-ink">{ZIP_NEIGHBORHOOD[changeLocation.zip]}</span>
+                  </p>
+                )}
               </div>
               {changeLocation.error && (
                 <p className="text-sm text-error">{changeLocation.error}</p>
@@ -2062,7 +2119,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={changeLocation.submit}
-                disabled={changeLocation.isSubmitting || !changeLocation.neighborhood.trim()}
+                disabled={changeLocation.isSubmitting || !NYC_ZIP_SET.has(changeLocation.zip)}
                 className="h-9 px-4 rounded-md bg-primary hover:bg-primary-hover text-on-primary text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
                 {changeLocation.isSubmitting ? "Saving…" : "Save"}

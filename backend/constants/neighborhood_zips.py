@@ -5,7 +5,7 @@ a ZIP seeded in scripts/seed_zip_centroids.py (enforced by test_neighborhood_zip
 
 NEIGHBORHOOD_ZIP: dict[str, str] = {
     "Battery Park City": "10280", "Carnegie Hill": "10128", "Chelsea": "10011",
-    "Chinatown": "10013", "Civic Center": "10007", "Clinton (Hell's Kitchen)": "10019",
+    "Chinatown": "10013", "Civic Center": "10007", "Hell's Kitchen": "10019",
     "East Harlem": "10029", "East Village": "10009", "Financial District": "10004",
     "Flatiron District": "10010", "Gramercy Park": "10010", "Greenwich Village": "10012",
     "Hamilton Heights": "10031", "Harlem": "10027", "Hudson Heights": "10033",
