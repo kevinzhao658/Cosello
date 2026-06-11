@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MapPin } from "lucide-react";
+import { Skeleton } from "./ui/Skeleton";
 
 type ListingMapProps = {
   listingId: string;
@@ -21,13 +22,9 @@ export function ListingMap({ listingId }: ListingMapProps) {
 
   return (
     <div className="relative aspect-[16/10] bg-surface-soft border border-hairline rounded-md overflow-hidden">
-      {/* Shimmer skeleton — visible while the image is loading and no error */}
-      {!loaded && !errored && (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 animate-pulse bg-surface-strong"
-        />
-      )}
+      {/* Shimmer skeleton — house Skeleton primitive (visible sweep), shown
+          while the image is loading and no error. */}
+      {!loaded && !errored && <Skeleton className="absolute inset-0 rounded-none" />}
 
       {/* Actual map image */}
       {!errored && (

@@ -6,6 +6,7 @@ import { formatTitle } from "../../lib/format";
 import { PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { Tooltip } from "../../components/ui/tooltip";
 import { ListingMap } from "../../components/ListingMap";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { apiFetch } from "../../lib/api";
 import type { Listing } from "../../lib/types";
 
@@ -575,12 +576,17 @@ export function ListingDetailModal({
                       : "Not available yet"}
                   </dd>
 
-                  {typeof walkMinutes === "number" && (
+                  {walkMinutes === "loading" ? (
+                    <>
+                      <dt className="text-xs text-muted">Walking</dt>
+                      <dd><Skeleton className="h-4 w-16" /></dd>
+                    </>
+                  ) : typeof walkMinutes === "number" ? (
                     <>
                       <dt className="text-xs text-muted">Walking</dt>
                       <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
                     </>
-                  )}
+                  ) : null}
 
                   <dt className="text-xs text-muted">Pickup</dt>
                   <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
@@ -648,12 +654,17 @@ export function ListingDetailModal({
                     : "Not available yet"}
                 </dd>
 
-                {typeof walkMinutes === "number" && (
+                {walkMinutes === "loading" ? (
+                  <>
+                    <dt className="text-xs text-muted">Walking</dt>
+                    <dd><Skeleton className="h-4 w-16" /></dd>
+                  </>
+                ) : typeof walkMinutes === "number" ? (
                   <>
                     <dt className="text-xs text-muted">Walking</dt>
                     <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
                   </>
-                )}
+                ) : null}
 
                 <dt className="text-xs text-muted">Pickup</dt>
                 <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
