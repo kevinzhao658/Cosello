@@ -128,8 +128,10 @@ def _mock_db_for_listing(listing_id_to_obj: dict):
 def _reset_walk_cache():
     import main
     main._walk_cache.clear()
+    main._map_png_cache.clear()
     yield
     main._walk_cache.clear()
+    main._map_png_cache.clear()
 
 
 # ---------------------------------------------------------------------------

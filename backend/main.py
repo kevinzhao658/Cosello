@@ -88,6 +88,12 @@ _MAPBOX_TOKEN: str | None = os.getenv("MAPBOX_TOKEN") or None
 # In-process walk-time cache: { (buyer_zip, listing_id) -> int | None }.
 # Prevents re-calling the Mapbox Directions API on every repeated modal open
 # for the same buyer+listing pair. Resets on process restart (acceptable for MVP).
+# Server-side cache of rendered buyer-map PNGs, keyed (listing_id, radius).
+# ~150-250 KB each; 128 entries caps memory at ~30 MB. In-process (resets on
+# restart) — same trade-off as _walk_cache, acceptable for MVP.
+_MAP_PNG_CACHE_MAX = 128
+_map_png_cache: dict[tuple[str, float], bytes] = {}
+
 _walk_cache: dict[tuple[str, str], int | None] = {}
 
 import random
@@ -1840,7 +1846,7 @@ async def get_my_listings(
 
 
 @app.get("/api/listings/{listing_id}")
-async def get_listing_detail(
+def get_listing_detail(
     listing_id: str,
     current_user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
@@ -1894,7 +1900,7 @@ async def get_listing_detail(
 
 
 @app.get("/api/listings/{listing_id}/map.png")
-async def get_listing_map(
+def get_listing_map(
     listing_id: str,
     db: Session = Depends(get_db),
 ):
@@ -1925,14 +1931,22 @@ async def get_listing_map(
 
     from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png, offset_circle_center
     radius = listing.map_radius_mi if listing.map_radius_mi is not None else MAP_CIRCLE_RADIUS_MI
-    # Render the image + circle centered on a deterministic per-listing OFFSET
-    # point, never the stored coords — the circle's center must not reveal the
-    # listing's location (and the offset must be stable across renders so it
-    # can't be averaged away).
-    c_lat, c_lng = offset_circle_center(listing.id, listing.latitude, listing.longitude, radius)
-    png_bytes = fetch_static_map_png(c_lat, c_lng, radius, _MAPBOX_TOKEN)
+    # Server-side cache: the rendered PNG is stable for a listing+radius, so
+    # only the FIRST viewer pays Mapbox's render latency (~0.5-1s). FIFO cap.
+    cache_key = (listing_id, radius)
+    png_bytes = _map_png_cache.get(cache_key)
     if png_bytes is None:
-        raise HTTPException(status_code=503, detail="Map image unavailable")
+        # Render the image + circle centered on a deterministic per-listing
+        # OFFSET point, never the stored coords — the circle's center must not
+        # reveal the listing's location (and the offset must be stable across
+        # renders so it can't be averaged away).
+        c_lat, c_lng = offset_circle_center(listing.id, listing.latitude, listing.longitude, radius)
+        png_bytes = fetch_static_map_png(c_lat, c_lng, radius, _MAPBOX_TOKEN)
+        if png_bytes is None:
+            raise HTTPException(status_code=503, detail="Map image unavailable")
+        if len(_map_png_cache) >= _MAP_PNG_CACHE_MAX:
+            _map_png_cache.pop(next(iter(_map_png_cache)))  # FIFO eviction
+        _map_png_cache[cache_key] = png_bytes
 
     return Response(
         content=png_bytes,

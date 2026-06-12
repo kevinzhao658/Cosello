@@ -5,6 +5,16 @@ import pytest
 import services.mapbox as mb
 
 
+@pytest.fixture(autouse=True)
+def _reset_server_caches():
+    import main
+    main._walk_cache.clear()
+    main._map_png_cache.clear()
+    yield
+    main._walk_cache.clear()
+    main._map_png_cache.clear()
+
+
 # ---------------------------------------------------------------------------
 # Task 2: Mapbox service unit tests
 # ---------------------------------------------------------------------------
@@ -485,3 +495,56 @@ def test_offset_circle_center_varies_by_listing():
     a = mb.offset_circle_center("listing-x", 40.725, -73.998, 0.15)
     b = mb.offset_circle_center("listing-y", 40.725, -73.998, 0.15)
     assert a != b
+
+
+def test_map_png_server_cache_hits_on_second_request(monkeypatch):
+    """The rendered PNG is cached server-side per (listing_id, radius): the
+    second request must be served from cache without re-calling Mapbox."""
+    import main
+    calls = {"n": 0}
+
+    def fake_fetch(lat, lng, radius_mi, token):
+        calls["n"] += 1
+        return b"png-bytes"
+
+    monkeypatch.setattr(main, "_MAPBOX_TOKEN", "tok")
+    listing = _make_listing(latitude=40.725, longitude=-73.998, map_radius_mi=0.2)
+    with _client_for(listing, monkeypatch) as client:
+        import services.mapbox as smb
+        monkeypatch.setattr(smb, "fetch_static_map_png", fake_fetch)
+        r1 = client.get(f"/api/listings/{listing.id}/map.png")
+        r2 = client.get(f"/api/listings/{listing.id}/map.png")
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r2.content == b"png-bytes"
+    assert calls["n"] == 1
+
+def test_map_png_server_cache_hits_on_second_request(monkeypatch):
+    """The rendered PNG is cached server-side per (listing_id, radius): the
+    second request must be served from cache without re-calling Mapbox."""
+    import main
+    from database import get_db
+    from fastapi.testclient import TestClient
+    import services.mapbox as mapbox_mod
+
+    listing = _make_map_listing("mapcachetest001", map_radius_mi=0.2)
+    mock_db = _mock_db_for_map_listing(listing)
+
+    calls = {"n": 0}
+
+    def _fake_fetch(lat, lng, radius_mi, token):
+        calls["n"] += 1
+        return b"\x89PNG-cache-test"
+
+    monkeypatch.setattr(main, "_MAPBOX_TOKEN", "tok")
+    monkeypatch.setattr(mapbox_mod, "fetch_static_map_png", _fake_fetch)
+    main.app.dependency_overrides[get_db] = lambda: mock_db
+
+    try:
+        client = TestClient(main.app)
+        r1 = client.get(f"/api/listings/{listing.id}/map.png")
+        r2 = client.get(f"/api/listings/{listing.id}/map.png")
+        assert r1.status_code == 200 and r2.status_code == 200
+        assert r2.content == b"\x89PNG-cache-test"
+        assert calls["n"] == 1, f"expected 1 Mapbox call, got {calls['n']}"
+    finally:
+        main.app.dependency_overrides.pop(get_db, None)
