@@ -1095,6 +1095,9 @@ async def create_listing(
     pickup_zip: str = Form(""),
     draft_urls: str = Form(""),
     image_order: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    map_radius_mi: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1344,14 +1347,51 @@ async def create_listing(
 
     from services.geo import centroid_for_zip, round_coord as _round_coord
     import re as _re
-    _zip = pickup_zip.strip()
-    if not _re.fullmatch(r"\d{5}", _zip):
-        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
-    _centroid = centroid_for_zip(db, _zip)
-    if _centroid is None:
-        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
-    listing_lat = _round_coord(_centroid[0])
-    listing_lng = _round_coord(_centroid[1])
+
+    _radius: float | None = None
+    if map_radius_mi.strip():
+        from services.mapbox import MIN_MAP_RADIUS_MI, MAX_MAP_RADIUS_MI
+        try:
+            _radius = float(map_radius_mi)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="map_radius_mi must be a number")
+        if not (MIN_MAP_RADIUS_MI <= _radius <= MAX_MAP_RADIUS_MI):
+            raise HTTPException(
+                status_code=400,
+                detail=f"map_radius_mi must be between {MIN_MAP_RADIUS_MI} and {MAX_MAP_RADIUS_MI}",
+            )
+
+    if latitude.strip() and longitude.strip():
+        # Pin path (Phase 2b): coords from the seller's pin. Round server-side
+        # (privacy floor — never trust client rounding), derive the ZIP via
+        # reverse geocode, ignore any client-sent pickup_zip.
+        try:
+            _pin_lat, _pin_lng = float(latitude), float(longitude)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid pin coordinates")
+        listing_lat = _round_coord(_pin_lat)
+        listing_lng = _round_coord(_pin_lng)
+        if not _MAPBOX_TOKEN:
+            raise HTTPException(status_code=503, detail="Could not verify pickup location — try again")
+        from services.mapbox import reverse_geocode_zip
+        _rev = reverse_geocode_zip(listing_lat, listing_lng, _MAPBOX_TOKEN)
+        if _rev is None:
+            raise HTTPException(status_code=503, detail="Could not verify pickup location — try again")
+        _zip, _place_label = _rev
+        if centroid_for_zip(db, _zip) is None:
+            raise HTTPException(status_code=400, detail="Pickup must be in Manhattan for now")
+        if not pickup_location.strip():
+            pickup_location = _place_label
+    else:
+        # Legacy / degraded path: ZIP dropdown drives coords (unchanged).
+        _zip = pickup_zip.strip()
+        if not _re.fullmatch(r"\d{5}", _zip):
+            raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+        _centroid = centroid_for_zip(db, _zip)
+        if _centroid is None:
+            raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+        listing_lat = _round_coord(_centroid[0])
+        listing_lng = _round_coord(_centroid[1])
 
     posted_at = time.time()
     listing = Listing(
@@ -1381,6 +1421,7 @@ async def create_listing(
         zip_code=_zip,
         latitude=listing_lat,
         longitude=listing_lng,
+        map_radius_mi=_radius,
     )
     db.add(listing)
     db.commit()
