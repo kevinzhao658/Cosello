@@ -24,6 +24,9 @@ export interface PickupMapStepProps {
   onRadiusChange: (r: number) => void;
   pickupLabel: string; // selected suggestion label ("" if drag-only)
   onPickupLabelChange: (label: string) => void;
+  /** Seller's saved profile address: geocoded once on load to seed the pin
+   *  and shown as the search box's resting content. */
+  defaultAddress?: string | null;
   /** Render-prop fallback: legacy fields shown when no token / GL init fails. */
   renderFallback: () => React.ReactNode;
 }
@@ -44,6 +47,7 @@ export function PickupMapStep({
   onRadiusChange,
   pickupLabel,
   onPickupLabelChange,
+  defaultAddress = null,
   renderFallback,
 }: PickupMapStepProps) {
   // Token check — if missing, fall back immediately
@@ -61,6 +65,7 @@ export function PickupMapStep({
       onRadiusChange={onRadiusChange}
       pickupLabel={pickupLabel}
       onPickupLabelChange={onPickupLabelChange}
+      defaultAddress={defaultAddress}
       renderFallback={renderFallback}
     />
   );
@@ -76,6 +81,7 @@ function PickupMapStepInner({
   onRadiusChange,
   pickupLabel,
   onPickupLabelChange,
+  defaultAddress = null,
   renderFallback,
 }: PickupMapStepProps) {
   type MapboxGl = typeof import("mapbox-gl");
@@ -149,48 +155,55 @@ function PickupMapStepInner({
     [maskCenter],
   );
 
-  // Start (or extend) the orbit demo. While the slider is active the circle's
-  // center orbits the pin; ~250ms after the last input the sweep takes the
-  // shortest path back to the resting offset and the loop stops.
+  // Constant orbit: the mask circles the pin continuously (the pin is the
+  // axis), slow at rest and faster while the slider is in use, so its resting
+  // spot never reads as meaningful. Skipped under prefers-reduced-motion.
   const bumpWobble = useCallback(() => {
+    wobbleRef.current.lastActivity = performance.now();
+  }, []);
+
+  useEffect(() => {
+    if (!mapLoaded) return;
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const w = wobbleRef.current;
-    w.lastActivity = performance.now();
-    if (w.raf) return; // loop already running
     const tick = () => {
-      const active = performance.now() - w.lastActivity < 250;
-      if (active) {
-        w.sweep += 0.045; // steady orbit around the pin
-      } else {
-        // Glide home along the shortest path.
-        w.sweep = w.sweep % (Math.PI * 2);
-        if (w.sweep > Math.PI) w.sweep -= Math.PI * 2;
-        if (w.sweep < -Math.PI) w.sweep += Math.PI * 2;
-        w.sweep *= 0.85;
-        if (Math.abs(w.sweep) < 0.01) {
-          w.sweep = 0;
-          w.raf = 0;
-          redrawCircle(0); // settled at the resting offset
-          return;
-        }
-      }
+      const sliderActive = performance.now() - w.lastActivity < 250;
+      w.sweep += sliderActive ? 0.045 : 0.006; // ~17s per revolution at rest
       redrawCircle(w.sweep);
       w.raf = requestAnimationFrame(tick);
     };
     w.raf = requestAnimationFrame(tick);
-  }, [redrawCircle]);
-
-  // Cancel any running orbit loop on unmount.
-  useEffect(() => {
-    const w = wobbleRef.current;
     return () => {
       if (w.raf) cancelAnimationFrame(w.raf);
       w.raf = 0;
     };
-  }, []);
+  }, [mapLoaded, redrawCircle]);
 
   // Search combobox ref for click-outside
   const comboboxRef = useRef<HTMLDivElement>(null);
+
+  // Default the pickup to the seller's saved profile address: geocode it once
+  // after the map loads, move the pin there, and surface it in the search box.
+  // Skipped when an address was already chosen this session.
+  const autoSeededRef = useRef(false);
+  useEffect(() => {
+    if (autoSeededRef.current || !mapLoaded) return;
+    autoSeededRef.current = true;
+    const addr = defaultAddress?.trim();
+    if (!addr || pickupLabel.trim() !== "") return;
+    searchAddresses(addr)
+      .then((results) => {
+        const hit = results[0];
+        if (hit) {
+          onPinChange({ lat: hit.lat, lng: hit.lng });
+          onPickupLabelChange(hit.label);
+        }
+      })
+      .catch(() => {
+        /* profile address didn't geocode: seller can search or drag instead */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapLoaded]);
 
   // Lazy-load mapbox-gl (its stylesheet is statically imported at the top of
   // this file so it is guaranteed to be applied before the map constructs)
@@ -251,9 +264,12 @@ function PickupMapStepInner({
 
     mapRef.current = map;
 
-    // Build the custom HTML marker element
+    // Build the custom HTML marker element. pointer-events are disabled on the
+    // wrapper and svg BOX and re-enabled only on the painted pin shapes, so a
+    // drag can start only from a press exactly on the pin (not the empty space
+    // around it).
     const el = document.createElement("div");
-    el.style.cssText = "position:relative;display:flex;flex-direction:column;align-items:center;cursor:grab;";
+    el.style.cssText = "position:relative;display:flex;flex-direction:column;align-items:center;pointer-events:none;";
     markerElementRef.current = el;
 
     // Tooltip pill — visible when idle, hidden during drag
@@ -276,24 +292,27 @@ function PickupMapStepInner({
     tooltipRef.current = tooltip;
     el.appendChild(tooltip);
 
-    // MapPin SVG (lucide path, amber primary color, 34px)
+    // Minimal pin: solid brand-purple lucide MapPin with a white center dot,
+    // no outline, soft shadow for lift. Matches --primary (#7C3AED).
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("width", "34");
-    svg.setAttribute("height", "34");
+    svg.setAttribute("width", "30");
+    svg.setAttribute("height", "30");
     svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("fill", "#D4A017");
-    svg.setAttribute("stroke", "#9a7000");
-    svg.setAttribute("stroke-width", "1.5");
-    svg.setAttribute("stroke-linecap", "round");
-    svg.setAttribute("stroke-linejoin", "round");
-    // MapPin paths: the body + the dot
+    svg.style.filter = "drop-shadow(0 2px 4px rgba(91,33,182,0.35))";
+    svg.style.pointerEvents = "none";
     const path = document.createElementNS(svgNS, "path");
     path.setAttribute("d", "M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z");
+    path.setAttribute("fill", "#7C3AED");
+    path.style.pointerEvents = "auto";
+    path.style.cursor = "grab";
     const circle = document.createElementNS(svgNS, "circle");
     circle.setAttribute("cx", "12");
     circle.setAttribute("cy", "10");
     circle.setAttribute("r", "3");
+    circle.setAttribute("fill", "#FFFFFF");
+    circle.style.pointerEvents = "auto";
+    circle.style.cursor = "grab";
     svg.appendChild(path);
     svg.appendChild(circle);
     el.appendChild(svg);
@@ -335,13 +354,13 @@ function PickupMapStepInner({
         id: "area-fill",
         type: "fill",
         source: "area",
-        paint: { "fill-color": "#D4A017", "fill-opacity": 0.25 },
+        paint: { "fill-color": "#7C3AED", "fill-opacity": 0.18 },
       });
       map.addLayer({
         id: "area-line",
         type: "line",
         source: "area",
-        paint: { "line-color": "#D4A017", "line-opacity": 0.6, "line-width": 2 },
+        paint: { "line-color": "#7C3AED", "line-opacity": 0.55, "line-width": 2 },
       });
       circleReadyRef.current = true;
       setMapLoaded(true);

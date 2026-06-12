@@ -67,11 +67,11 @@ def _circle_geojson(lat: float, lng: float, radius_mi: float, n_points: int = 64
     geojson = {
         "type": "Feature",
         "properties": {
-            "fill": "#D4A017",        # warm amber — Cosello brand-ish
-            "fill-opacity": 0.25,
-            "stroke": "#D4A017",
+            "fill": "#7C3AED",        # Cosello primary (violet)
+            "fill-opacity": 0.18,
+            "stroke": "#7C3AED",
             "stroke-width": 2,
-            "stroke-opacity": 0.6,
+            "stroke-opacity": 0.55,
         },
         "geometry": {
             "type": "Polygon",

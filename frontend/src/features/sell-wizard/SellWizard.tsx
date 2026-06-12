@@ -1189,6 +1189,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onRadiusChange={setPickupRadiusMi}
             pickupLabel={pickupLabel}
             onPickupLabelChange={setPickupLabel}
+              defaultAddress={user?.pickup_address ?? null}
             renderFallback={() => (
               <PickupStep
                 bulkPickupLocation={bulkPickupLocation}
@@ -1275,6 +1276,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               onRadiusChange={setPickupRadiusMi}
               pickupLabel={pickupLabel}
               onPickupLabelChange={setPickupLabel}
+              defaultAddress={user?.pickup_address ?? null}
               renderFallback={() => (
                 <SinglePickupStep
                   postPickupLocation={postPickupLocation}
