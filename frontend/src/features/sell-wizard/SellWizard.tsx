@@ -27,6 +27,7 @@ import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
 import { TypedInstruction } from "./TypedInstruction";
+import { AddressPrivacyNotice } from "./AddressPrivacyNotice";
 import { PickupMapStep } from "./steps/PickupMapStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
@@ -1256,6 +1257,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             exiting={instructionExiting}
             onBack={() => setSinglePostPhase("review")}
           />
+          <AddressPrivacyNotice />
           <div className="mt-8">
             <PickupMapStep
               initialLat={null}

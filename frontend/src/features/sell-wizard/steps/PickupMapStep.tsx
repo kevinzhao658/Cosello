@@ -479,11 +479,6 @@ function PickupMapStepInner({
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      {/* Subheader beneath the typed step prompt (which renders at the wizard level). */}
-      <p className="text-sm text-muted text-center -mt-3">
-        We will never release your address without your consent.
-      </p>
-
       {/* Search box — full-width, h-10 touch target, dropdown max-h-52 + overflow-y-auto */}
       <div ref={comboboxRef} className="relative">
         <input
