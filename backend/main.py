@@ -72,7 +72,7 @@ if not os.getenv("VERCEL"):
 
 
 @app.get("/api/categories")
-async def get_categories():
+def get_categories():
     return CATEGORY_SCHEMAS
 
 
@@ -88,6 +88,18 @@ _MAPBOX_TOKEN: str | None = os.getenv("MAPBOX_TOKEN") or None
 # In-process walk-time cache: { (buyer_zip, listing_id) -> int | None }.
 # Prevents re-calling the Mapbox Directions API on every repeated modal open
 # for the same buyer+listing pair. Resets on process restart (acceptable for MVP).
+# Server-side cache of rendered buyer-map PNGs, keyed (listing_id, radius).
+# ~150-250 KB each; 128 entries caps memory at ~30 MB. In-process (resets on
+# restart) — same trade-off as _walk_cache, acceptable for MVP.
+_MAP_PNG_CACHE_MAX = 128
+_map_png_cache: dict[tuple[str, float], bytes] = {}
+
+# Public-community id set, cached 60s: queried on EVERY feed request but the
+# set changes ~never (community creation is rare). Saves one ~90ms DB round
+# trip per feed load against the remote Supabase pooler.
+_public_ids_cache: dict[str, object] = {"ids": None, "at": 0.0}
+_PUBLIC_IDS_TTL_S = 60.0
+
 _walk_cache: dict[tuple[str, str], int | None] = {}
 
 import random
@@ -96,7 +108,7 @@ LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 
 @app.post("/api/dev/seed-listings")
-async def seed_listings(
+def seed_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -910,7 +922,7 @@ class SignedUploadUrlRequest(BaseModel):
 
 
 @app.post("/api/storage/signed-upload-url")
-async def create_signed_upload_urls(
+def create_signed_upload_urls(
     req: SignedUploadUrlRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -1095,6 +1107,9 @@ async def create_listing(
     pickup_zip: str = Form(""),
     draft_urls: str = Form(""),
     image_order: str = Form(""),
+    latitude: str = Form(""),
+    longitude: str = Form(""),
+    map_radius_mi: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1344,14 +1359,51 @@ async def create_listing(
 
     from services.geo import centroid_for_zip, round_coord as _round_coord
     import re as _re
-    _zip = pickup_zip.strip()
-    if not _re.fullmatch(r"\d{5}", _zip):
-        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
-    _centroid = centroid_for_zip(db, _zip)
-    if _centroid is None:
-        raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
-    listing_lat = _round_coord(_centroid[0])
-    listing_lng = _round_coord(_centroid[1])
+
+    _radius: float | None = None
+    if map_radius_mi.strip():
+        from services.mapbox import MIN_MAP_RADIUS_MI, MAX_MAP_RADIUS_MI
+        try:
+            _radius = float(map_radius_mi)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="map_radius_mi must be a number")
+        if not (MIN_MAP_RADIUS_MI <= _radius <= MAX_MAP_RADIUS_MI):
+            raise HTTPException(
+                status_code=400,
+                detail=f"map_radius_mi must be between {MIN_MAP_RADIUS_MI} and {MAX_MAP_RADIUS_MI}",
+            )
+
+    if latitude.strip() and longitude.strip():
+        # Pin path (Phase 2b): coords from the seller's pin. Round server-side
+        # (privacy floor — never trust client rounding), derive the ZIP via
+        # reverse geocode, ignore any client-sent pickup_zip.
+        try:
+            _pin_lat, _pin_lng = float(latitude), float(longitude)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid pin coordinates")
+        listing_lat = _round_coord(_pin_lat)
+        listing_lng = _round_coord(_pin_lng)
+        if not _MAPBOX_TOKEN:
+            raise HTTPException(status_code=503, detail="Could not verify pickup location — try again")
+        from services.mapbox import reverse_geocode_zip
+        _rev = reverse_geocode_zip(listing_lat, listing_lng, _MAPBOX_TOKEN)
+        if _rev is None:
+            raise HTTPException(status_code=503, detail="Could not verify pickup location — try again")
+        _zip, _place_label = _rev
+        if centroid_for_zip(db, _zip) is None:
+            raise HTTPException(status_code=400, detail="Pickup must be in Manhattan for now")
+        if not pickup_location.strip():
+            pickup_location = _place_label
+    else:
+        # Legacy / degraded path: ZIP dropdown drives coords (unchanged).
+        _zip = pickup_zip.strip()
+        if not _re.fullmatch(r"\d{5}", _zip):
+            raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+        _centroid = centroid_for_zip(db, _zip)
+        if _centroid is None:
+            raise HTTPException(status_code=400, detail="Enter a valid NYC ZIP code")
+        listing_lat = _round_coord(_centroid[0])
+        listing_lng = _round_coord(_centroid[1])
 
     posted_at = time.time()
     listing = Listing(
@@ -1381,6 +1433,7 @@ async def create_listing(
         zip_code=_zip,
         latitude=listing_lat,
         longitude=listing_lng,
+        map_radius_mi=_radius,
     )
     db.add(listing)
     db.commit()
@@ -1388,7 +1441,7 @@ async def create_listing(
 
 
 @app.get("/api/listings")
-async def get_listings(
+def get_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -1422,9 +1475,14 @@ async def get_listings(
     # tier/relevance ordering.
     fyp_mode = (not search) and (not community or community == "All")
 
-    all_public_ids: set[int] = {
-        c.id for c in db.query(Community).filter(Community.is_public == True).all()
-    }
+    if _public_ids_cache["ids"] is not None and (now - float(_public_ids_cache["at"])) < _PUBLIC_IDS_TTL_S:
+        all_public_ids: set[int] = _public_ids_cache["ids"]  # type: ignore[assignment]
+    else:
+        all_public_ids = {
+            c.id for c in db.query(Community).filter(Community.is_public == True).all()
+        }
+        _public_ids_cache["ids"] = all_public_ids
+        _public_ids_cache["at"] = now
     my_community_ids: set[int] = {
         m.community_id
         for m in db.query(CommunityMember).filter(CommunityMember.user_id == current_user.id).all()
@@ -1612,7 +1670,7 @@ async def get_listings(
 
 
 @app.get("/api/listings/public")
-async def get_public_listings(
+def get_public_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -1730,7 +1788,7 @@ async def get_public_listings(
 
 
 @app.get("/api/listings/mine")
-async def get_my_listings(
+def get_my_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1799,7 +1857,7 @@ async def get_my_listings(
 
 
 @app.get("/api/listings/{listing_id}")
-async def get_listing_detail(
+def get_listing_detail(
     listing_id: str,
     current_user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
@@ -1838,12 +1896,27 @@ async def get_listing_detail(
                 walk = _walk_cache[cache_key]
             else:
                 from services.geo import centroid_for_zip
-                from services.mapbox import walking_minutes as _walking_minutes
+                from services.mapbox import (
+                    MAP_CIRCLE_RADIUS_MI,
+                    offset_circle_center,
+                    walking_minutes as _walking_minutes,
+                )
                 buyer_coords = centroid_for_zip(db, buyer_zip)
                 if buyer_coords is not None:
+                    # Estimate to the MIDPOINT of the circle the buyer sees,
+                    # not the listing's true coords: keeps the number
+                    # consistent with the rendered map and leaks nothing.
+                    radius = (
+                        listing.map_radius_mi
+                        if listing.map_radius_mi is not None
+                        else MAP_CIRCLE_RADIUS_MI
+                    )
+                    dest_lat, dest_lng = offset_circle_center(
+                        listing_id, listing.latitude, listing.longitude, radius
+                    )
                     walk = _walking_minutes(
                         buyer_coords[0], buyer_coords[1],
-                        listing.latitude, listing.longitude,
+                        dest_lat, dest_lng,
                         _MAPBOX_TOKEN,
                     )
                 _walk_cache[cache_key] = walk
@@ -1853,7 +1926,7 @@ async def get_listing_detail(
 
 
 @app.get("/api/listings/{listing_id}/map.png")
-async def get_listing_map(
+def get_listing_map(
     listing_id: str,
     db: Session = Depends(get_db),
 ):
@@ -1882,12 +1955,24 @@ async def get_listing_map(
     if not _MAPBOX_TOKEN or listing.latitude is None or listing.longitude is None:
         return Response(status_code=204)
 
-    from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png
-    png_bytes = fetch_static_map_png(
-        listing.latitude, listing.longitude, MAP_CIRCLE_RADIUS_MI, _MAPBOX_TOKEN
-    )
+    from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png, offset_circle_center
+    radius = listing.map_radius_mi if listing.map_radius_mi is not None else MAP_CIRCLE_RADIUS_MI
+    # Server-side cache: the rendered PNG is stable for a listing+radius, so
+    # only the FIRST viewer pays Mapbox's render latency (~0.5-1s). FIFO cap.
+    cache_key = (listing_id, radius)
+    png_bytes = _map_png_cache.get(cache_key)
     if png_bytes is None:
-        raise HTTPException(status_code=503, detail="Map image unavailable")
+        # Render the image + circle centered on a deterministic per-listing
+        # OFFSET point, never the stored coords — the circle's center must not
+        # reveal the listing's location (and the offset must be stable across
+        # renders so it can't be averaged away).
+        c_lat, c_lng = offset_circle_center(listing.id, listing.latitude, listing.longitude, radius)
+        png_bytes = fetch_static_map_png(c_lat, c_lng, radius, _MAPBOX_TOKEN)
+        if png_bytes is None:
+            raise HTTPException(status_code=503, detail="Map image unavailable")
+        if len(_map_png_cache) >= _MAP_PNG_CACHE_MAX:
+            _map_png_cache.pop(next(iter(_map_png_cache)))  # FIFO eviction
+        _map_png_cache[cache_key] = png_bytes
 
     return Response(
         content=png_bytes,
@@ -1897,7 +1982,7 @@ async def get_listing_map(
 
 
 @app.post("/api/listings/{listing_id}/relist")
-async def relist_listing(
+def relist_listing(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1936,7 +2021,7 @@ async def relist_listing(
 
 
 @app.put("/api/listings/{listing_id}")
-async def update_listing(
+def update_listing(
     listing_id: str,
     data: str = Form(...),
     current_user: User = Depends(get_current_user),
@@ -2015,7 +2100,7 @@ _TERMINAL_ORDER_STATUSES = (
 
 
 @app.delete("/api/listings/{listing_id}", status_code=204)
-async def delete_listing(
+def delete_listing(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2055,7 +2140,7 @@ async def delete_listing(
 
 
 @app.get("/api/wishlist")
-async def get_wishlist(
+def get_wishlist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2064,7 +2149,7 @@ async def get_wishlist(
 
 
 @app.get("/api/wishlist/listings")
-async def get_wishlist_listings(
+def get_wishlist_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2118,7 +2203,7 @@ def _validate_folder_name(name: str) -> str:
 
 
 @app.get("/api/wishlist/folders")
-async def list_wishlist_folders(
+def list_wishlist_folders(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2149,7 +2234,7 @@ async def list_wishlist_folders(
 
 
 @app.post("/api/wishlist/folders", status_code=201)
-async def create_wishlist_folder(
+def create_wishlist_folder(
     body: WishlistFolderCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2163,7 +2248,7 @@ async def create_wishlist_folder(
 
 
 @app.patch("/api/wishlist/folders/{folder_id}")
-async def update_wishlist_folder(
+def update_wishlist_folder(
     folder_id: int,
     body: WishlistFolderUpdate,
     current_user: User = Depends(get_current_user),
@@ -2186,7 +2271,7 @@ async def update_wishlist_folder(
 
 
 @app.delete("/api/wishlist/folders/{folder_id}", status_code=204)
-async def delete_wishlist_folder(
+def delete_wishlist_folder(
     folder_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2208,7 +2293,7 @@ async def delete_wishlist_folder(
 
 
 @app.patch("/api/wishlist/{listing_id}/folder", status_code=204)
-async def set_wishlist_item_folder(
+def set_wishlist_item_folder(
     listing_id: str,
     body: WishlistItemFolderUpdate,
     current_user: User = Depends(get_current_user),
@@ -2241,7 +2326,7 @@ async def set_wishlist_item_folder(
 
 
 @app.post("/api/wishlist/{listing_id}")
-async def toggle_wishlist(
+def toggle_wishlist(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

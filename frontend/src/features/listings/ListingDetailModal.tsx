@@ -56,6 +56,18 @@ function relativeTimeFrom(epochSeconds: number): string {
   return `${years} ${years === 1 ? "year" : "years"} ago`;
 }
 
+/** Walking-estimate display: nearby reads as "<10 min"; past the hour reads
+ *  as "~1 hr 5 min". The estimate targets the midpoint of the privacy circle. */
+function formatWalkMinutes(mins: number): string {
+  if (mins < 10) return "<10 min";
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `~${h} hr ${m} min` : `~${h} hr`;
+  }
+  return `~${mins} min`;
+}
+
 type DetailTab = "details" | "location";
 
 /** Renders the primary call-to-action block (Buy now / Edit / statuses).
@@ -355,21 +367,21 @@ export function ListingDetailModal({
         <div className="relative flex-1 min-h-0 flex flex-col md:block md:flex-none">
           {/* Scrollable region */}
           <div className="overflow-y-auto flex-1 min-h-0 md:max-h-[90vh] md:flex-none md:pb-6">
-            {/* Mobile photo block — fixed-height frame (~42vh) so the title
-                and price are visible from the initial open. Photo is fitted
-                with `object-contain` (letterboxed on bg-surface-strong) so it
-                never crops the item. Tap the photo to open the lightbox. */}
+            {/* Mobile photo block — matches the desktop 4:5 aspect-ratio frame
+                so every listing renders its photo at the same standard size.
+                `object-cover` fills the frame (same as desktop) for consistency;
+                the full uncropped image is always accessible via the lightbox. */}
             <div className="md:hidden p-3 bg-surface-soft border-b border-hairline">
               <button
                 type="button"
                 onClick={() => setLightboxOpen(true)}
                 aria-label="Expand image"
-                className="relative w-full h-[42vh] bg-surface-strong rounded-md overflow-hidden block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                className="relative aspect-[4/5] w-full bg-surface-strong rounded-md overflow-hidden block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
                 <img
                   src={images[safeIndex]}
                   alt={formatTitle(listing.brand, listing.name)}
-                  className="absolute inset-0 size-full object-contain"
+                  className="absolute inset-0 size-full object-cover"
                   decoding="async"
                 />
               </button>
@@ -607,7 +619,7 @@ export function ListingDetailModal({
                   ) : typeof walkMinutes === "number" ? (
                     <>
                       <dt className="text-xs text-muted">Walking</dt>
-                      <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
+                      <dd className="text-sm text-ink font-semibold">{formatWalkMinutes(walkMinutes)}</dd>
                     </>
                   ) : null}
 
@@ -686,7 +698,7 @@ export function ListingDetailModal({
                 ) : typeof walkMinutes === "number" ? (
                   <>
                     <dt className="text-xs text-muted">Walking</dt>
-                    <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
+                    <dd className="text-sm text-ink font-semibold">{formatWalkMinutes(walkMinutes)}</dd>
                   </>
                 ) : null}
 

@@ -7,6 +7,7 @@ import { useNeighborhoods } from "../lib/useNeighborhoods";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { NYC_ZIP_SET, topZipForNeighborhood } from "../lib/nycZips";
 import { LocationCombobox } from "../components/LocationCombobox";
+import { AddressAutocompleteInput } from "../components/AddressAutocompleteInput";
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -145,11 +146,17 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
               <label className="block text-xs text-muted mb-1.5 font-semibold">
                 Pickup Address
               </label>
-              <Input
-                type="text"
+              <AddressAutocompleteInput
+                id="signup-pickup-address"
                 placeholder="Street address"
                 value={pickupAddress}
-                onChange={(e) => setPickupAddress(e.target.value)}
+                onChangeText={setPickupAddress}
+                onSelect={(s) => {
+                  setPickupAddress(s.label);
+                  // A selected address carries its real ZIP: adopt it.
+                  setZipCode(s.zip);
+                  setZipTouched(true);
+                }}
               />
               <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
                 Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.

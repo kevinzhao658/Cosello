@@ -12,6 +12,8 @@
 - **No communities dropdown** — removed from step 5. (Full "communities as tags" reversion is a separate backlogged feature; the API `communities` field still exists and is sent empty/default.)
 - **Icon pin** — lucide `MapPin` rendered as a custom GL marker (no emoji/default Mapbox pin), consistent with the app icon set.
 - **"Drag to adjust" tooltip** — a quiet pill above the pin, visible while the pin is idle, hidden during drag, reappears on release.
+- **Off-center circle (added 2026-06-11):** the rendered circle is never centered on the pin, so buyers can't deduce the point from the circle's center. Buyer side: deterministic per-listing offset (25-50% of the radius, direction from a stable hash of the listing id — stable across renders so it can't be averaged away); the static image centers on the *circle's* center. Seller side: a fixed per-mount offset in the wizard preview, plus a brief side-to-side/up-down "wobble" of the circle ONLY while the seller uses the radius slider (eases out ~250 ms after the last input, settles at the stable offset; disabled under prefers-reduced-motion) — demonstrates the placement varies without a perpetually moving circle.
+- **Copy:** active voice, no em-dashes. Headline (typed, wizard-level for both flows): "What is a good pickup spot for you?". Privacy line: "Buyers will only see the circle, never your exact pin. We do not share your address without your consent." Slider label: "Location mask: X.XX mi" with helper "Buyers will only see this circle, not the exact spot you set. The circle sits off-center from your pin so nobody can work out your location from it."
 
 ---
 

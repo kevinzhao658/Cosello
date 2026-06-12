@@ -93,7 +93,7 @@ def _user_to_friend_out(user: User, current_user_id: str, friend_ids: set[str], 
 # ---------- Endpoints ----------
 
 @router.get("", response_model=list[FriendOut])
-async def list_friends(
+def list_friends(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -105,7 +105,7 @@ async def list_friends(
 
 
 @router.post("/add", response_model=FriendOut)
-async def add_friend(
+def add_friend(
     req: AddFriendRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -144,7 +144,7 @@ async def add_friend(
 
 
 @router.delete("/{friend_id}")
-async def remove_friend(
+def remove_friend(
     friend_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -168,7 +168,7 @@ async def remove_friend(
 
 
 @router.get("/search", response_model=list[FriendOut])
-async def search_users(
+def search_users(
     q: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -203,7 +203,7 @@ async def search_users(
 
 
 @router.get("/recommended", response_model=list[FriendOut])
-async def recommended_friends(
+def recommended_friends(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -250,7 +250,7 @@ async def recommended_friends(
 
 
 @router.get("/stats", response_model=StatsOut)
-async def get_stats(
+def get_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -287,7 +287,7 @@ async def get_stats(
 
 
 @router.get("/profile/{user_id}")
-async def get_user_profile(
+def get_user_profile(
     user_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

@@ -1,6 +1,4 @@
 import { Button } from "../../components/ui/button";
-import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
-import { TypedInstruction } from "./TypedInstruction";
 import { NYC_ZIPS } from "../../lib/nycZips";
 
 interface SinglePickupStepProps {
@@ -12,13 +10,8 @@ interface SinglePickupStepProps {
   onBack: () => void;
   onPost: () => void;
   isAuthenticated: boolean;
-  availableCommunities: CommunityOption[];
-  selectedCommunityIds: number[];
-  onToggleCommunity: (id: number) => void;
-  userNeighborhood: string | null;
   /** Seller's profile ZIP — used to prefill the dropdown. */
   userZipCode: string | null;
-  instructionExiting: boolean;
 }
 
 export function SinglePickupStep({
@@ -26,28 +19,20 @@ export function SinglePickupStep({
   setPostPickupLocation,
   postPickupZip,
   setPostPickupZip,
-  onBack,
+  onBack: _onBack,
   onPost,
   isAuthenticated,
-  availableCommunities,
-  selectedCommunityIds,
-  onToggleCommunity,
-  userNeighborhood,
   userZipCode,
-  instructionExiting,
 }: SinglePickupStepProps) {
   // postPickupZip is seeded from the user's profile ZIP by the SellWizard
   // effect before this step renders, so we bind directly to it — no local
   // display-only fallback needed.
+  // The typed step headline ("What is a good pickup spot for you?") renders at
+  // the SellWizard level so it shows for both the map step and this fallback.
   const canPost = postPickupZip !== "";
 
   return (
     <>
-      <TypedInstruction
-        bulkReviewPhase="pickup"
-        exiting={instructionExiting}
-        onBack={onBack}
-      />
       <div className="mt-8 space-y-5 max-w-md mx-auto">
         <div>
           <label className="text-xs text-muted block mb-1">Pickup location</label>
@@ -88,12 +73,6 @@ export function SinglePickupStep({
             Your address will not be shared until pickup is confirmed.
           </p>
         </div>
-        <CommunityPicker
-          availableCommunities={availableCommunities}
-          selectedCommunityIds={selectedCommunityIds}
-          onToggleCommunity={onToggleCommunity}
-          userNeighborhood={userNeighborhood}
-        />
         <Button
           onClick={onPost}
           disabled={!canPost}

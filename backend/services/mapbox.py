@@ -20,6 +20,8 @@ import logging
 import math
 from typing import Optional
 
+import httpx  # module-level so tests can monkeypatch services.mapbox.httpx
+
 logger = logging.getLogger(__name__)
 
 # Buyer-facing approximate-area circle radius (miles). 0.15 mi at zoom 15 keeps
@@ -27,6 +29,12 @@ logger = logging.getLogger(__name__)
 # aligned 2026-06-11; was LOCATION_FUZZ_RADIUS_MI=0.4 which swallowed the frame).
 # Becomes the default for per-listing `map_radius_mi` when Phase 2b lands.
 MAP_CIRCLE_RADIUS_MI = 0.15
+
+# Seller-adjustable bounds for the per-listing circle (spec 2026-06-11).
+MIN_MAP_RADIUS_MI = 0.1
+MAX_MAP_RADIUS_MI = 0.4
+
+_GEOCODE_BASE = "https://api.mapbox.com/geocoding/v5/mapbox.places"
 
 # Mapbox Static Images endpoint base
 _STATIC_BASE = "https://api.mapbox.com/styles/v1/mapbox/streets-v12/static"
@@ -59,11 +67,11 @@ def _circle_geojson(lat: float, lng: float, radius_mi: float, n_points: int = 64
     geojson = {
         "type": "Feature",
         "properties": {
-            "fill": "#D4A017",        # warm amber — Cosello brand-ish
-            "fill-opacity": 0.25,
-            "stroke": "#D4A017",
+            "fill": "#7C3AED",        # Cosello primary (violet)
+            "fill-opacity": 0.18,
+            "stroke": "#7C3AED",
             "stroke-width": 2,
-            "stroke-opacity": 0.6,
+            "stroke-opacity": 0.55,
         },
         "geometry": {
             "type": "Polygon",
@@ -71,6 +79,51 @@ def _circle_geojson(lat: float, lng: float, radius_mi: float, n_points: int = 64
         },
     }
     return json.dumps(geojson, separators=(",", ":"))
+
+
+def reverse_geocode_zip(lat: float, lng: float, token: str) -> tuple[str, str] | None:
+    """Reverse-geocode a pin to (zip, place_label) via Mapbox. None on any failure.
+
+    Used by create_listing to derive the listing ZIP from the seller's pin —
+    the client-sent ZIP is never trusted. Secret token only; 4s timeout.
+    """
+    url = f"{_GEOCODE_BASE}/{lng},{lat}.json"
+    try:
+        resp = httpx.get(url, params={"access_token": token, "types": "address", "limit": 1}, timeout=4.0)
+        if resp.status_code != 200:
+            return None
+        feats = resp.json().get("features") or []
+        if not feats:
+            return None
+        feat = feats[0]
+        for ctx in feat.get("context", []):
+            if str(ctx.get("id", "")).startswith("postcode"):
+                return (str(ctx["text"]), str(feat.get("place_name", "")))
+        return None
+    except Exception:
+        return None
+
+
+def offset_circle_center(listing_id: str, lat: float, lng: float, radius_mi: float) -> tuple[float, float]:
+    """Deterministic per-listing offset for the rendered circle's center.
+
+    If the circle were centered on the stored point, buyers could deduce the
+    point from the circle. Offset the center by 25-50% of the radius in a
+    direction derived from a stable hash of the listing id — the true point
+    stays comfortably inside the circle but never at its center. Stability
+    matters: a per-request random offset could be averaged across renders to
+    recover the true center, so the offset must never change for a listing.
+    """
+    import hashlib
+
+    h = hashlib.sha256(listing_id.encode("utf-8")).digest()
+    angle = (h[0] / 255.0) * 2.0 * math.pi
+    frac = 0.25 + (h[1] / 255.0) * 0.25
+    d = radius_mi * frac
+    return (
+        lat + d * _DEG_PER_MILE_LAT * math.sin(angle),
+        lng + d * _DEG_PER_MILE_LNG_40 * math.cos(angle),
+    )
 
 
 def build_static_map_url(lat: float, lng: float, radius_mi: float, token: str) -> str:
@@ -112,8 +165,6 @@ def fetch_static_map_png(
 
     Timeout: 4 seconds (keeps modal render unblocked).
     """
-    import httpx
-
     url = build_static_map_url(lat, lng, radius_mi, token)
     try:
         resp = httpx.get(url, timeout=4.0, follow_redirects=True)
@@ -139,7 +190,6 @@ def walking_minutes(
     Only the duration is returned — no route geometry is passed to the caller.
     Timeout: 4 seconds.
     """
-    import httpx
     import math as _math
 
     url = (

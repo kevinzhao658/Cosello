@@ -21,10 +21,16 @@ export interface UsePostListingDeps {
   currentDraftId: string | null;
   setCurrentDraftId: (id: string | null) => void;
   selectedCommunityIds: number[];
-  /** Required NYC ZIP for the single-listing pickup step. */
+  /** Required NYC ZIP for the single-listing pickup step (legacy path). */
   postPickupZip: string;
-  /** Required NYC ZIP shared across all bulk items. */
+  /** Required NYC ZIP shared across all bulk items (legacy path). */
   bulkPickupZip: string;
+  /** Map pin coords — when set, sent to backend instead of zip-derived coords. */
+  pickupPin: { lat: number; lng: number } | null;
+  /** Seller-chosen circle radius (0.1–0.4 mi). */
+  pickupRadiusMi: number;
+  /** Label from the selected autocomplete suggestion (stored as pickup_location). */
+  pickupLabel: string;
   onPosted: () => void;
   onPublishedDraft?: (draftId: string | null) => void | Promise<void>;
   onRequestSignIn: () => void;
@@ -46,6 +52,9 @@ export function usePostListing({
   selectedCommunityIds,
   postPickupZip,
   bulkPickupZip,
+  pickupPin,
+  pickupRadiusMi,
+  pickupLabel,
   onPosted,
   onPublishedDraft,
   onRequestSignIn,
@@ -68,7 +77,8 @@ export function usePostListing({
     const zip = override?.pickupZip ?? postPickupZip;
     if (!details || uploadedImages.length === 0) return;
     if (!isAuthenticated) { onRequestSignIn(); return; }
-    if (!zip) { alert("Select a pickup ZIP code before posting."); return; }
+    // Relax: pin path doesn't need a client ZIP (server derives it via reverse geocode).
+    if (!zip && !pickupPin) { alert("Set a pickup location before posting."); return; }
 
     const priceCents = priceStringToCents(details.price);
     if (priceCents === null) { alert("Enter a valid price before posting."); return; }
@@ -108,8 +118,14 @@ export function usePostListing({
       // 3 client-side; backend re-validates cap + membership.
       formData.append("communities", selectedCommunityIds.join(","));
       formData.append("visibility", "public");
-      formData.append("pickup_location", pickup);
+      // Pin path: use the selected label as pickup_location; fallback to legacy pickup.
+      formData.append("pickup_location", pickupPin ? (pickupLabel || pickup) : pickup);
       formData.append("pickup_zip", zip);
+      if (pickupPin) {
+        formData.append("latitude", String(pickupPin.lat));
+        formData.append("longitude", String(pickupPin.lng));
+        formData.append("map_radius_mi", String(pickupRadiusMi));
+      }
 
       const res = await apiFetch("/api/listings", { method: "POST", body: formData });
       if (!res.ok) {
@@ -129,12 +145,13 @@ export function usePostListing({
       console.error("Post listing failed:", err);
       alert(err instanceof Error ? err.message : "Something went wrong");
     }
-  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, postPickupZip, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn, clearDraftCreatedAt]);
+  }, [productDetails, uploadedImages, isAuthenticated, segmentation, postPickupLocation, postPickupZip, pickupPin, pickupRadiusMi, pickupLabel, selectedCommunityIds, actions, onPosted, onPublishedDraft, currentDraftId, onRequestSignIn, clearDraftCreatedAt]);
 
   const postBulk = async () => {
     if (bulkItems.length === 0 || uploadedImages.length === 0) return;
     if (!isAuthenticated) { onRequestSignIn(); return; }
-    if (!bulkPickupZip) { alert("Select a pickup ZIP code before posting."); return; }
+    // Relax: pin path doesn't need a client ZIP (server derives it via reverse geocode).
+    if (!bulkPickupZip && !pickupPin) { alert("Set a pickup location before posting."); return; }
 
     const invalidIdx = bulkItems.findIndex((item) => priceStringToCents(item.price) === null);
     if (invalidIdx !== -1) {
@@ -181,9 +198,15 @@ export function usePostListing({
             item.pickupLocation && item.pickupLocation.trim() !== ""
               ? item.pickupLocation
               : fallbackPickup;
-          formData.append("pickup_location", itemPickup);
+          // Pin path: use selected label as pickup_location fallback.
+          formData.append("pickup_location", pickupPin ? (pickupLabel || itemPickup) : itemPickup);
           // Shared ZIP for the whole batch — backend requires this field.
           formData.append("pickup_zip", bulkPickupZip);
+          if (pickupPin) {
+            formData.append("latitude", String(pickupPin.lat));
+            formData.append("longitude", String(pickupPin.lng));
+            formData.append("map_radius_mi", String(pickupRadiusMi));
+          }
 
           const res = await apiFetch("/api/listings", { method: "POST", body: formData });
           if (!res.ok) {
