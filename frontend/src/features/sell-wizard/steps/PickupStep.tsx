@@ -1,6 +1,5 @@
 import { Button } from "../../../components/ui/button";
 import { Loader2 } from "lucide-react";
-import { CommunityPicker, type CommunityOption } from "../CommunityPicker";
 import { NYC_ZIPS } from "../../../lib/nycZips";
 
 const FOCUS_RING =
@@ -16,11 +15,6 @@ export interface PickupStepProps {
   onChange: (value: string) => void;
   onZipChange: (zip: string) => void;
   onPost: () => void;
-  // community picker:
-  availableCommunities: CommunityOption[];
-  selectedCommunityIds: number[];
-  onToggleCommunity: (id: number) => void;
-  userNeighborhood: string | null;
   /** Seller's profile ZIP — used to prefill the dropdown. */
   userZipCode: string | null;
 }
@@ -34,10 +28,6 @@ export function PickupStep({
   onChange,
   onZipChange,
   onPost,
-  availableCommunities,
-  selectedCommunityIds,
-  onToggleCommunity,
-  userNeighborhood,
   userZipCode,
 }: PickupStepProps) {
   // bulkPickupZip is seeded from the user's profile ZIP by the SellWizard
@@ -86,13 +76,6 @@ export function PickupStep({
           Your address will not be shared until pickup is confirmed.
         </p>
       </div>
-
-      <CommunityPicker
-        availableCommunities={availableCommunities}
-        selectedCommunityIds={selectedCommunityIds}
-        onToggleCommunity={onToggleCommunity}
-        userNeighborhood={userNeighborhood}
-      />
 
       <Button
         onClick={onPost}

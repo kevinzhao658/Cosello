@@ -1,5 +1,4 @@
 import { Button } from "../../components/ui/button";
-import { CommunityPicker, type CommunityOption } from "./CommunityPicker";
 import { TypedInstruction } from "./TypedInstruction";
 import { NYC_ZIPS } from "../../lib/nycZips";
 
@@ -12,10 +11,6 @@ interface SinglePickupStepProps {
   onBack: () => void;
   onPost: () => void;
   isAuthenticated: boolean;
-  availableCommunities: CommunityOption[];
-  selectedCommunityIds: number[];
-  onToggleCommunity: (id: number) => void;
-  userNeighborhood: string | null;
   /** Seller's profile ZIP — used to prefill the dropdown. */
   userZipCode: string | null;
   instructionExiting: boolean;
@@ -29,10 +24,6 @@ export function SinglePickupStep({
   onBack,
   onPost,
   isAuthenticated,
-  availableCommunities,
-  selectedCommunityIds,
-  onToggleCommunity,
-  userNeighborhood,
   userZipCode,
   instructionExiting,
 }: SinglePickupStepProps) {
@@ -88,12 +79,6 @@ export function SinglePickupStep({
             Your address will not be shared until pickup is confirmed.
           </p>
         </div>
-        <CommunityPicker
-          availableCommunities={availableCommunities}
-          selectedCommunityIds={selectedCommunityIds}
-          onToggleCommunity={onToggleCommunity}
-          userNeighborhood={userNeighborhood}
-        />
         <Button
           onClick={onPost}
           disabled={!canPost}

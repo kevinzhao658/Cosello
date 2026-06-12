@@ -6,6 +6,7 @@ import { uploadToStorage } from "../../lib/uploadToStorage";
 import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
 import { NYC_ZIP_SET } from "../../lib/nycZips";
+import { hasMapboxToken } from "../../lib/mapboxSearch";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
 import {
@@ -25,6 +26,7 @@ import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
+import { PickupMapStep } from "./steps/PickupMapStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
 import { StepProgressBar } from "./StepProgressBar";
@@ -150,6 +152,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const [postPickupZip, setPostPickupZip] = useState("");
   const [bulkPickupZip, setBulkPickupZip] = useState("");
 
+  // Map pickup: shared across both flows. pickupPin is seeded to the map center
+  // on first render of PickupMapStep (via onPinChange from the map load effect).
+  const [pickupPin, setPickupPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickupRadiusMi, setPickupRadiusMi] = useState(0.15);
+  const [pickupLabel, setPickupLabel] = useState("");
+
   // Prefill pickup ZIP from the seller's profile zip (once, when known) so a
   // returning seller can post without re-opening the dropdown. NYC_ZIP_SET
   // guards against a non-Manhattan profile zip.
@@ -221,6 +229,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     selectedCommunityIds,
     postPickupZip,
     bulkPickupZip,
+    pickupPin,
+    pickupRadiusMi,
+    pickupLabel,
     onPosted,
     onPublishedDraft,
     onRequestSignIn,
@@ -311,20 +322,20 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       }
     }
     const communitySelected = selectedCommunityIds.length > 0;
-    const pickupLocationSet = bulkPickupZip !== "";
+    const pickupLocationSet = pickupPin !== null || bulkPickupZip !== "";
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupZip, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, pickupPin, bulkPickupZip, onBulkPreviewChange]);
 
   // Emit checklist signals (community + pickup) to the parent so it can render
   // a single static checklist regardless of step/mode.
   useEffect(() => {
     const communitySelected = selectedCommunityIds.length > 0;
-    // A ZIP selection satisfies the pickup requirement (required by backend).
-    const pickupLocationSet = productDetails ? postPickupZip !== "" : bulkPickupZip !== "";
+    // Satisfied by the map pin OR the legacy ZIP dropdown.
+    const pickupLocationSet = pickupPin !== null || (productDetails ? postPickupZip !== "" : bulkPickupZip !== "");
     onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
-  }, [selectedCommunityIds, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
+  }, [selectedCommunityIds, pickupPin, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -694,6 +705,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setPrunedCommunityCount(0);
     setPostPickupZip("");
     setBulkPickupZip("");
+    setPickupPin(null);
+    setPickupRadiusMi(0.15);
+    setPickupLabel("");
     draft.resetSaveStatus();
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
@@ -1157,28 +1171,57 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           className="mt-4 wizard-step-enter"
           style={{ animation: "wizardStepIn 300ms ease-out both" }}
         >
-          <PickupStep
-            bulkPickupLocation={bulkPickupLocation}
-            bulkPickupZip={bulkPickupZip}
-            bulkItemsCount={bulkItems.length}
-            isPostingBulk={isPostingBulk}
-            isAuthenticated={isAuthenticated}
-            onChange={actions.setBulkPickupLocation}
-            onZipChange={setBulkPickupZip}
-            onPost={() => {
-              if (!isAuthenticated) { onRequestSignIn(); return; }
-              post.postBulkFromPickup();
-            }}
-            availableCommunities={availableCommunities}
-            selectedCommunityIds={selectedCommunityIds}
-            onToggleCommunity={(id) => {
-              setSelectedCommunityIds((prev) =>
-                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-              );
-            }}
-            userNeighborhood={user?.neighborhood ?? null}
-            userZipCode={user?.zip_code ?? null}
+          <PickupMapStep
+            initialLat={null}
+            initialLng={null}
+            pin={pickupPin}
+            onPinChange={setPickupPin}
+            radiusMi={pickupRadiusMi}
+            onRadiusChange={setPickupRadiusMi}
+            pickupLabel={pickupLabel}
+            onPickupLabelChange={setPickupLabel}
+            renderFallback={() => (
+              <PickupStep
+                bulkPickupLocation={bulkPickupLocation}
+                bulkPickupZip={bulkPickupZip}
+                bulkItemsCount={bulkItems.length}
+                isPostingBulk={isPostingBulk}
+                isAuthenticated={isAuthenticated}
+                onChange={actions.setBulkPickupLocation}
+                onZipChange={setBulkPickupZip}
+                onPost={() => {
+                  if (!isAuthenticated) { onRequestSignIn(); return; }
+                  post.postBulkFromPickup();
+                }}
+                userZipCode={user?.zip_code ?? null}
+              />
+            )}
           />
+          {/* Post button shown below the map step (only when map is active; fallback renders its own) */}
+          {hasMapboxToken() && (
+            <div className="mt-5">
+              <button
+                type="button"
+                disabled={isPostingBulk || (!pickupPin && bulkPickupZip === "")}
+                onClick={() => {
+                  if (!isAuthenticated) { onRequestSignIn(); return; }
+                  post.postBulkFromPickup();
+                }}
+                className="w-full h-10 rounded-md bg-primary text-on-primary text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas hover:bg-primary-hover transition-colors"
+              >
+                {isPostingBulk ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <MapPin className="size-4 animate-spin" aria-hidden />
+                    Posting…
+                  </span>
+                ) : isAuthenticated ? (
+                  `Post all (${bulkItems.length})`
+                ) : (
+                  "Sign in to Post"
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1204,28 +1247,47 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       )}
 
       {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && (
-        <SinglePickupStep
-          postPickupLocation={postPickupLocation}
-          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
-          postPickupZip={postPickupZip}
-          setPostPickupZip={setPostPickupZip}
-          onBack={() => setSinglePostPhase("review")}
-          onPost={() => {
-            if (!isAuthenticated) { onRequestSignIn(); return; }
-            onRequestSinglePostConfirm();
-          }}
-          isAuthenticated={isAuthenticated}
-          availableCommunities={availableCommunities}
-          selectedCommunityIds={selectedCommunityIds}
-          onToggleCommunity={(id) => {
-            setSelectedCommunityIds((prev) =>
-              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-            );
-          }}
-          userNeighborhood={user?.neighborhood ?? null}
-          userZipCode={user?.zip_code ?? null}
-          instructionExiting={instructionExiting}
+        <PickupMapStep
+          initialLat={null}
+          initialLng={null}
+          pin={pickupPin}
+          onPinChange={setPickupPin}
+          radiusMi={pickupRadiusMi}
+          onRadiusChange={setPickupRadiusMi}
+          pickupLabel={pickupLabel}
+          onPickupLabelChange={setPickupLabel}
+          renderFallback={() => (
+            <SinglePickupStep
+              postPickupLocation={postPickupLocation}
+              setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+              postPickupZip={postPickupZip}
+              setPostPickupZip={setPostPickupZip}
+              onBack={() => setSinglePostPhase("review")}
+              onPost={() => {
+                if (!isAuthenticated) { onRequestSignIn(); return; }
+                onRequestSinglePostConfirm();
+              }}
+              isAuthenticated={isAuthenticated}
+              userZipCode={user?.zip_code ?? null}
+              instructionExiting={instructionExiting}
+            />
+          )}
         />
+      )}
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && hasMapboxToken() && (
+        <div className="mt-5 max-w-md mx-auto">
+          <button
+            type="button"
+            disabled={!pickupPin && postPickupZip === ""}
+            onClick={() => {
+              if (!isAuthenticated) { onRequestSignIn(); return; }
+              onRequestSinglePostConfirm();
+            }}
+            className="w-full h-10 rounded-md bg-primary text-on-primary text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas hover:bg-primary-hover transition-colors"
+          >
+            {isAuthenticated ? "Post listing" : "Sign in to Post"}
+          </button>
+        </div>
       )}
 
       {bulkReviewPhase === "cards" && !isGenerating && bulkItems.length > 0 && (
