@@ -258,6 +258,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const uploadedImagesRef = useRef(uploadedImages);
   const productDetailsRef = useRef(productDetails);
   const segmentationRef = useRef(segmentation);
+  // Cache for the last generated single-listing productDetails so that
+  // back-navigation (step 4/5 → step 2/3) followed by forward-navigation
+  // (step 3 → step 4) reuses the already-generated result without re-calling
+  // the AI endpoint. Cleared whenever the photo set changes so a real re-run
+  // still happens after edits.
+  const savedProductDetailsRef = useRef<ProductDetails | null>(null);
   const computeCoverImageUrl = useCallback((): string | null => {
     const images = uploadedImagesRef.current;
     if (images.length > 0) return images[0].preview;
@@ -454,6 +460,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       preview: URL.createObjectURL(file),
     }));
 
+    // Any new upload invalidates a cached single-listing generation.
+    savedProductDetailsRef.current = null;
+
     // Step 2 (review): re-run segmentation in place with the combined photo set.
     // In manual mode we skip segmentation entirely — just append.
     if (mode !== "manual" && bulkReviewPhase === "review") {
@@ -496,6 +505,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const deletePhoto = useCallback((originalIndex: number) => {
     const removed = uploadedImages[originalIndex];
     if (!removed) return;
+    // A photo deletion invalidates any cached single-listing generation so a
+    // fresh API call will run next time the user reaches step 3 → step 4.
+    savedProductDetailsRef.current = null;
     actions.deletePhoto(originalIndex);
     URL.revokeObjectURL(removed.preview);
   }, [uploadedImages, actions]);
@@ -531,6 +543,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const clearAllUploads = useCallback(() => {
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
+    savedProductDetailsRef.current = null;
     for (const img of uploadedImages) {
       URL.revokeObjectURL(img.preview);
     }
@@ -574,6 +587,16 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (!segmentation) return;
     if (segmentation.groupings.some((g) => g.length === 0)) return;
     if (rationale === "Other" && rationaleOther.trim() === "") return;
+
+    // If the user navigated back from the review step and the photo set has
+    // not changed since the last successful generation, reuse the cached
+    // result and skip the network round-trip.
+    if (savedProductDetailsRef.current) {
+      actions.generateSingle(savedProductDetailsRef.current);
+      savedProductDetailsRef.current = null;
+      return;
+    }
+
     actions.generateStart();
     try {
       const items = await generateListings({
@@ -735,6 +758,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (incoming.length > remaining) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
     }
+    // Adding photos invalidates any cached single-listing generation.
+    savedProductDetailsRef.current = null;
     setIsCompressing(true);
     void Promise.all(trimmed.map(compressImage))
       .then((compressed) => {
@@ -835,6 +860,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       } else if (step === 5) {
         setSinglePostPhase("pickup");
       } else if (step === 2 || step === 3) {
+        // Save the generated result before clearing state so that navigating
+        // forward to step 4 again can restore it without re-calling the API
+        // (provided the photo set hasn't changed in the interim).
+        savedProductDetailsRef.current = productDetails;
         setMaxReachedStep(step);
         actions.setProductDetails(null);
         actions.setPhase(step === 2 ? "review" : "reason");
@@ -903,7 +932,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           </button>
         </div>
       )}
-      {bulkReviewPhase === null && (
+      {bulkReviewPhase === null && !productDetails && (
         <header className="flex items-baseline justify-between mb-3">
           <h2 className="text-sm font-semibold text-ink">Photos</h2>
         </header>
