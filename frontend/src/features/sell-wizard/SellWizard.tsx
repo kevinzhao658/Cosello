@@ -324,20 +324,27 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       }
     }
     const communitySelected = selectedCommunityIds.length > 0;
-    const pickupLocationSet = pickupPin !== null || bulkPickupZip !== "";
+    const pickupLocationSet = hasMapboxToken()
+      ? pickupLabel.trim() !== "" || Boolean(user?.pickup_address?.trim())
+      : bulkPickupZip !== "";
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, pickupPin, bulkPickupZip, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, pickupLabel, user?.pickup_address, bulkPickupZip, onBulkPreviewChange]);
 
-  // Emit checklist signals (community + pickup) to the parent so it can render
-  // a single static checklist regardless of step/mode.
+  // Emit checklist signals to the parent so it can render a single static
+  // checklist regardless of step/mode. (The Community row was removed from the
+  // page checklist; communitySelected is still emitted for type stability.)
   useEffect(() => {
     const communitySelected = selectedCommunityIds.length > 0;
-    // Satisfied by the map pin OR the legacy ZIP dropdown.
-    const pickupLocationSet = pickupPin !== null || (productDetails ? postPickupZip !== "" : bulkPickupZip !== "");
+    // Pickup counts ONLY with an embedded address: a search-selected address
+    // (pickupLabel) or the seller's saved profile address. The auto-seeded map
+    // pin alone must not tick the box. Legacy ZIP path applies sans token.
+    const pickupLocationSet = hasMapboxToken()
+      ? pickupLabel.trim() !== "" || Boolean(user?.pickup_address?.trim())
+      : (productDetails ? postPickupZip !== "" : bulkPickupZip !== "");
     onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
-  }, [selectedCommunityIds, pickupPin, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
+  }, [selectedCommunityIds, pickupLabel, user?.pickup_address, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex

@@ -561,8 +561,16 @@ function PickupMapStepInner({
           touch-action is NOT blocked so mapbox marker drag works on touch. */}
       <div className={`relative ${MAP_FRAME_CLS}`}>
         {/* Map stays visible from init (never visibility-hidden — GL needs a
-            normally-rendered container); the skeleton overlays on top until load. */}
-        <div ref={mapContainerRef} className="absolute inset-0" />
+            normally-rendered container); the skeleton overlays on top until load.
+            Geometry is INLINE on purpose: mapbox-gl.css sets `.mapboxgl-map
+            { position: relative }` on this same element, which ties with
+            Tailwind's `.absolute` and wins on stylesheet order — collapsing the
+            container to its content height (the 34px marker) and shrinking the
+            canvas to a sliver. Inline styles outrank any stylesheet. */}
+        <div
+          ref={mapContainerRef}
+          style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%" }}
+        />
         {!mapLoaded && (
           <Skeleton className="absolute inset-0 z-10 rounded-none pointer-events-none" />
         )}

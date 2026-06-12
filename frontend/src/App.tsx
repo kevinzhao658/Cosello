@@ -449,8 +449,8 @@ export default function App() {
       return <TopSearches />;
     }
 
-    // Build the static 6-row checklist, mode-aware for fields 2–4.
-    const { communitySelected, pickupLocationSet } = newListing.checklistSignals;
+    // Build the static 5-row checklist, mode-aware for fields 2-4.
+    const { pickupLocationSet } = newListing.checklistSignals;
     const checklistRows: ReadonlyArray<readonly [string, boolean]> = (() => {
       if (newListing.mode === "manual") {
         // Manual mode: drive rows 2-4 from the page-level form fields.
@@ -462,7 +462,6 @@ export default function App() {
           ["Brand or name", hasBrandOrName],
           ["Price set", hasPrice],
           ["Description (20+ chars)", hasDescription],
-          ["Community", communitySelected],
           ["Pickup location", pickupLocationSet],
         ] as const;
       }
@@ -477,7 +476,6 @@ export default function App() {
           ["Brand or name", hasBrandOrName],
           ["Price set", hasPrice],
           ["Description (20+ chars)", hasDescription],
-          ["Community", communitySelected],
           ["Pickup location", pickupLocationSet],
         ] as const;
       }
@@ -492,7 +490,6 @@ export default function App() {
         ["Brand or name", hasBrandOrName],
         ["Price set", hasPrice],
         ["Description (20+ chars)", hasDescription],
-        ["Community", communitySelected],
         ["Pickup location", pickupLocationSet],
       ] as const;
     })();
