@@ -20,7 +20,7 @@
 `SinglePickupStep` and `PickupStep` (bulk) are replaced by one shared **`PickupMapStep`** component (kills the current duplication; bulk-specific bits — item count, per-item overrides — stay in thin wrappers or props).
 
 Top to bottom:
-1. **Search box** — forward geocode (Mapbox Geocoding API, biased to an NYC bounding box; accepts street address or ZIP). Selecting a result recenters the map and moves the pin. The chosen result's place string persists as `pickup_location`.
+1. **Search box — autocomplete-first** (user decision 2026-06-11): debounced (~300 ms) Mapbox Geocoding requests with `autocomplete=true`, bounded to the NYC bbox, `types=address,postcode`. Suggestions whose ZIP is not in the 42 seeded Manhattan ZIPs are filtered out (or shown disabled with "outside Manhattan"). **Only selecting a suggestion moves the pin/map** — free-typed text that is never selected does nothing, so an invalid address can't be captured by construction. The selected suggestion's place string persists as `pickup_location`, and the circle centers on its coordinates (even after the ~110 m storage coarsening, the true address remains inside the circle at every slider position — min radius 161 m > max rounding offset ~78 m). Model the dropdown UX on the existing `LocationCombobox` (debounce, keyboard nav, no-matches row).
 2. **Map** (Mapbox GL JS, lazy-loaded) — draggable icon pin + translucent circle rendered live at the chosen radius (same amber treatment as the buyer-side static map). Pin seeds from the seller's profile-ZIP centroid before any search. Idle-pin tooltip: "Drag to adjust".
 3. **Area-size slider** — 0.1–0.4 mi, default 0.15, current value labeled (e.g. "0.15 mi").
 4. **Post button** — existing post flow, minus communities.
