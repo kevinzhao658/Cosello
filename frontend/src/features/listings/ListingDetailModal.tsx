@@ -312,7 +312,7 @@ export function ListingDetailModal({
   return (
     <ModalShell open onClose={onClose} z={200}>
       <div
-        className="relative w-full max-w-[940px] mx-0 md:mx-4 rounded-none md:rounded-xl bg-canvas shadow-overlay overflow-hidden h-[100dvh] md:h-auto max-h-[100dvh] md:max-h-[90vh] flex flex-col md:grid md:grid-cols-2"
+        className="relative w-screen md:w-[min(940px,calc(100vw-2rem))] rounded-none md:rounded-xl bg-canvas shadow-overlay overflow-hidden h-[100dvh] md:h-auto max-h-[100dvh] md:max-h-[90vh] flex flex-col md:grid md:grid-cols-2"
         role="dialog"
         aria-label={formatTitle(listing.brand, listing.name)}
       >

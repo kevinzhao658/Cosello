@@ -48,7 +48,7 @@ export function ListingImage({ src, alt, size, priority, className, style }: Pro
         style={style}
         decoding="async"
         loading={priority ? "eager" : "lazy"}
-        fetchPriority={priority ? "high" : "auto"}
+        {...({ fetchpriority: priority ? "high" : "auto" } as Record<string, string>)}
         onLoad={() => setLoaded(true)}
         onError={() => setDidError(true)}
       />
