@@ -457,3 +457,31 @@ def test_map_png_null_radius_uses_default(monkeypatch):
         )
     finally:
         main.app.dependency_overrides.pop(get_db, None)
+
+
+# ── Privacy-mask circle offset (user request 2026-06-11) ──────────────────────
+
+def test_offset_circle_center_deterministic():
+    """Same listing id must always produce the same circle center (a per-render
+    random offset could be averaged across requests to recover the true point)."""
+    a = mb.offset_circle_center("listing-1", 40.725, -73.998, 0.15)
+    b = mb.offset_circle_center("listing-1", 40.725, -73.998, 0.15)
+    assert a == b
+
+
+def test_offset_circle_center_keeps_true_point_inside():
+    """Offset distance must be 25-50% of the radius: off-center, but the true
+    point always stays well inside the circle."""
+    import math as m
+    lat, lng = 40.725, -73.998
+    radius = 0.15
+    for lid in ["a", "b", "wl-161261670", "3429698f4de4"]:
+        c_lat, c_lng = mb.offset_circle_center(lid, lat, lng, radius)
+        d_mi = m.sqrt(((c_lat - lat) * 69.0) ** 2 + ((c_lng - lng) * 52.6) ** 2)
+        assert 0.25 * radius - 1e-9 <= d_mi <= 0.50 * radius + 1e-9
+
+
+def test_offset_circle_center_varies_by_listing():
+    a = mb.offset_circle_center("listing-x", 40.725, -73.998, 0.15)
+    b = mb.offset_circle_center("listing-y", 40.725, -73.998, 0.15)
+    assert a != b

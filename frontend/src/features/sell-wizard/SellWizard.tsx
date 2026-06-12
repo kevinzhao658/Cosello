@@ -26,6 +26,7 @@ import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
+import { TypedInstruction } from "./TypedInstruction";
 import { PickupMapStep } from "./steps/PickupMapStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
@@ -1247,32 +1248,42 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       )}
 
       {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && (
-        <PickupMapStep
-          initialLat={null}
-          initialLng={null}
-          pin={pickupPin}
-          onPinChange={setPickupPin}
-          radiusMi={pickupRadiusMi}
-          onRadiusChange={setPickupRadiusMi}
-          pickupLabel={pickupLabel}
-          onPickupLabelChange={setPickupLabel}
-          renderFallback={() => (
-            <SinglePickupStep
-              postPickupLocation={postPickupLocation}
-              setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
-              postPickupZip={postPickupZip}
-              setPostPickupZip={setPostPickupZip}
-              onBack={() => setSinglePostPhase("review")}
-              onPost={() => {
-                if (!isAuthenticated) { onRequestSignIn(); return; }
-                onRequestSinglePostConfirm();
-              }}
-              isAuthenticated={isAuthenticated}
-              userZipCode={user?.zip_code ?? null}
-              instructionExiting={instructionExiting}
+        <>
+          {/* Giant typed step headline lives at the wizard level so it shows for
+              both the map step and the legacy fallback. */}
+          <TypedInstruction
+            bulkReviewPhase="pickup"
+            exiting={instructionExiting}
+            onBack={() => setSinglePostPhase("review")}
+          />
+          <div className="mt-8">
+            <PickupMapStep
+              initialLat={null}
+              initialLng={null}
+              pin={pickupPin}
+              onPinChange={setPickupPin}
+              radiusMi={pickupRadiusMi}
+              onRadiusChange={setPickupRadiusMi}
+              pickupLabel={pickupLabel}
+              onPickupLabelChange={setPickupLabel}
+              renderFallback={() => (
+                <SinglePickupStep
+                  postPickupLocation={postPickupLocation}
+                  setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+                  postPickupZip={postPickupZip}
+                  setPostPickupZip={setPostPickupZip}
+                  onBack={() => setSinglePostPhase("review")}
+                  onPost={() => {
+                    if (!isAuthenticated) { onRequestSignIn(); return; }
+                    onRequestSinglePostConfirm();
+                  }}
+                  isAuthenticated={isAuthenticated}
+                  userZipCode={user?.zip_code ?? null}
+                />
+              )}
             />
-          )}
-        />
+          </div>
+        </>
       )}
       {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && hasMapboxToken() && (
         <div className="mt-5 max-w-md mx-auto">

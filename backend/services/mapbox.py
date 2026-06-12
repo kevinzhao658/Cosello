@@ -104,6 +104,28 @@ def reverse_geocode_zip(lat: float, lng: float, token: str) -> tuple[str, str] |
         return None
 
 
+def offset_circle_center(listing_id: str, lat: float, lng: float, radius_mi: float) -> tuple[float, float]:
+    """Deterministic per-listing offset for the rendered circle's center.
+
+    If the circle were centered on the stored point, buyers could deduce the
+    point from the circle. Offset the center by 25-50% of the radius in a
+    direction derived from a stable hash of the listing id — the true point
+    stays comfortably inside the circle but never at its center. Stability
+    matters: a per-request random offset could be averaged across renders to
+    recover the true center, so the offset must never change for a listing.
+    """
+    import hashlib
+
+    h = hashlib.sha256(listing_id.encode("utf-8")).digest()
+    angle = (h[0] / 255.0) * 2.0 * math.pi
+    frac = 0.25 + (h[1] / 255.0) * 0.25
+    d = radius_mi * frac
+    return (
+        lat + d * _DEG_PER_MILE_LAT * math.sin(angle),
+        lng + d * _DEG_PER_MILE_LNG_40 * math.cos(angle),
+    )
+
+
 def build_static_map_url(lat: float, lng: float, radius_mi: float, token: str) -> str:
     """Build a Mapbox Static Images URL with a translucent circle overlay.
 

@@ -26,6 +26,10 @@ export interface PickupMapStepProps {
 // Manhattan center fallback
 const MANHATTAN_CENTER: [number, number] = [-73.985, 40.748];
 
+// Degree-per-mile scale at mid-Manhattan latitude (matches lib/geoCircle.ts).
+const DEG_PER_MILE_LAT = 1 / 69.0;
+const DEG_PER_MILE_LNG = 1 / 52.6;
+
 export function PickupMapStep({
   initialLat,
   initialLng,
@@ -94,6 +98,86 @@ function PickupMapStepInner({
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
 
+  // ── Privacy-mask offset ────────────────────────────────────────────────
+  // The circle is deliberately NOT centered on the pin, so buyers can't
+  // deduce the pin from the circle's center. Direction and distance fraction
+  // are fixed per mount: stable while dragging or resizing, no jumping.
+  const maskOffsetRef = useRef({
+    angle: Math.random() * Math.PI * 2,
+    frac: 0.25 + Math.random() * 0.2, // 25-45% of the radius
+  });
+  // Wobble: a brief drift shown ONLY while the seller uses the slider, to
+  // demonstrate that the circle's placement varies. Eases out when idle.
+  const wobbleRef = useRef({ amp: 0, phase: 0, raf: 0, lastActivity: 0 });
+  // Live mirrors for the rAF loop (avoids stale closures).
+  const pinRef = useRef(pin);
+  pinRef.current = pin;
+  const radiusRef = useRef(radiusMi);
+  radiusRef.current = radiusMi;
+
+  const maskCenter = useCallback(
+    (p: { lat: number; lng: number }, r: number, wobblePhase = 0, wobbleAmp = 0): { lat: number; lng: number } => {
+      const { angle, frac } = maskOffsetRef.current;
+      const d = r * frac;
+      let lat = p.lat + d * DEG_PER_MILE_LAT * Math.sin(angle);
+      let lng = p.lng + d * DEG_PER_MILE_LNG * Math.cos(angle);
+      if (wobbleAmp > 0) {
+        const w = r * 0.12 * wobbleAmp;
+        lng += w * DEG_PER_MILE_LNG * Math.cos(wobblePhase * 1.7);
+        lat += w * DEG_PER_MILE_LAT * Math.sin(wobblePhase * 2.3);
+      }
+      return { lat, lng };
+    },
+    [],
+  );
+
+  const redrawCircle = useCallback(
+    (wobblePhase = 0, wobbleAmp = 0) => {
+      const m = mapRef.current;
+      const p = pinRef.current;
+      if (!m || !circleReadyRef.current || !p) return;
+      const source = m.getSource("area") as mapboxgl.GeoJSONSource | undefined;
+      if (!source) return;
+      const c = maskCenter(p, radiusRef.current, wobblePhase, wobbleAmp);
+      source.setData(circlePolygon(c.lat, c.lng, radiusRef.current));
+    },
+    [maskCenter],
+  );
+
+  // Start (or extend) the slider wobble. Runs an rAF loop that eases the
+  // wobble amplitude in while the slider is active and back out ~250ms after
+  // the last input, then settles the circle exactly at its base offset.
+  const bumpWobble = useCallback(() => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const w = wobbleRef.current;
+    w.lastActivity = performance.now();
+    if (w.raf) return; // loop already running
+    const tick = () => {
+      const idleMs = performance.now() - w.lastActivity;
+      const target = idleMs < 250 ? 1 : 0;
+      w.amp += (target - w.amp) * 0.08;
+      w.phase += 0.05;
+      redrawCircle(w.phase, w.amp);
+      if (w.amp < 0.01 && target === 0) {
+        w.amp = 0;
+        w.raf = 0;
+        redrawCircle(0, 0); // settle at the stable offset
+        return;
+      }
+      w.raf = requestAnimationFrame(tick);
+    };
+    w.raf = requestAnimationFrame(tick);
+  }, [redrawCircle]);
+
+  // Cancel any running wobble loop on unmount.
+  useEffect(() => {
+    const w = wobbleRef.current;
+    return () => {
+      if (w.raf) cancelAnimationFrame(w.raf);
+      w.raf = 0;
+    };
+  }, []);
+
   // Search combobox ref for click-outside
   const comboboxRef = useRef<HTMLDivElement>(null);
 
@@ -145,8 +229,12 @@ function PickupMapStepInner({
       return;
     }
 
+    // Only escalate errors that happen BEFORE the map finishes loading —
+    // Mapbox also emits transient post-load tile errors that must not yank
+    // the whole step over to the fallback mid-interaction.
+    let glLoaded = false;
     map.on("error", () => {
-      setGlFailed(true);
+      if (!glLoaded) setGlFailed(true);
     });
 
     mapRef.current = map;
@@ -217,14 +305,19 @@ function PickupMapStepInner({
     });
 
     map.on("load", () => {
-      // Fix 1: resize after load so the GL canvas fills its container
-      // (guards against the lazy-import + step-mount sizing race).
+      glLoaded = true;
+      // Resize after load so the GL canvas fills its container, then again
+      // after two animation frames to cover the lazy-import + step-mount
+      // sizing race (layout may settle a frame after `load`).
       map.resize();
+      requestAnimationFrame(() => requestAnimationFrame(() => map.resize()));
 
-      // Add circle source + layers
+      // Add circle source + layers — drawn at the privacy-mask offset, NOT
+      // centered on the pin.
+      const initialMask = maskCenter({ lat: startLat, lng: startLng }, radiusMi);
       map.addSource("area", {
         type: "geojson",
-        data: circlePolygon(startLat, startLng, radiusMi),
+        data: circlePolygon(initialMask.lat, initialMask.lng, radiusMi),
       });
       map.addLayer({
         id: "area-fill",
@@ -271,12 +364,12 @@ function PickupMapStepInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl]);
 
-  // Update circle when pin or radius changes (after map loaded)
+  // Update circle when pin or radius changes (after map loaded). The circle
+  // tracks the pin at its stable privacy-mask offset; any active wobble keeps
+  // its current amplitude/phase so there's no visual jump.
   useEffect(() => {
     if (!mapRef.current || !circleReadyRef.current || !pin) return;
-    const source = mapRef.current.getSource("area") as mapboxgl.GeoJSONSource | undefined;
-    if (!source) return;
-    source.setData(circlePolygon(pin.lat, pin.lng, radiusMi));
+    redrawCircle(wobbleRef.current.phase, wobbleRef.current.amp);
     // Update marker position if the pin changed from search (not drag)
     if (markerRef.current) {
       const current = markerRef.current.getLngLat();
@@ -285,12 +378,7 @@ function PickupMapStepInner({
         mapRef.current.easeTo({ center: [pin.lng, pin.lat] });
       }
     }
-  }, [pin, radiusMi]);
-
-  // GL failed — show fallback
-  if (glFailed) {
-    return <>{renderFallback()}</>;
-  }
+  }, [pin, radiusMi, redrawCircle]);
 
   // Click-outside for search dropdown
   useEffect(() => {
@@ -331,7 +419,7 @@ function PickupMapStepInner({
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
-        setSearchError("Search unavailable — drag the pin instead");
+        setSearchError("Search unavailable. Drag the pin instead.");
         setShowDropdown(true);
         setSuggestions([]);
       } finally {
@@ -370,17 +458,22 @@ function PickupMapStepInner({
   // Slider fill percentage for mkt-range
   const sliderFill = `${((Math.min(Math.max(radiusMi, 0.1), 0.4) - 0.1) / 0.3) * 100}%`;
 
-  return (
-    <div className="space-y-4">
-      {/* Fix 3: Step prompt heading */}
-      <div>
-        <h2 className="text-sm font-semibold text-ink">What is a good pickup spot for you?</h2>
-        <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
-          Buyers only see an approximate area — we will never disclose your actual address without your consent.
-        </p>
-      </div>
+  // GL failed (pre-load) — show fallback. MUST come after every hook above:
+  // an early return between hooks corrupts React's hook order and was the
+  // root cause of the broken half-rendered map ("sliver") whenever Mapbox
+  // emitted any error event.
+  if (glFailed) {
+    return <>{renderFallback()}</>;
+  }
 
-      {/* Fix 4: Search box — full-width, h-10 touch target, dropdown max-h-52 + overflow-y-auto */}
+  return (
+    <div className="space-y-4 max-w-2xl mx-auto">
+      {/* Privacy reassurance (the step headline renders at the wizard level). */}
+      <p className="text-[11px] text-muted leading-relaxed text-center">
+        Buyers will only see the circle, never your exact pin. We do not share your address without your consent.
+      </p>
+
+      {/* Search box — full-width, h-10 touch target, dropdown max-h-52 + overflow-y-auto */}
       <div ref={comboboxRef} className="relative">
         <input
           type="text"
@@ -438,20 +531,18 @@ function PickupMapStepInner({
           MAP_FRAME_CLS is shared with the Skeleton so both are always the same size.
           touch-action is NOT blocked so mapbox marker drag works on touch. */}
       <div className={`relative ${MAP_FRAME_CLS}`}>
+        {/* Map stays visible from init (never visibility-hidden — GL needs a
+            normally-rendered container); the skeleton overlays on top until load. */}
+        <div ref={mapContainerRef} className="absolute inset-0" />
         {!mapLoaded && (
-          <Skeleton className="absolute inset-0 rounded-none" />
+          <Skeleton className="absolute inset-0 z-10 rounded-none pointer-events-none" />
         )}
-        <div
-          ref={mapContainerRef}
-          className="absolute inset-0"
-          style={{ visibility: mapLoaded ? "visible" : "hidden" }}
-        />
       </div>
 
-      {/* Fix 5: "Location mask" label with inline value + helper text */}
+      {/* "Location mask" slider with inline value + helper text */}
       <div className="space-y-1.5">
         <label className="text-[11px] font-semibold text-muted">
-          Location mask — {radiusMi.toFixed(2)} mi
+          Location mask: {radiusMi.toFixed(2)} mi
         </label>
         <input
           type="range"
@@ -459,7 +550,11 @@ function PickupMapStepInner({
           max={0.4}
           step={0.05}
           value={radiusMi}
-          onChange={(e) => onRadiusChange(Number(e.target.value))}
+          onChange={(e) => {
+            onRadiusChange(Number(e.target.value));
+            bumpWobble();
+          }}
+          onPointerDown={bumpWobble}
           className="mkt-range w-full"
           style={{ ["--mkt-range-fill" as string]: sliderFill }}
           aria-label="Location mask radius in miles"
@@ -469,7 +564,7 @@ function PickupMapStepInner({
           <span>0.40 mi</span>
         </div>
         <p className="text-[10px] text-muted-soft leading-relaxed">
-          The size of the circle buyers see instead of your exact spot.
+          Buyers will only see this circle, not the exact spot you set. The circle sits off-center from your pin so nobody can work out your location from it.
         </p>
       </div>
     </div>

@@ -1923,9 +1923,14 @@ async def get_listing_map(
     if not _MAPBOX_TOKEN or listing.latitude is None or listing.longitude is None:
         return Response(status_code=204)
 
-    from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png
+    from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png, offset_circle_center
     radius = listing.map_radius_mi if listing.map_radius_mi is not None else MAP_CIRCLE_RADIUS_MI
-    png_bytes = fetch_static_map_png(listing.latitude, listing.longitude, radius, _MAPBOX_TOKEN)
+    # Render the image + circle centered on a deterministic per-listing OFFSET
+    # point, never the stored coords — the circle's center must not reveal the
+    # listing's location (and the offset must be stable across renders so it
+    # can't be averaged away).
+    c_lat, c_lng = offset_circle_center(listing.id, listing.latitude, listing.longitude, radius)
+    png_bytes = fetch_static_map_png(c_lat, c_lng, radius, _MAPBOX_TOKEN)
     if png_bytes is None:
         raise HTTPException(status_code=503, detail="Map image unavailable")
 
