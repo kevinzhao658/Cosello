@@ -4,6 +4,11 @@ import { circlePolygon } from "../../../lib/geoCircle";
 import { hasMapboxToken, searchAddresses } from "../../../lib/mapboxSearch";
 import type { AddressSuggestion } from "../../../lib/mapboxSearch";
 
+// Shared class string for the map frame — used for both the container and the
+// Skeleton overlay so they are always the same size.
+const MAP_FRAME_CLS =
+  "w-full h-56 sm:h-72 max-w-2xl mx-auto rounded-md overflow-hidden border border-hairline";
+
 export interface PickupMapStepProps {
   /** Seed center: pass null to use Manhattan center. */
   initialLat: number | null;
@@ -212,6 +217,10 @@ function PickupMapStepInner({
     });
 
     map.on("load", () => {
+      // Fix 1: resize after load so the GL canvas fills its container
+      // (guards against the lazy-import + step-mount sizing race).
+      map.resize();
+
       // Add circle source + layers
       map.addSource("area", {
         type: "geojson",
@@ -238,7 +247,21 @@ function PickupMapStepInner({
       }
     });
 
+    // Fix 1 (continued): ResizeObserver so the canvas tracks the container
+    // after any layout shift (step becoming visible, viewport resize, etc.).
+    let rafId: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        mapRef.current?.resize();
+        rafId = null;
+      });
+    });
+    if (mapContainerRef.current) ro.observe(mapContainerRef.current);
+
     return () => {
+      ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
@@ -349,7 +372,15 @@ function PickupMapStepInner({
 
   return (
     <div className="space-y-4">
-      {/* Search box */}
+      {/* Fix 3: Step prompt heading */}
+      <div>
+        <h2 className="text-sm font-semibold text-ink">What is a good pickup spot for you?</h2>
+        <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
+          Buyers only see an approximate area — we will never disclose your actual address without your consent.
+        </p>
+      </div>
+
+      {/* Fix 4: Search box — full-width, h-10 touch target, dropdown max-h-52 + overflow-y-auto */}
       <div ref={comboboxRef} className="relative">
         <input
           type="text"
@@ -403,8 +434,10 @@ function PickupMapStepInner({
         )}
       </div>
 
-      {/* Map container */}
-      <div className="relative w-full rounded-lg overflow-hidden border border-hairline" style={{ height: 320 }}>
+      {/* Fix 1 + 2: Map container — explicit responsive height, no fixed px height.
+          MAP_FRAME_CLS is shared with the Skeleton so both are always the same size.
+          touch-action is NOT blocked so mapbox marker drag works on touch. */}
+      <div className={`relative ${MAP_FRAME_CLS}`}>
         {!mapLoaded && (
           <Skeleton className="absolute inset-0 rounded-none" />
         )}
@@ -415,12 +448,11 @@ function PickupMapStepInner({
         />
       </div>
 
-      {/* Radius slider */}
+      {/* Fix 5: "Location mask" label with inline value + helper text */}
       <div className="space-y-1.5">
-        <div className="flex items-baseline justify-between gap-2">
-          <label className="text-[11px] font-semibold text-muted">Area size</label>
-          <span className="text-[11px] text-muted">{radiusMi.toFixed(2)} mi</span>
-        </div>
+        <label className="text-[11px] font-semibold text-muted">
+          Location mask — {radiusMi.toFixed(2)} mi
+        </label>
         <input
           type="range"
           min={0.1}
@@ -430,16 +462,16 @@ function PickupMapStepInner({
           onChange={(e) => onRadiusChange(Number(e.target.value))}
           className="mkt-range w-full"
           style={{ ["--mkt-range-fill" as string]: sliderFill }}
-          aria-label="Area size in miles"
+          aria-label="Location mask radius in miles"
         />
         <div className="flex justify-between text-[10px] text-muted px-0.5">
           <span>0.10 mi</span>
           <span>0.40 mi</span>
         </div>
+        <p className="text-[10px] text-muted-soft leading-relaxed">
+          The size of the circle buyers see instead of your exact spot.
+        </p>
       </div>
-      <p className="text-[10px] text-muted-soft leading-relaxed">
-        Buyers see only the shaded area — your exact address is never shared until pickup is confirmed.
-      </p>
     </div>
   );
 }
