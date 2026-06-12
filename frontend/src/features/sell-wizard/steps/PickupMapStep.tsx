@@ -4,7 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 // constructs (symptom: the canvas renders as a small strip). The CSS is tiny
 // and harmless when the map never mounts.
 import "mapbox-gl/dist/mapbox-gl.css";
+import { LocateFixed, Loader2 } from "lucide-react";
 import { Skeleton } from "../../../components/ui/Skeleton";
+import { NYC_ZIP_SET } from "../../../lib/nycZips";
 import { circlePolygon } from "../../../lib/geoCircle";
 import { hasMapboxToken, searchAddresses, reverseGeocodeAddress } from "../../../lib/mapboxSearch";
 import type { AddressSuggestion } from "../../../lib/mapboxSearch";
@@ -102,6 +104,7 @@ function PickupMapStepInner({
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<InstanceType<MapboxGl["Map"]> | null>(null);
@@ -450,6 +453,59 @@ function PickupMapStepInner({
     // Map easing handled by the pin update effect
   }, [onPinChange, onPickupLabelChange]);
 
+  // "Current location" control: geolocate the browser, verify the position
+  // is in Manhattan (rough bounds, then the reverse-geocoded ZIP must be one
+  // of the 42 seeded ZIPs), and aim the pin there. Outside Manhattan -> flag.
+  const flagLocation = useCallback((message: string) => {
+    setSuggestions([]);
+    setSearchError(message);
+    setShowDropdown(true);
+  }, []);
+
+  const handleUseCurrentLocation = useCallback(() => {
+    if (locating) return;
+    if (!("geolocation" in navigator)) {
+      flagLocation("Location is not available in this browser.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        // Rough Manhattan bounds first: skip the geocode when clearly outside.
+        if (lat < 40.68 || lat > 40.88 || lng < -74.03 || lng > -73.9) {
+          setLocating(false);
+          flagLocation("You appear to be outside Manhattan. Pickup must be in Manhattan for now.");
+          return;
+        }
+        reverseGeocodeAddress(lat, lng)
+          .then((hit) => {
+            if (hit && NYC_ZIP_SET.has(hit.zip)) {
+              setSearchError(null);
+              setShowDropdown(false);
+              onPinChange({ lat, lng });
+              onPickupLabelChange(hit.label);
+            } else {
+              flagLocation("You appear to be outside Manhattan. Pickup must be in Manhattan for now.");
+            }
+          })
+          .catch(() => {
+            flagLocation("Could not verify your location. Search or move the map instead.");
+          })
+          .finally(() => setLocating(false));
+      },
+      (err) => {
+        setLocating(false);
+        flagLocation(
+          err.code === err.PERMISSION_DENIED
+            ? "Location access was denied. Search or move the map instead."
+            : "Could not get your location. Search or move the map instead.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }, [locating, flagLocation, onPinChange, onPickupLabelChange]);
+
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showDropdown) return;
     if (e.key === "ArrowDown") {
@@ -554,8 +610,22 @@ function PickupMapStepInner({
             aria-expanded={showDropdown}
             aria-autocomplete="list"
             aria-haspopup="listbox"
-            className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas/95 backdrop-blur-sm shadow-card text-base text-ink md:text-sm placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+            className="w-full h-10 pl-3 pr-10 rounded-md border border-border-strong bg-canvas/95 backdrop-blur-sm shadow-card text-base text-ink md:text-sm placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
           />
+          <button
+            type="button"
+            onClick={handleUseCurrentLocation}
+            disabled={locating}
+            aria-label="Use my current location"
+            title="Use my current location"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 size-7 rounded-md inline-flex items-center justify-center text-muted hover:text-primary hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
+          >
+            {locating ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <LocateFixed className="size-4" aria-hidden="true" />
+            )}
+          </button>
           {showDropdown && (
             <ul
               role="listbox"
