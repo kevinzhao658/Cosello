@@ -25,7 +25,7 @@ export function TypedInstruction({ bulkReviewPhase, exiting, onBack }: {
       : bulkReviewPhase === "reason"
         ? "Why are you selling?"
         : bulkReviewPhase === "pickup"
-          ? "What is a good pickup spot for you?"
+          ? "What is a good pickup spot?"
           : "Confirm the listing details below.";
     let i = 0;
     setTypedInstruction("");
