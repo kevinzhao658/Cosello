@@ -479,9 +479,9 @@ function PickupMapStepInner({
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      {/* Privacy reassurance (the step headline renders at the wizard level). */}
-      <p className="text-[11px] text-muted leading-relaxed text-center">
-        Buyers will only see the circle, never your exact pin. We do not share your address without your consent.
+      {/* Subheader beneath the typed step prompt (which renders at the wizard level). */}
+      <p className="text-sm text-muted text-center -mt-3">
+        We will never release your address without your consent.
       </p>
 
       {/* Search box — full-width, h-10 touch target, dropdown max-h-52 + overflow-y-auto */}
@@ -575,7 +575,7 @@ function PickupMapStepInner({
           <span>0.40 mi</span>
         </div>
         <p className="text-[10px] text-muted-soft leading-relaxed">
-          Buyers will only see this circle, not the exact spot you set. The circle sits off-center from your pin so nobody can work out your location from it.
+          The location mask is applied at a random position around your location.
         </p>
       </div>
     </div>
