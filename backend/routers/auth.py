@@ -90,7 +90,7 @@ def _user_to_out(db: Session, user: User) -> UserOut:
 # ---------- Endpoints ----------
 
 @router.get("/check-phone")
-async def check_phone(phone_number: str, db: Session = Depends(get_db)):
+def check_phone(phone_number: str, db: Session = Depends(get_db)):
     """Check whether a phone is already registered in Supabase Auth."""
     row = db.execute(
         text("SELECT 1 FROM auth.users WHERE phone = :phone LIMIT 1"),
@@ -100,7 +100,7 @@ async def check_phone(phone_number: str, db: Session = Depends(get_db)):
 
 
 @router.post("/register", response_model=UserOut)
-async def register(
+def register(
     req: RegisterRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -134,7 +134,7 @@ async def register(
 
 
 @router.put("/profile", response_model=UserOut)
-async def update_profile(
+def update_profile(
     req: UpdateProfileRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -160,7 +160,7 @@ async def update_profile(
 
 
 @router.get("/me", response_model=UserOut)
-async def me(
+def me(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -188,5 +188,5 @@ async def upload_profile_picture(
 
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
+def logout(current_user: User = Depends(get_current_user)):
     return {"message": "Logged out"}

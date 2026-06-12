@@ -105,7 +105,7 @@ def _check_and_expire_order(order: PurchaseOrder, db: Session) -> bool:
 
 
 @router.post("")
-async def create_order(
+def create_order(
     req: CreateOrderRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -180,7 +180,7 @@ async def create_order(
 
 
 @router.post("/{order_id}/confirm")
-async def confirm_order(
+def confirm_order(
     order_id: int,
     req: ConfirmOrderRequest,
     current_user: User = Depends(get_current_user),
@@ -264,7 +264,7 @@ async def confirm_order(
 
 
 @router.post("/{order_id}/decline")
-async def decline_order(
+def decline_order(
     order_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -299,7 +299,7 @@ async def decline_order(
 
 
 @router.post("/{order_id}/withdraw")
-async def withdraw_order(
+def withdraw_order(
     order_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -333,7 +333,7 @@ async def withdraw_order(
 
 
 @router.post("/{order_id}/expire")
-async def expire_order(
+def expire_order(
     order_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -357,7 +357,7 @@ async def expire_order(
 
 
 @router.post("/{order_id}/update-slots")
-async def update_order_slots(
+def update_order_slots(
     order_id: int,
     req: UpdateSlotsRequest,
     current_user: User = Depends(get_current_user),
@@ -396,7 +396,7 @@ async def update_order_slots(
 
 
 @router.post("/{order_id}/notify-pickup-ready")
-async def notify_pickup_ready(
+def notify_pickup_ready(
     order_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -442,7 +442,7 @@ async def notify_pickup_ready(
 
 
 @router.get("/status/{listing_id}")
-async def get_order_status_for_listing(
+def get_order_status_for_listing(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -471,7 +471,7 @@ async def get_order_status_for_listing(
 
 
 @router.post("/{order_id}/complete")
-async def complete_order(
+def complete_order(
     order_id: int,
     req: CompleteOrderRequest,
     current_user: User = Depends(get_current_user),
@@ -575,7 +575,7 @@ async def complete_order(
 
 
 @router.post("/{order_id}/release-address")
-async def release_address(
+def release_address(
     order_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -674,7 +674,7 @@ async def release_address(
 
 
 @router.get("")
-async def get_orders(
+def get_orders(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

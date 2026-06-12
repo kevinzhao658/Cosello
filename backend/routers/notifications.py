@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
 @router.get("")
-async def get_notifications(
+def get_notifications(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -59,7 +59,7 @@ async def get_notifications(
 
 
 @router.get("/unread-count")
-async def get_unread_count(
+def get_unread_count(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -72,7 +72,7 @@ async def get_unread_count(
 
 
 @router.post("/mark-read")
-async def mark_all_read(
+def mark_all_read(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -85,7 +85,7 @@ async def mark_all_read(
 
 
 @router.post("/{notification_id}/read")
-async def mark_one_read(
+def mark_one_read(
     notification_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -102,7 +102,7 @@ async def mark_one_read(
 
 
 @router.post("/{notification_id}/accept")
-async def accept_from_notification(
+def accept_from_notification(
     notification_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -141,7 +141,7 @@ async def accept_from_notification(
 
 
 @router.post("/{notification_id}/reject")
-async def reject_from_notification(
+def reject_from_notification(
     notification_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

@@ -72,7 +72,7 @@ if not os.getenv("VERCEL"):
 
 
 @app.get("/api/categories")
-async def get_categories():
+def get_categories():
     return CATEGORY_SCHEMAS
 
 
@@ -94,6 +94,12 @@ _MAPBOX_TOKEN: str | None = os.getenv("MAPBOX_TOKEN") or None
 _MAP_PNG_CACHE_MAX = 128
 _map_png_cache: dict[tuple[str, float], bytes] = {}
 
+# Public-community id set, cached 60s: queried on EVERY feed request but the
+# set changes ~never (community creation is rare). Saves one ~90ms DB round
+# trip per feed load against the remote Supabase pooler.
+_public_ids_cache: dict[str, object] = {"ids": None, "at": 0.0}
+_PUBLIC_IDS_TTL_S = 60.0
+
 _walk_cache: dict[tuple[str, str], int | None] = {}
 
 import random
@@ -102,7 +108,7 @@ LISTING_EXPIRY_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 
 @app.post("/api/dev/seed-listings")
-async def seed_listings(
+def seed_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -916,7 +922,7 @@ class SignedUploadUrlRequest(BaseModel):
 
 
 @app.post("/api/storage/signed-upload-url")
-async def create_signed_upload_urls(
+def create_signed_upload_urls(
     req: SignedUploadUrlRequest,
     current_user: User = Depends(get_current_user),
 ):
@@ -1435,7 +1441,7 @@ async def create_listing(
 
 
 @app.get("/api/listings")
-async def get_listings(
+def get_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -1469,9 +1475,14 @@ async def get_listings(
     # tier/relevance ordering.
     fyp_mode = (not search) and (not community or community == "All")
 
-    all_public_ids: set[int] = {
-        c.id for c in db.query(Community).filter(Community.is_public == True).all()
-    }
+    if _public_ids_cache["ids"] is not None and (now - float(_public_ids_cache["at"])) < _PUBLIC_IDS_TTL_S:
+        all_public_ids: set[int] = _public_ids_cache["ids"]  # type: ignore[assignment]
+    else:
+        all_public_ids = {
+            c.id for c in db.query(Community).filter(Community.is_public == True).all()
+        }
+        _public_ids_cache["ids"] = all_public_ids
+        _public_ids_cache["at"] = now
     my_community_ids: set[int] = {
         m.community_id
         for m in db.query(CommunityMember).filter(CommunityMember.user_id == current_user.id).all()
@@ -1659,7 +1670,7 @@ async def get_listings(
 
 
 @app.get("/api/listings/public")
-async def get_public_listings(
+def get_public_listings(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -1777,7 +1788,7 @@ async def get_public_listings(
 
 
 @app.get("/api/listings/mine")
-async def get_my_listings(
+def get_my_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1956,7 +1967,7 @@ def get_listing_map(
 
 
 @app.post("/api/listings/{listing_id}/relist")
-async def relist_listing(
+def relist_listing(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1995,7 +2006,7 @@ async def relist_listing(
 
 
 @app.put("/api/listings/{listing_id}")
-async def update_listing(
+def update_listing(
     listing_id: str,
     data: str = Form(...),
     current_user: User = Depends(get_current_user),
@@ -2074,7 +2085,7 @@ _TERMINAL_ORDER_STATUSES = (
 
 
 @app.delete("/api/listings/{listing_id}", status_code=204)
-async def delete_listing(
+def delete_listing(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2114,7 +2125,7 @@ async def delete_listing(
 
 
 @app.get("/api/wishlist")
-async def get_wishlist(
+def get_wishlist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2123,7 +2134,7 @@ async def get_wishlist(
 
 
 @app.get("/api/wishlist/listings")
-async def get_wishlist_listings(
+def get_wishlist_listings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2177,7 +2188,7 @@ def _validate_folder_name(name: str) -> str:
 
 
 @app.get("/api/wishlist/folders")
-async def list_wishlist_folders(
+def list_wishlist_folders(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -2208,7 +2219,7 @@ async def list_wishlist_folders(
 
 
 @app.post("/api/wishlist/folders", status_code=201)
-async def create_wishlist_folder(
+def create_wishlist_folder(
     body: WishlistFolderCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2222,7 +2233,7 @@ async def create_wishlist_folder(
 
 
 @app.patch("/api/wishlist/folders/{folder_id}")
-async def update_wishlist_folder(
+def update_wishlist_folder(
     folder_id: int,
     body: WishlistFolderUpdate,
     current_user: User = Depends(get_current_user),
@@ -2245,7 +2256,7 @@ async def update_wishlist_folder(
 
 
 @app.delete("/api/wishlist/folders/{folder_id}", status_code=204)
-async def delete_wishlist_folder(
+def delete_wishlist_folder(
     folder_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2267,7 +2278,7 @@ async def delete_wishlist_folder(
 
 
 @app.patch("/api/wishlist/{listing_id}/folder", status_code=204)
-async def set_wishlist_item_folder(
+def set_wishlist_item_folder(
     listing_id: str,
     body: WishlistItemFolderUpdate,
     current_user: User = Depends(get_current_user),
@@ -2300,7 +2311,7 @@ async def set_wishlist_item_folder(
 
 
 @app.post("/api/wishlist/{listing_id}")
-async def toggle_wishlist(
+def toggle_wishlist(
     listing_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
