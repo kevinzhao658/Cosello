@@ -56,6 +56,18 @@ function relativeTimeFrom(epochSeconds: number): string {
   return `${years} ${years === 1 ? "year" : "years"} ago`;
 }
 
+/** Walking-estimate display: nearby reads as "<10 min"; past the hour reads
+ *  as "~1 hr 5 min". The estimate targets the midpoint of the privacy circle. */
+function formatWalkMinutes(mins: number): string {
+  if (mins < 10) return "<10 min";
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `~${h} hr ${m} min` : `~${h} hr`;
+  }
+  return `~${mins} min`;
+}
+
 type DetailTab = "details" | "location";
 
 /** Renders the primary call-to-action block (Buy now / Edit / statuses).
@@ -607,7 +619,7 @@ export function ListingDetailModal({
                   ) : typeof walkMinutes === "number" ? (
                     <>
                       <dt className="text-xs text-muted">Walking</dt>
-                      <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
+                      <dd className="text-sm text-ink font-semibold">{formatWalkMinutes(walkMinutes)}</dd>
                     </>
                   ) : null}
 
@@ -686,7 +698,7 @@ export function ListingDetailModal({
                 ) : typeof walkMinutes === "number" ? (
                   <>
                     <dt className="text-xs text-muted">Walking</dt>
-                    <dd className="text-sm text-ink font-semibold">~{walkMinutes} min</dd>
+                    <dd className="text-sm text-ink font-semibold">{formatWalkMinutes(walkMinutes)}</dd>
                   </>
                 ) : null}
 

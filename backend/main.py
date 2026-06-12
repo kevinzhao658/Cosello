@@ -1896,12 +1896,27 @@ def get_listing_detail(
                 walk = _walk_cache[cache_key]
             else:
                 from services.geo import centroid_for_zip
-                from services.mapbox import walking_minutes as _walking_minutes
+                from services.mapbox import (
+                    MAP_CIRCLE_RADIUS_MI,
+                    offset_circle_center,
+                    walking_minutes as _walking_minutes,
+                )
                 buyer_coords = centroid_for_zip(db, buyer_zip)
                 if buyer_coords is not None:
+                    # Estimate to the MIDPOINT of the circle the buyer sees,
+                    # not the listing's true coords: keeps the number
+                    # consistent with the rendered map and leaks nothing.
+                    radius = (
+                        listing.map_radius_mi
+                        if listing.map_radius_mi is not None
+                        else MAP_CIRCLE_RADIUS_MI
+                    )
+                    dest_lat, dest_lng = offset_circle_center(
+                        listing_id, listing.latitude, listing.longitude, radius
+                    )
                     walk = _walking_minutes(
                         buyer_coords[0], buyer_coords[1],
-                        listing.latitude, listing.longitude,
+                        dest_lat, dest_lng,
                         _MAPBOX_TOKEN,
                     )
                 _walk_cache[cache_key] = walk
