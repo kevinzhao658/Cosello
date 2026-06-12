@@ -97,6 +97,7 @@ function PickupMapStepInner({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<InstanceType<MapboxGl["Map"]> | null>(null);
@@ -460,7 +461,7 @@ function PickupMapStepInner({
   }, []);
 
   const selectSuggestion = useCallback((s: AddressSuggestion) => {
-    setSearchQuery(s.label);
+    setSearchQuery("");
     setShowDropdown(false);
     setSuggestions([]);
     onPinChange({ lat: s.lat, lng: s.lng });
@@ -521,11 +522,21 @@ function PickupMapStepInner({
         <div ref={comboboxRef} className="absolute top-3 inset-x-3 z-20">
           <input
             type="text"
-            value={searchQuery}
-            placeholder={pickupLabel || "Search for an address…"}
+            value={searchFocused ? searchQuery : pickupLabel || searchQuery}
+            placeholder="Insert pickup address"
             onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={() => {
+              setSearchFocused(true);
+              // Start editing from the committed address so it can be refined.
+              if (pickupLabel && searchQuery === "") setSearchQuery(pickupLabel);
               if (suggestions.length > 0) setShowDropdown(true);
+            }}
+            onBlur={() => {
+              // Deferred so a mousedown on a suggestion lands before the close.
+              setTimeout(() => {
+                setSearchFocused(false);
+                setShowDropdown(false);
+              }, 150);
             }}
             onKeyDown={handleSearchKeyDown}
             autoComplete="off"
