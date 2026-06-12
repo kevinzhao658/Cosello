@@ -183,6 +183,7 @@ class Listing(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     zip_code = Column(String(10), nullable=True)
+    map_radius_mi = Column(Float, nullable=True)  # buyer map circle radius; NULL -> default
 
     @property
     def title_str(self) -> str:
@@ -239,6 +240,7 @@ class Listing(Base):
             "latitude": self.latitude,
             "longitude": self.longitude,
             "zip_code": self.zip_code or "",
+            "map_radius_mi": self.map_radius_mi,
         }
 
 
