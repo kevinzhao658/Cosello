@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { circlePolygon } from "../../../lib/geoCircle";
-import { hasMapboxToken, searchAddresses } from "../../../lib/mapboxSearch";
+import { hasMapboxToken, searchAddresses, reverseGeocodeAddress } from "../../../lib/mapboxSearch";
 import type { AddressSuggestion } from "../../../lib/mapboxSearch";
 
 // Shared class string for the map frame — used for both the container and the
@@ -109,6 +109,8 @@ function PickupMapStepInner({
   // Debounce ref for search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
+  // Abort for the dragend reverse geocode (pin -> address field sync)
+  const reverseAbortRef = useRef<AbortController | null>(null);
 
   // ── Privacy-mask offset ────────────────────────────────────────────────
   // The circle is deliberately NOT centered on the pin, so buyers can't
@@ -334,6 +336,17 @@ function PickupMapStepInner({
       if (tooltipRef.current) tooltipRef.current.style.opacity = "1";
       const lngLat = marker.getLngLat();
       onPinChange({ lat: lngLat.lat, lng: lngLat.lng });
+      // Sync the address field to wherever the pin landed.
+      reverseAbortRef.current?.abort();
+      const controller = new AbortController();
+      reverseAbortRef.current = controller;
+      reverseGeocodeAddress(lngLat.lat, lngLat.lng, controller.signal)
+        .then((hit) => {
+          if (!controller.signal.aborted && hit) onPickupLabelChange(hit.label);
+        })
+        .catch(() => {
+          /* keep the previous address on failure */
+        });
     });
 
     map.on("load", () => {

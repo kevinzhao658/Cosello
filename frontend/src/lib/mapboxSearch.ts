@@ -46,3 +46,27 @@ export async function searchAddresses(
   }
   return out;
 }
+
+/** Reverse-geocode a point to its nearest street address. Returns null when
+ *  no token is configured, nothing resolves, or the request fails. The zip
+ *  may be outside the 42 seeded ZIPs (the server enforces Manhattan-only at
+ *  post time); callers display the label as-is. */
+export async function reverseGeocodeAddress(
+  lat: number,
+  lng: number,
+  signal?: AbortSignal,
+): Promise<AddressSuggestion | null> {
+  if (!TOKEN) return null;
+  const url =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+    `?access_token=${TOKEN}&types=address&limit=1`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) return null;
+  const data: {
+    features: { place_name: string; center: [number, number]; context?: { id: string; text: string }[] }[];
+  } = await res.json();
+  const f = data.features?.[0];
+  if (!f) return null;
+  const zip = f.context?.find((c) => c.id.startsWith("postcode"))?.text ?? "";
+  return { label: f.place_name, lat: f.center[1], lng: f.center[0], zip };
+}
