@@ -34,6 +34,10 @@ export interface PickupMapStepProps {
 // Manhattan center fallback
 const MANHATTAN_CENTER: [number, number] = [-73.985, 40.748];
 
+// Vertical clearance for the floating address bar: the map's working center
+// (and the center pin) sit in the area BELOW the bar, not the raw frame center.
+const SEARCH_BAR_CLEARANCE_PX = 56;
+
 // Degree-per-mile scale at mid-Manhattan latitude (matches lib/geoCircle.ts).
 const DEG_PER_MILE_LAT = 1 / 69.0;
 const DEG_PER_MILE_LNG = 1 / 52.6;
@@ -273,6 +277,10 @@ function PickupMapStepInner({
       if (!glLoaded) setGlFailed(true);
     });
 
+    // Shift the camera's working center below the floating address bar so the
+    // committed point (map center) matches the visually-centered pin.
+    map.setPadding({ top: SEARCH_BAR_CLEARANCE_PX, bottom: 0, left: 0, right: 0 });
+
     mapRef.current = map;
 
     // Uber-style control: the pin is a FIXED overlay at the viewport center
@@ -495,7 +503,10 @@ function PickupMapStepInner({
             wrapper is shifted up by half the pin height so the pin TIP marks
             the exact center. pointer-events-none keeps the map fully pannable. */}
         {mapLoaded && (
-          <div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
+          <div
+            className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center"
+            style={{ paddingTop: SEARCH_BAR_CLEARANCE_PX }}
+          >
             <div className="relative -translate-y-1/2 flex flex-col items-center">
               <div
                 ref={tooltipRef}
