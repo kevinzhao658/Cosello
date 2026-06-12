@@ -101,10 +101,10 @@ function PickupMapStepInner({
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<InstanceType<MapboxGl["Map"]> | null>(null);
-  const markerRef = useRef<InstanceType<MapboxGl["Marker"]> | null>(null);
-  const markerElementRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const circleReadyRef = useRef(false);
+  // Skip ONE moveend reverse-geocode after a programmatic ease (search/seed).
+  const suppressReverseRef = useRef(false);
 
   // Debounce ref for search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,11 +148,13 @@ function PickupMapStepInner({
   const redrawCircle = useCallback(
     (extraAngle = 0) => {
       const m = mapRef.current;
-      const p = pinRef.current;
-      if (!m || !circleReadyRef.current || !p) return;
+      if (!m || !circleReadyRef.current) return;
       const source = m.getSource("area") as mapboxgl.GeoJSONSource | undefined;
       if (!source) return;
-      const c = maskCenter(p, radiusRef.current, extraAngle);
+      // The pin IS the live map center (Uber-style), so the mask follows the
+      // viewport during pans, not just after moveend commits the pin state.
+      const ctr = m.getCenter();
+      const c = maskCenter({ lat: ctr.lat, lng: ctr.lng }, radiusRef.current, extraAngle);
       source.setData(circlePolygon(c.lat, c.lng, radiusRef.current));
     },
     [maskCenter],
@@ -267,80 +269,26 @@ function PickupMapStepInner({
 
     mapRef.current = map;
 
-    // Build the custom HTML marker element. pointer-events are disabled on the
-    // wrapper and svg BOX and re-enabled only on the painted pin shapes, so a
-    // drag can start only from a press exactly on the pin (not the empty space
-    // around it).
-    const el = document.createElement("div");
-    el.style.cssText = "position:relative;display:flex;flex-direction:column;align-items:center;pointer-events:none;";
-    markerElementRef.current = el;
-
-    // Tooltip pill — visible when idle, hidden during drag
-    const tooltip = document.createElement("div");
-    tooltip.textContent = "Drag to adjust";
-    tooltip.style.cssText = [
-      "position:absolute",
-      "bottom:calc(100% + 6px)",
-      "white-space:nowrap",
-      "background:rgba(var(--canvas-rgb,255,255,255),0.9)",
-      "border:1px solid var(--hairline,#e5e7eb)",
-      "border-radius:9999px",
-      "padding:2px 8px",
-      "font-size:10px",
-      "color:var(--muted,#6b7280)",
-      "box-shadow:0 1px 4px rgba(0,0,0,0.12)",
-      "pointer-events:none",
-      "transition:opacity 0.15s",
-    ].join(";");
-    tooltipRef.current = tooltip;
-    el.appendChild(tooltip);
-
-    // Minimal pin: solid brand-purple lucide MapPin with a white center dot,
-    // no outline, soft shadow for lift. Matches --primary (#7C3AED).
-    const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("width", "30");
-    svg.setAttribute("height", "30");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.style.filter = "drop-shadow(0 2px 4px rgba(91,33,182,0.35))";
-    svg.style.pointerEvents = "none";
-    const path = document.createElementNS(svgNS, "path");
-    path.setAttribute("d", "M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z");
-    path.setAttribute("fill", "#7C3AED");
-    path.style.pointerEvents = "auto";
-    path.style.cursor = "grab";
-    const circle = document.createElementNS(svgNS, "circle");
-    circle.setAttribute("cx", "12");
-    circle.setAttribute("cy", "10");
-    circle.setAttribute("r", "3");
-    circle.setAttribute("fill", "#FFFFFF");
-    circle.style.pointerEvents = "auto";
-    circle.style.cursor = "grab";
-    svg.appendChild(path);
-    svg.appendChild(circle);
-    el.appendChild(svg);
-
-    const startLng = pin?.lng ?? initCenter[0];
-    const startLat = pin?.lat ?? initCenter[1];
-
-    const marker = new gl.Marker({ element: el, draggable: true, anchor: "bottom" })
-      .setLngLat([startLng, startLat])
-      .addTo(map);
-    markerRef.current = marker;
-
-    // Drag events — hide tooltip during drag, show on end
-    marker.on("drag", () => {
+    // Uber-style control: the pin is a FIXED overlay at the viewport center
+    // (rendered in JSX); panning the map is how the user moves the pin. The
+    // committed pin location is simply the map center at rest.
+    map.on("movestart", () => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "0";
     });
-    marker.on("dragend", () => {
+    map.on("moveend", () => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "1";
-      const lngLat = marker.getLngLat();
-      onPinChange({ lat: lngLat.lat, lng: lngLat.lng });
-      // Sync the address field to wherever the pin landed.
+      const c = map.getCenter();
+      onPinChange({ lat: c.lat, lng: c.lng });
+      // Programmatic moves (search selection / profile seed) keep their own
+      // label; only user pans re-derive the address from the new center.
+      if (suppressReverseRef.current) {
+        suppressReverseRef.current = false;
+        return;
+      }
       reverseAbortRef.current?.abort();
       const controller = new AbortController();
       reverseAbortRef.current = controller;
-      reverseGeocodeAddress(lngLat.lat, lngLat.lng, controller.signal)
+      reverseGeocodeAddress(c.lat, c.lng, controller.signal)
         .then((hit) => {
           if (!controller.signal.aborted && hit) onPickupLabelChange(hit.label);
         })
@@ -348,6 +296,9 @@ function PickupMapStepInner({
           /* keep the previous address on failure */
         });
     });
+
+    const startLng = pin?.lng ?? initCenter[0];
+    const startLat = pin?.lat ?? initCenter[1];
 
     map.on("load", () => {
       glLoaded = true;
@@ -402,26 +353,23 @@ function PickupMapStepInner({
       if (rafId !== null) cancelAnimationFrame(rafId);
       map.remove();
       mapRef.current = null;
-      markerRef.current = null;
       circleReadyRef.current = false;
       setMapLoaded(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gl]);
 
-  // Update circle when pin or radius changes (after map loaded). The circle
-  // tracks the pin at its stable privacy-mask offset; any active wobble keeps
-  // its current amplitude/phase so there's no visual jump.
+  // Update circle when pin or radius changes (after map loaded), and ease the
+  // map when the pin was set externally (search selection / profile seed) so
+  // the center pin lands on it. User pans already ARE the pin, so the distance
+  // check makes this a no-op for them.
   useEffect(() => {
     if (!mapRef.current || !circleReadyRef.current || !pin) return;
     redrawCircle(wobbleRef.current.sweep);
-    // Update marker position if the pin changed from search (not drag)
-    if (markerRef.current) {
-      const current = markerRef.current.getLngLat();
-      if (Math.abs(current.lat - pin.lat) > 0.00001 || Math.abs(current.lng - pin.lng) > 0.00001) {
-        markerRef.current.setLngLat([pin.lng, pin.lat]);
-        mapRef.current.easeTo({ center: [pin.lng, pin.lat] });
-      }
+    const c = mapRef.current.getCenter();
+    if (Math.abs(c.lat - pin.lat) > 0.00005 || Math.abs(c.lng - pin.lng) > 0.00005) {
+      suppressReverseRef.current = true; // keep the chosen label on arrival
+      mapRef.current.easeTo({ center: [pin.lng, pin.lat] });
     }
   }, [pin, radiusMi, redrawCircle]);
 
@@ -529,6 +477,32 @@ function PickupMapStepInner({
         />
         {!mapLoaded && (
           <Skeleton className="absolute inset-0 z-10 rounded-none pointer-events-none" />
+        )}
+
+        {/* Fixed center pin (Uber-style): the map moves underneath it. The
+            wrapper is shifted up by half the pin height so the pin TIP marks
+            the exact center. pointer-events-none keeps the map fully pannable. */}
+        {mapLoaded && (
+          <div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
+            <div className="relative -translate-y-1/2 flex flex-col items-center">
+              <div
+                ref={tooltipRef}
+                className="absolute bottom-full mb-1.5 whitespace-nowrap bg-canvas/90 border border-hairline rounded-full px-2 py-0.5 text-[10px] text-muted shadow-card transition-opacity duration-150"
+              >
+                Move the map to adjust
+              </div>
+              <svg
+                width="30"
+                height="30"
+                viewBox="0 0 24 24"
+                style={{ filter: "drop-shadow(0 2px 4px rgba(91,33,182,0.35))" }}
+                aria-hidden="true"
+              >
+                <path d="M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z" fill="#7C3AED" />
+                <circle cx="12" cy="10" r="3" fill="#FFFFFF" />
+              </svg>
+            </div>
+          </div>
         )}
 
         {/* Floating address search over the map's top edge */}
