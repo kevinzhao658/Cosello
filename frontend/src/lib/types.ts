@@ -53,6 +53,7 @@ export interface Listing {
   retrieval_fallback?: boolean;
   latitude: number | null;
   longitude: number | null;
+  map_radius_mi?: number | null;
   zip_code: string;
   distance_miles: number | null;
   /** Walking estimate in whole minutes from the buyer's ZIP centroid to the
