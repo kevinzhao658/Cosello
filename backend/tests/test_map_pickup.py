@@ -30,8 +30,15 @@ def test_reverse_geocode_zip_parses_postcode(monkeypatch):
         status_code = 200
         def json(self):
             return {"features": [{
-                "place_name": "123 Mercer St, New York, New York 10012, United States",
-                "context": [{"id": "postcode.123", "text": "10012"}],
+                "geometry": {"type": "Point", "coordinates": [-73.998, 40.725]},
+                "properties": {
+                    "full_address": "123 Mercer St, New York, New York 10012, United States",
+                    "name": "123 Mercer St",
+                    "context": {
+                        "postcode": {"name": "10012"},
+                        "place": {"name": "New York"},
+                    },
+                },
             }]}
     monkeypatch.setattr(mb.httpx, "get", lambda *a, **k: FakeResp())
     assert mb.reverse_geocode_zip(40.725, -73.998, "tok") == (
