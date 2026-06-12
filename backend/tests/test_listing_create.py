@@ -27,7 +27,8 @@ def _img_bytes() -> bytes:
 
 
 def _make_listing_form(*, communities: str = "", visibility: str = "public",
-                       pickup: str = "Lower East Side, NYC") -> dict:
+                       pickup: str = "Lower East Side, NYC",
+                       pickup_zip: str = "10014") -> dict:
     return {
         "data": (None, json.dumps({
             "brand": "TestBrand", "name": "TestItem",
@@ -38,6 +39,7 @@ def _make_listing_form(*, communities: str = "", visibility: str = "public",
         "communities": (None, communities),
         "visibility": (None, visibility),
         "pickup_location": (None, pickup),
+        "pickup_zip": (None, pickup_zip),
         "images": ("test.png", _img_bytes(), "image/png"),
     }
 

@@ -246,6 +246,10 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                         postedAt: 0,
                         userId: data.id,
                         imageUrls: listing.imageUrls && listing.imageUrls.length > 0 ? listing.imageUrls : [listing.imageUrl],
+                        latitude: null,
+                        longitude: null,
+                        zip_code: "",
+                        distance_miles: null,
                       })}
                       className={`text-left bg-surface-card border border-hairline rounded-md overflow-hidden hover:shadow-hover hover:border-border-strong transition-colors ${FOCUS_RING}`}
                     >

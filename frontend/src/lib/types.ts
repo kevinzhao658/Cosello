@@ -51,6 +51,17 @@ export interface Listing {
   categoryAttributes?: Record<string, string>;
   identifierConfidence?: "high" | "medium" | "low";
   retrieval_fallback?: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  map_radius_mi?: number | null;
+  zip_code: string;
+  distance_miles: number | null;
+  /** Walking estimate in whole minutes from the buyer's ZIP centroid to the
+   *  listing's fuzzed center. Populated by GET /api/listings/{id} (detail
+   *  endpoint only — NOT the feed). null when MAPBOX_TOKEN is unset, the
+   *  buyer is unauthenticated / has no ZIP, the listing has no coords, or
+   *  Mapbox errored. */
+  walk_minutes?: number | null;
   // Server still returns a stored `title` column for legacy clients during
   // the transition; modern UI ignores it and recomputes via formatTitle.
   title?: string;

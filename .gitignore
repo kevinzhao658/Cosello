@@ -8,6 +8,7 @@ venv/
 backend/uploads/*
 !backend/uploads/.gitkeep
 .env
+.env.local
 .vite/
 backend/.secrets/
 *.serviceaccount.json

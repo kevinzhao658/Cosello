@@ -9,6 +9,7 @@ export interface AuthUser {
   profile_picture: string | null;
   pickup_address: string | null;
   zip_code: string | null;
+  zip_confirmed: boolean;
 }
 
 interface AuthContextValue {
@@ -20,9 +21,24 @@ interface AuthContextValue {
   login: (token: string, user: AuthUser | null) => void;
   logout: () => Promise<void>;
   updateUser: (user: AuthUser) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+/** Ensure fields added after initial launch default gracefully. */
+function normaliseUser(raw: Partial<AuthUser> & Pick<AuthUser, "id" | "phone_number">): AuthUser {
+  return {
+    id: raw.id,
+    phone_number: raw.phone_number,
+    display_name: raw.display_name ?? null,
+    neighborhood: raw.neighborhood ?? null,
+    profile_picture: raw.profile_picture ?? null,
+    pickup_address: raw.pickup_address ?? null,
+    zip_code: raw.zip_code ?? null,
+    zip_confirmed: raw.zip_confirmed ?? false,
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -50,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const cachedProfile = localStorage.getItem("auth_user");
         if (cachedProfile) {
           try {
-            setUser(JSON.parse(cachedProfile) as AuthUser);
+            setUser(normaliseUser(JSON.parse(cachedProfile) as Partial<AuthUser> & Pick<AuthUser, "id" | "phone_number">));
           } catch {
             // ignore bad JSON; profile will be re-fetched by the effect below
           }
@@ -92,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         if (cancelled) return;
         if (res.ok) {
-          const data = (await res.json()) as AuthUser;
+          const data = normaliseUser((await res.json()) as Partial<AuthUser> & Pick<AuthUser, "id" | "phone_number">);
           setUser(data);
           localStorage.setItem("auth_user", JSON.stringify(data));
         } else if (res.status === 401 || res.status === 403) {
@@ -130,6 +146,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("auth_user", JSON.stringify(updated));
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) return;
+    try {
+      const res = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data2 = normaliseUser((await res.json()) as Partial<AuthUser> & Pick<AuthUser, "id" | "phone_number">);
+        setUser(data2);
+        localStorage.setItem("auth_user", JSON.stringify(data2));
+      }
+    } catch {
+      // network error — leave existing user state
+    }
+  }, []);
+
   const needsRegistration =
     token !== null && user !== null && (!user.display_name || !user.neighborhood);
 
@@ -143,8 +177,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       updateUser,
+      refreshUser,
     }),
-    [user, token, isLoading, needsRegistration, login, logout, updateUser],
+    [user, token, isLoading, needsRegistration, login, logout, updateUser, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

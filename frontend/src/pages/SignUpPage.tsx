@@ -1,10 +1,13 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Loader2, UserCircle } from "lucide-react";
 import type { AuthUser } from "../contexts/AuthContext";
 import { useNeighborhoods } from "../lib/useNeighborhoods";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { NYC_ZIP_SET, topZipForNeighborhood } from "../lib/nycZips";
+import { LocationCombobox } from "../components/LocationCombobox";
+import { AddressAutocompleteInput } from "../components/AddressAutocompleteInput";
 
 interface SignUpPageProps {
   pendingToken: string;
@@ -21,6 +24,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
   const [pickupAddress, setPickupAddress] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [zipCode, setZipCode] = useState("");
+  const [zipTouched, setZipTouched] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,6 +40,14 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
         n.toLowerCase().includes(neighborhood.trim().toLowerCase())
       )
     : neighborhoods;
+
+  // Prefill ZIP from neighborhood when neighborhood becomes valid and user hasn't manually set ZIP
+  useEffect(() => {
+    if (isValidNeighborhood && !zipTouched) {
+      const prefill = topZipForNeighborhood(neighborhood.trim());
+      if (prefill) setZipCode(prefill);
+    }
+  }, [isValidNeighborhood, neighborhood, zipTouched]);
 
   // Close suggestions on click outside
   useClickOutside(
@@ -53,6 +65,10 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
       setError("Please select a valid Manhattan neighborhood");
       return;
     }
+    if (!NYC_ZIP_SET.has(zipCode)) {
+      setError("Select your ZIP code");
+      return;
+    }
 
     setIsLoading(true);
     setError("");
@@ -68,7 +84,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
           display_name: `${firstName.trim()} ${lastName.trim()}`,
           neighborhood: neighborhood.trim(),
           pickup_address: pickupAddress.trim() || undefined,
-          zip_code: zipCode.trim() || undefined,
+          zip_code: zipCode,
         }),
       });
 
@@ -128,13 +144,19 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div>
               <label className="block text-xs text-muted mb-1.5 font-semibold">
-                Default Pickup Address
+                Pickup Address
               </label>
-              <Input
-                type="text"
+              <AddressAutocompleteInput
+                id="signup-pickup-address"
                 placeholder="Street address"
                 value={pickupAddress}
-                onChange={(e) => setPickupAddress(e.target.value)}
+                onChangeText={setPickupAddress}
+                onSelect={(s) => {
+                  setPickupAddress(s.label);
+                  // A selected address carries its real ZIP: adopt it.
+                  setZipCode(s.zip);
+                  setZipTouched(true);
+                }}
               />
               <p className="text-[10px] text-muted-soft mt-1.5 leading-relaxed">
                 Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
@@ -239,16 +261,12 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <div>
               <label className="block text-xs text-muted mb-1.5 font-semibold">
-                Zip Code
+                Zip Code <span className="text-error">*</span>
               </label>
-              <Input
-                type="text"
-                placeholder="e.g., 10001"
+              <LocationCombobox
+                id="signup-zip"
                 value={zipCode}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/[^\d-]/g, "").slice(0, 10);
-                  setZipCode(val);
-                }}
+                onChange={(zip) => { setZipCode(zip); setZipTouched(true); }}
               />
             </div>
 
@@ -256,7 +274,7 @@ export default function SignUpPage({ pendingToken, onComplete, onCancel }: SignU
 
             <Button
               onClick={handleRegister}
-              disabled={isLoading || isLoadingNeighborhoods || !isValidNeighborhood || !firstName.trim() || !lastName.trim()}
+              disabled={isLoading || isLoadingNeighborhoods || !isValidNeighborhood || !firstName.trim() || !lastName.trim() || !NYC_ZIP_SET.has(zipCode)}
               className="w-full disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isLoading ? (

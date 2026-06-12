@@ -5,6 +5,8 @@ import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
 import { compressImage } from "../../lib/compressImage";
 import type { CategorySchema, CategorySlug } from "../../lib/types";
+import { NYC_ZIP_SET } from "../../lib/nycZips";
+import { hasMapboxToken } from "../../lib/mapboxSearch";
 import { useDraftAutosave } from "./useDraftAutosave";
 import { usePostListing } from "./usePostListing";
 import {
@@ -24,13 +26,16 @@ import { UploadStep } from "./steps/UploadStep";
 import { GroupsStep } from "./steps/GroupsStep";
 import { AIReviewStep } from "./steps/AIReviewStep";
 import { PickupStep } from "./steps/PickupStep";
+import { TypedInstruction } from "./TypedInstruction";
+import { AddressPrivacyNotice } from "./AddressPrivacyNotice";
+import { PickupMapStep } from "./steps/PickupMapStep";
 import { SingleListingForm } from "./SingleListingForm";
 import { SinglePickupStep } from "./SinglePickupStep";
 import { StepProgressBar } from "./StepProgressBar";
 import { computeWizardStep } from "./wizardStep";
 
 export interface SellWizardHandle {
-  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string }) => Promise<void>;
+  postSingleListing: (override?: { details: ProductDetails; pickupLocation: string; pickupZip: string }) => Promise<void>;
   resetForLogout: () => void;
   addImages: (files: FileList | File[]) => void;
   getImageCount: () => number;
@@ -143,6 +148,29 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   // invalidates later steps (single flow dropping its generated item).
   const [maxReachedStep, setMaxReachedStep] = useState(1);
   const [isCompressing, setIsCompressing] = useState(false);
+  // ZIP codes for the pickup steps. Separate from the free-text
+  // bulkPickupLocation/postPickupLocation so the backend-required field is
+  // always well-formed and not mixed with neighborhood text.
+  const [postPickupZip, setPostPickupZip] = useState("");
+  const [bulkPickupZip, setBulkPickupZip] = useState("");
+
+  // Map pickup: shared across both flows. pickupPin is seeded to the map center
+  // on first render of PickupMapStep (via onPinChange from the map load effect).
+  const [pickupPin, setPickupPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickupRadiusMi, setPickupRadiusMi] = useState(0.15);
+  const [pickupLabel, setPickupLabel] = useState("");
+
+  // Prefill pickup ZIP from the seller's profile zip (once, when known) so a
+  // returning seller can post without re-opening the dropdown. NYC_ZIP_SET
+  // guards against a non-Manhattan profile zip.
+  useEffect(() => {
+    const z = user?.zip_code;
+    if (z && NYC_ZIP_SET.has(z)) {
+      setPostPickupZip((cur) => (cur === "" ? z : cur));
+      setBulkPickupZip((cur) => (cur === "" ? z : cur));
+    }
+  }, [user?.zip_code]);
+
   const [state, actions] = useSellWizard();
 
   const {
@@ -201,6 +229,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     currentDraftId,
     setCurrentDraftId,
     selectedCommunityIds,
+    postPickupZip,
+    bulkPickupZip,
+    pickupPin,
+    pickupRadiusMi,
+    pickupLabel,
     onPosted,
     onPublishedDraft,
     onRequestSignIn,
@@ -225,6 +258,12 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const uploadedImagesRef = useRef(uploadedImages);
   const productDetailsRef = useRef(productDetails);
   const segmentationRef = useRef(segmentation);
+  // Cache for the last generated single-listing productDetails so that
+  // back-navigation (step 4/5 → step 2/3) followed by forward-navigation
+  // (step 3 → step 4) reuses the already-generated result without re-calling
+  // the AI endpoint. Cleared whenever the photo set changes so a real re-run
+  // still happens after edits.
+  const savedProductDetailsRef = useRef<ProductDetails | null>(null);
   const computeCoverImageUrl = useCallback((): string | null => {
     const images = uploadedImagesRef.current;
     if (images.length > 0) return images[0].preview;
@@ -291,21 +330,27 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       }
     }
     const communitySelected = selectedCommunityIds.length > 0;
-    const pickupLocationSet = bulkPickupLocation.trim() !== "";
+    const pickupLocationSet = hasMapboxToken()
+      ? pickupLabel.trim() !== "" || Boolean(user?.pickup_address?.trim())
+      : bulkPickupZip !== "";
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, bulkPickupLocation, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, pickupLabel, user?.pickup_address, bulkPickupZip, onBulkPreviewChange]);
 
-  // Emit checklist signals (community + pickup) to the parent so it can render
-  // a single static checklist regardless of step/mode.
+  // Emit checklist signals to the parent so it can render a single static
+  // checklist regardless of step/mode. (The Community row was removed from the
+  // page checklist; communitySelected is still emitted for type stability.)
   useEffect(() => {
     const communitySelected = selectedCommunityIds.length > 0;
-    // Use the single-listing pickup when a single item has been generated;
-    // fall back to the bulk pickup location otherwise.
-    const pickupLocationSet = (productDetails ? postPickupLocation : bulkPickupLocation).trim() !== "";
+    // Pickup counts ONLY with an embedded address: a search-selected address
+    // (pickupLabel) or the seller's saved profile address. The auto-seeded map
+    // pin alone must not tick the box. Legacy ZIP path applies sans token.
+    const pickupLocationSet = hasMapboxToken()
+      ? pickupLabel.trim() !== "" || Boolean(user?.pickup_address?.trim())
+      : (productDetails ? postPickupZip !== "" : bulkPickupZip !== "");
     onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
-  }, [selectedCommunityIds, postPickupLocation, bulkPickupLocation, productDetails, onChecklistSignalsChange]);
+  }, [selectedCommunityIds, pickupLabel, user?.pickup_address, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -415,6 +460,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       preview: URL.createObjectURL(file),
     }));
 
+    // Any new upload invalidates a cached single-listing generation.
+    savedProductDetailsRef.current = null;
+
     // Step 2 (review): re-run segmentation in place with the combined photo set.
     // In manual mode we skip segmentation entirely — just append.
     if (mode !== "manual" && bulkReviewPhase === "review") {
@@ -457,6 +505,9 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const deletePhoto = useCallback((originalIndex: number) => {
     const removed = uploadedImages[originalIndex];
     if (!removed) return;
+    // A photo deletion invalidates any cached single-listing generation so a
+    // fresh API call will run next time the user reaches step 3 → step 4.
+    savedProductDetailsRef.current = null;
     actions.deletePhoto(originalIndex);
     URL.revokeObjectURL(removed.preview);
   }, [uploadedImages, actions]);
@@ -492,6 +543,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const clearAllUploads = useCallback(() => {
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
+    savedProductDetailsRef.current = null;
     for (const img of uploadedImages) {
       URL.revokeObjectURL(img.preview);
     }
@@ -535,6 +587,16 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (!segmentation) return;
     if (segmentation.groupings.some((g) => g.length === 0)) return;
     if (rationale === "Other" && rationaleOther.trim() === "") return;
+
+    // If the user navigated back from the review step and the photo set has
+    // not changed since the last successful generation, reuse the cached
+    // result and skip the network round-trip.
+    if (savedProductDetailsRef.current) {
+      actions.generateSingle(savedProductDetailsRef.current);
+      savedProductDetailsRef.current = null;
+      return;
+    }
+
     actions.generateStart();
     try {
       const items = await generateListings({
@@ -673,6 +735,11 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setSelectedCommunityIds([]);
     setSinglePostPhase("review");
     setPrunedCommunityCount(0);
+    setPostPickupZip("");
+    setBulkPickupZip("");
+    setPickupPin(null);
+    setPickupRadiusMi(0.15);
+    setPickupLabel("");
     draft.resetSaveStatus();
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
@@ -691,6 +758,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     if (incoming.length > remaining) {
       actions.setSegmentationError("Maximum 20 photos per listing batch");
     }
+    // Adding photos invalidates any cached single-listing generation.
+    savedProductDetailsRef.current = null;
     setIsCompressing(true);
     void Promise.all(trimmed.map(compressImage))
       .then((compressed) => {
@@ -791,6 +860,10 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       } else if (step === 5) {
         setSinglePostPhase("pickup");
       } else if (step === 2 || step === 3) {
+        // Save the generated result before clearing state so that navigating
+        // forward to step 4 again can restore it without re-calling the API
+        // (provided the photo set hasn't changed in the interim).
+        savedProductDetailsRef.current = productDetails;
         setMaxReachedStep(step);
         actions.setProductDetails(null);
         actions.setPhase(step === 2 ? "review" : "reason");
@@ -859,7 +932,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           </button>
         </div>
       )}
-      {bulkReviewPhase === null && (
+      {bulkReviewPhase === null && !productDetails && (
         <header className="flex items-baseline justify-between mb-3">
           <h2 className="text-sm font-semibold text-ink">Photos</h2>
         </header>
@@ -1136,25 +1209,58 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
           className="mt-4 wizard-step-enter"
           style={{ animation: "wizardStepIn 300ms ease-out both" }}
         >
-          <PickupStep
-            bulkPickupLocation={bulkPickupLocation}
-            bulkItemsCount={bulkItems.length}
-            isPostingBulk={isPostingBulk}
-            isAuthenticated={isAuthenticated}
-            onChange={actions.setBulkPickupLocation}
-            onPost={() => {
-              if (!isAuthenticated) { onRequestSignIn(); return; }
-              post.postBulkFromPickup();
-            }}
-            availableCommunities={availableCommunities}
-            selectedCommunityIds={selectedCommunityIds}
-            onToggleCommunity={(id) => {
-              setSelectedCommunityIds((prev) =>
-                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-              );
-            }}
-            userNeighborhood={user?.neighborhood ?? null}
+          <PickupMapStep
+            initialLat={null}
+            initialLng={null}
+            pin={pickupPin}
+            onPinChange={setPickupPin}
+            radiusMi={pickupRadiusMi}
+            onRadiusChange={setPickupRadiusMi}
+            pickupLabel={pickupLabel}
+            onPickupLabelChange={setPickupLabel}
+              defaultAddress={user?.pickup_address ?? null}
+            renderFallback={() => (
+              <PickupStep
+                bulkPickupLocation={bulkPickupLocation}
+                bulkPickupZip={bulkPickupZip}
+                bulkItemsCount={bulkItems.length}
+                isPostingBulk={isPostingBulk}
+                isAuthenticated={isAuthenticated}
+                onChange={actions.setBulkPickupLocation}
+                onZipChange={setBulkPickupZip}
+                onPost={() => {
+                  if (!isAuthenticated) { onRequestSignIn(); return; }
+                  post.postBulkFromPickup();
+                }}
+                userZipCode={user?.zip_code ?? null}
+              />
+            )}
           />
+          {/* Post button shown below the map step (only when map is active; fallback renders its own) */}
+          {hasMapboxToken() && (
+            <div className="mt-5">
+              <button
+                type="button"
+                disabled={isPostingBulk || (!pickupPin && bulkPickupZip === "")}
+                onClick={() => {
+                  if (!isAuthenticated) { onRequestSignIn(); return; }
+                  post.postBulkFromPickup();
+                }}
+                className="w-full h-10 rounded-md bg-primary text-on-primary text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas hover:bg-primary-hover transition-colors"
+              >
+                {isPostingBulk ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <MapPin className="size-4 animate-spin" aria-hidden />
+                    Posting…
+                  </span>
+                ) : isAuthenticated ? (
+                  `Post all (${bulkItems.length})`
+                ) : (
+                  "Sign in to Post"
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1180,25 +1286,59 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       )}
 
       {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && (
-        <SinglePickupStep
-          postPickupLocation={postPickupLocation}
-          setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
-          onBack={() => setSinglePostPhase("review")}
-          onPost={() => {
-            if (!isAuthenticated) { onRequestSignIn(); return; }
-            onRequestSinglePostConfirm();
-          }}
-          isAuthenticated={isAuthenticated}
-          availableCommunities={availableCommunities}
-          selectedCommunityIds={selectedCommunityIds}
-          onToggleCommunity={(id) => {
-            setSelectedCommunityIds((prev) =>
-              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-            );
-          }}
-          userNeighborhood={user?.neighborhood ?? null}
-          instructionExiting={instructionExiting}
-        />
+        <>
+          {/* Giant typed step headline lives at the wizard level so it shows for
+              both the map step and the legacy fallback. */}
+          <TypedInstruction
+            bulkReviewPhase="pickup"
+            exiting={instructionExiting}
+            onBack={() => setSinglePostPhase("review")}
+          />
+          <AddressPrivacyNotice />
+          <div className="mt-8">
+            <PickupMapStep
+              initialLat={null}
+              initialLng={null}
+              pin={pickupPin}
+              onPinChange={setPickupPin}
+              radiusMi={pickupRadiusMi}
+              onRadiusChange={setPickupRadiusMi}
+              pickupLabel={pickupLabel}
+              onPickupLabelChange={setPickupLabel}
+              defaultAddress={user?.pickup_address ?? null}
+              renderFallback={() => (
+                <SinglePickupStep
+                  postPickupLocation={postPickupLocation}
+                  setPostPickupLocation={(v) => actions.setPostPickupLocation(v)}
+                  postPickupZip={postPickupZip}
+                  setPostPickupZip={setPostPickupZip}
+                  onBack={() => setSinglePostPhase("review")}
+                  onPost={() => {
+                    if (!isAuthenticated) { onRequestSignIn(); return; }
+                    onRequestSinglePostConfirm();
+                  }}
+                  isAuthenticated={isAuthenticated}
+                  userZipCode={user?.zip_code ?? null}
+                />
+              )}
+            />
+          </div>
+        </>
+      )}
+      {productDetails && !isGenerating && !photosOnly && singlePostPhase === "pickup" && hasMapboxToken() && (
+        <div className="mt-5 max-w-md mx-auto">
+          <button
+            type="button"
+            disabled={!pickupPin && postPickupZip === ""}
+            onClick={() => {
+              if (!isAuthenticated) { onRequestSignIn(); return; }
+              onRequestSinglePostConfirm();
+            }}
+            className="w-full h-10 rounded-md bg-primary text-on-primary text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas hover:bg-primary-hover transition-colors"
+          >
+            {isAuthenticated ? "Post listing" : "Sign in to Post"}
+          </button>
+        </div>
       )}
 
       {bulkReviewPhase === "cards" && !isGenerating && bulkItems.length > 0 && (

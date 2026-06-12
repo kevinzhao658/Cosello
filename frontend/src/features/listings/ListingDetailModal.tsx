@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { X, MapPin, User, Loader2, Pencil, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, MapPin, User, Loader2, Pencil, Check, ChevronLeft, ChevronRight, Navigation } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { formatTitle } from "../../lib/format";
 import { PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { Tooltip } from "../../components/ui/tooltip";
+import { ListingMap } from "../../components/ListingMap";
+import { Skeleton } from "../../components/ui/Skeleton";
+import { apiFetch } from "../../lib/api";
 import type { Listing } from "../../lib/types";
 
 export type SellerProfile = {
@@ -51,6 +54,18 @@ function relativeTimeFrom(epochSeconds: number): string {
   if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
   const years = Math.floor(days / 365);
   return `${years} ${years === 1 ? "year" : "years"} ago`;
+}
+
+/** Walking-estimate display: nearby reads as "<10 min"; past the hour reads
+ *  as "~1 hr 5 min". The estimate targets the midpoint of the privacy circle. */
+function formatWalkMinutes(mins: number): string {
+  if (mins < 10) return "<10 min";
+  if (mins >= 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `~${h} hr ${m} min` : `~${h} hr`;
+  }
+  return `~${mins} min`;
 }
 
 type DetailTab = "details" | "location";
@@ -195,12 +210,65 @@ export function ListingDetailModal({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const listingId = listing?.id;
 
+  // ── Walking estimate ────────────────────────────────────────────────────────
+  // Fetched from GET /api/listings/{id} (detail endpoint) when the modal opens.
+  // The feed does NOT include walk_minutes; this call is the only source.
+  // null = not available (no token, no buyer ZIP, no coords, or Mapbox error).
+  // "loading" distinguishes the in-flight state from a resolved null.
+  const [walkMinutes, setWalkMinutes] = useState<number | null | "loading">("loading");
+
   useEffect(() => {
     setImageIndex(0);
     setTab("details");
     setLocationDrawerOpen(false);
     setLightboxOpen(false);
+    // Reset walk estimate whenever the listing changes.
+    setWalkMinutes("loading");
   }, [listingId]);
+
+  // Fetch the detail endpoint to obtain walk_minutes. Does not block the modal
+  // or the map. Errors and null responses are handled gracefully.
+  useEffect(() => {
+    if (!listingId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/listings/${listingId}`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data: Listing = await res.json();
+          setWalkMinutes(data.walk_minutes ?? null);
+        } else {
+          setWalkMinutes(null);
+        }
+      } catch {
+        if (!cancelled) setWalkMinutes(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [listingId]);
+
+  // Apple Maps walking directions to the listing's APPROXIMATE area. The
+  // coords are the coarse ZIP-centroid already exposed on the listing payload
+  // (never the seller's address), so the link leaks nothing new pre-acceptance.
+  const directionsUrl =
+    listing?.latitude != null && listing?.longitude != null
+      ? `https://maps.apple.com/?daddr=${listing.latitude},${listing.longitude}&dirflg=w`
+      : null;
+  const directionsLink = listing && directionsUrl && (
+    <a
+      href={directionsUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-hover transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-sm"
+    >
+      <Navigation className="size-4" aria-hidden="true" />
+      Get directions
+      {listing.distance_miles !== null && listing.distance_miles !== undefined
+        ? ` (~${listing.distance_miles.toFixed(1)} mi)`
+        : ""}
+    </a>
+  );
 
   /* Close location drawer or lightbox on Escape */
   useEffect(() => {
@@ -244,7 +312,7 @@ export function ListingDetailModal({
   return (
     <ModalShell open onClose={onClose} z={200}>
       <div
-        className="relative w-full max-w-[940px] mx-0 md:mx-4 rounded-none md:rounded-xl bg-canvas shadow-overlay overflow-hidden h-[100dvh] md:h-auto max-h-[100dvh] md:max-h-[90vh] flex flex-col md:grid md:grid-cols-2"
+        className="relative w-screen md:w-[min(940px,calc(100vw-2rem))] rounded-none md:rounded-xl bg-canvas shadow-overlay overflow-hidden h-[100dvh] md:h-auto max-h-[100dvh] md:max-h-[90vh] flex flex-col md:grid md:grid-cols-2"
         role="dialog"
         aria-label={formatTitle(listing.brand, listing.name)}
       >
@@ -299,21 +367,21 @@ export function ListingDetailModal({
         <div className="relative flex-1 min-h-0 flex flex-col md:block md:flex-none">
           {/* Scrollable region */}
           <div className="overflow-y-auto flex-1 min-h-0 md:max-h-[90vh] md:flex-none md:pb-6">
-            {/* Mobile photo block — fixed-height frame (~42vh) so the title
-                and price are visible from the initial open. Photo is fitted
-                with `object-contain` (letterboxed on bg-surface-strong) so it
-                never crops the item. Tap the photo to open the lightbox. */}
+            {/* Mobile photo block — matches the desktop 4:5 aspect-ratio frame
+                so every listing renders its photo at the same standard size.
+                `object-cover` fills the frame (same as desktop) for consistency;
+                the full uncropped image is always accessible via the lightbox. */}
             <div className="md:hidden p-3 bg-surface-soft border-b border-hairline">
               <button
                 type="button"
                 onClick={() => setLightboxOpen(true)}
                 aria-label="Expand image"
-                className="relative w-full h-[42vh] bg-surface-strong rounded-md overflow-hidden block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                className="relative aspect-[4/5] w-full bg-surface-strong rounded-md overflow-hidden block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
               >
                 <img
                   src={images[safeIndex]}
                   alt={formatTitle(listing.brand, listing.name)}
-                  className="absolute inset-0 size-full object-contain"
+                  className="absolute inset-0 size-full object-cover"
                   decoding="async"
                 />
               </button>
@@ -386,9 +454,12 @@ export function ListingDetailModal({
                   </button>
                 </>
               ) : null}
-              {/* Distance pill — only when a numeric distance is available.
-                  The Listing type does not currently expose this field; leave
-                  conditional and unrendered until the field exists. */}
+              {listing.distance_miles !== null && listing.distance_miles !== undefined && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-surface-soft border border-hairline text-muted">
+                  <MapPin className="size-3" aria-hidden />
+                  ~{listing.distance_miles.toFixed(1)} mi away
+                </span>
+              )}
             </div>
 
             {/* Price */}
@@ -526,27 +597,31 @@ export function ListingDetailModal({
             ) : (
               /* Location tab — desktop only (tab strip is hidden on mobile) */
               <div className="space-y-4">
-                {/* Map placeholder */}
-                <div className="relative aspect-[16/10] bg-surface-soft border border-hairline rounded-md overflow-hidden">
-                  <div className="absolute inset-0 ld-map-grid" aria-hidden="true" />
-                  <div className="absolute -top-12 -left-12 size-48 rounded-full bg-primary/15 blur-3xl" aria-hidden="true" />
-                  <div className="absolute -bottom-16 -right-16 size-56 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <MapPin className="size-10 text-primary motion-safe:animate-bounce" aria-hidden="true" />
-                  </div>
-                  <span className="absolute top-2 right-2 text-xs text-muted bg-canvas/80 backdrop-blur-sm px-2 py-1 rounded-full border border-hairline">
-                    Map placeholder · Integrate with Google Maps geotag
-                  </span>
-                </div>
+                <ListingMap listingId={listing.id} />
+                {directionsLink}
 
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-3">
                   <dt className="text-xs text-muted">Neighborhood</dt>
                   <dd className="text-sm text-ink">{listing.location || "—"}</dd>
 
                   <dt className="text-xs text-muted">Distance from you</dt>
-                  {/* Distance is gated on lat/long — same as the
-                      Marketplace distance slider. */}
-                  <dd className="text-sm text-ink font-semibold">Not available yet</dd>
+                  <dd className="text-sm text-ink font-semibold">
+                    {listing.distance_miles !== null && listing.distance_miles !== undefined
+                      ? `~${listing.distance_miles.toFixed(1)} mi away`
+                      : "Not available yet"}
+                  </dd>
+
+                  {walkMinutes === "loading" ? (
+                    <>
+                      <dt className="text-xs text-muted">Walking</dt>
+                      <dd><Skeleton className="h-4 w-16" /></dd>
+                    </>
+                  ) : typeof walkMinutes === "number" ? (
+                    <>
+                      <dt className="text-xs text-muted">Walking</dt>
+                      <dd className="text-sm text-ink font-semibold">{formatWalkMinutes(walkMinutes)}</dd>
+                    </>
+                  ) : null}
 
                   <dt className="text-xs text-muted">Pickup</dt>
                   <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>
@@ -597,17 +672,10 @@ export function ListingDetailModal({
                 </button>
               </div>
 
-              {/* Map placeholder */}
-              <div className="relative aspect-[16/10] bg-surface-soft border border-hairline rounded-md overflow-hidden mb-4">
-                <div className="absolute inset-0 ld-map-grid" aria-hidden="true" />
-                <div className="absolute -top-12 -left-12 size-48 rounded-full bg-primary/15 blur-3xl" aria-hidden="true" />
-                <div className="absolute -bottom-16 -right-16 size-56 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <MapPin className="size-10 text-primary motion-safe:animate-bounce" aria-hidden="true" />
-                </div>
-                <span className="absolute top-2 right-2 text-xs text-muted bg-canvas/80 backdrop-blur-sm px-2 py-1 rounded-full border border-hairline">
-                  Map placeholder · Integrate with Google Maps geotag
-                </span>
+              {/* Map */}
+              <div className="mb-4 space-y-3">
+                <ListingMap listingId={listing.id} />
+                {directionsLink}
               </div>
 
               {/* Location dl */}
@@ -616,7 +684,23 @@ export function ListingDetailModal({
                 <dd className="text-sm text-ink">{listing.location || "—"}</dd>
 
                 <dt className="text-xs text-muted">Distance from you</dt>
-                <dd className="text-sm text-ink font-semibold">Not available yet</dd>
+                <dd className="text-sm text-ink font-semibold">
+                  {listing.distance_miles !== null && listing.distance_miles !== undefined
+                    ? `~${listing.distance_miles.toFixed(1)} mi away`
+                    : "Not available yet"}
+                </dd>
+
+                {walkMinutes === "loading" ? (
+                  <>
+                    <dt className="text-xs text-muted">Walking</dt>
+                    <dd><Skeleton className="h-4 w-16" /></dd>
+                  </>
+                ) : typeof walkMinutes === "number" ? (
+                  <>
+                    <dt className="text-xs text-muted">Walking</dt>
+                    <dd className="text-sm text-ink font-semibold">{formatWalkMinutes(walkMinutes)}</dd>
+                  </>
+                ) : null}
 
                 <dt className="text-xs text-muted">Pickup</dt>
                 <dd className="text-sm text-ink">Approx. address shared after offer is accepted</dd>

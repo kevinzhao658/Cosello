@@ -17,6 +17,7 @@ class User(Base):
     profile_picture = Column(String(255), nullable=True)
     pickup_address = Column(String(255), nullable=True)
     zip_code = Column(String(10), nullable=True)
+    zip_confirmed = Column(Boolean, nullable=False, server_default="false", default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -179,6 +180,10 @@ class Listing(Base):
     posted_at = Column(Float, nullable=False, index=True)
     original_posted_at = Column(Float, nullable=True)
     relist_count = Column(Integer, default=0, nullable=False)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    zip_code = Column(String(10), nullable=True)
+    map_radius_mi = Column(Float, nullable=True)  # buyer map circle radius; NULL -> default
 
     @property
     def title_str(self) -> str:
@@ -232,7 +237,19 @@ class Listing(Base):
             "postedAt": self.posted_at,
             "originalPostedAt": self.original_posted_at,
             "relistCount": int(self.relist_count) if self.relist_count is not None else 0,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "zip_code": self.zip_code or "",
+            "map_radius_mi": self.map_radius_mi,
         }
+
+
+class ZipCentroid(Base):
+    __tablename__ = "zip_centroids"
+    zip_code = Column(String(10), primary_key=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    borough = Column(String(40), nullable=True)
 
 
 class ListingView(Base):

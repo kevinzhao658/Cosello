@@ -45,7 +45,7 @@ class InteractionRequest(BaseModel):
 # ---------- Endpoints ----------
 
 @router.post("/events/view", status_code=204)
-async def record_view(
+def record_view(
     req: ViewEventRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -62,7 +62,7 @@ async def record_view(
 
 
 @router.post("/events/search", status_code=204)
-async def record_search(
+def record_search(
     req: SearchEventRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -78,7 +78,7 @@ async def record_search(
 
 
 @router.post("/interactions", status_code=204)
-async def record_interaction(
+def record_interaction(
     req: InteractionRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),

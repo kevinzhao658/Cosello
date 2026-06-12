@@ -102,7 +102,7 @@ def _community_to_out(community: Community, db: Session, user_id: str) -> dict:
 
 
 @router.get("/neighborhoods")
-async def list_neighborhoods():
+def list_neighborhoods():
     """Return the curated list of canonical Manhattan neighborhood names.
 
     Used by the FE onboarding picker. Single source of truth lives in
@@ -114,7 +114,7 @@ async def list_neighborhoods():
 
 
 @router.get("/search")
-async def search_communities(
+def search_communities(
     q: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -233,7 +233,7 @@ async def create_community(
 
 
 @router.get("/mine", response_model=list[CommunityOut])
-async def my_communities(
+def my_communities(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -251,7 +251,7 @@ async def my_communities(
 
 
 @router.post("/join", response_model=CommunityOut)
-async def join_community(
+def join_community(
     req: JoinByCodeRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -287,7 +287,7 @@ async def join_community(
 
 
 @router.post("/request-join")
-async def request_join_community(
+def request_join_community(
     req: JoinRequestBody,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -350,7 +350,7 @@ async def request_join_community(
 
 
 @router.post("/cancel-request")
-async def cancel_join_request(
+def cancel_join_request(
     req: JoinRequestBody,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -373,7 +373,7 @@ async def cancel_join_request(
 
 
 @router.get("/{community_id}/requests")
-async def get_join_requests(
+def get_join_requests(
     community_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -405,7 +405,7 @@ async def get_join_requests(
 
 
 @router.post("/{community_id}/requests/{request_id}/accept")
-async def accept_join_request(
+def accept_join_request(
     community_id: int,
     request_id: int,
     current_user: User = Depends(get_current_user),
@@ -441,7 +441,7 @@ async def accept_join_request(
 
 
 @router.post("/{community_id}/requests/{request_id}/reject")
-async def reject_join_request(
+def reject_join_request(
     community_id: int,
     request_id: int,
     current_user: User = Depends(get_current_user),
@@ -467,7 +467,7 @@ async def reject_join_request(
 
 
 @router.get("/users/search", response_model=list[UserSearchOut])
-async def search_users(
+def search_users(
     q: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -490,7 +490,7 @@ async def search_users(
 
 
 @router.post("/invite")
-async def invite_users(
+def invite_users(
     req: InviteRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -514,7 +514,7 @@ async def invite_users(
 
 
 @router.get("/{community_id}", response_model=CommunityOut)
-async def get_community(
+def get_community(
     community_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -526,7 +526,7 @@ async def get_community(
 
 
 @router.get("/{community_id}/members")
-async def get_community_members(
+def get_community_members(
     community_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -555,7 +555,7 @@ async def get_community_members(
 
 
 @router.put("/{community_id}", response_model=CommunityOut)
-async def update_community(
+def update_community(
     community_id: int,
     req: UpdateCommunityRequest,
     current_user: User = Depends(get_current_user),
@@ -612,7 +612,7 @@ async def update_community_image(
 
 
 @router.delete("/{community_id}")
-async def delete_community(
+def delete_community(
     community_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -631,7 +631,7 @@ async def delete_community(
 
 
 @router.delete("/{community_id}/members/{user_id}")
-async def kick_member(
+def kick_member(
     community_id: int,
     user_id: int,
     current_user: User = Depends(get_current_user),
@@ -659,7 +659,7 @@ async def kick_member(
 
 
 @router.delete("/{community_id}/leave")
-async def leave_community(
+def leave_community(
     community_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
