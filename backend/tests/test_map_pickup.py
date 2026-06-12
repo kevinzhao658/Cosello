@@ -345,3 +345,115 @@ def test_pin_path_empty_pickup_location_uses_place_label(create_listing_client, 
     assert listing.pickup_location == _PLACE_LABEL, (
         f"expected place label fallback, got {listing.pickup_location!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 4: get_listing_map renders per-listing map_radius_mi
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+
+def _make_map_listing(listing_id: str, map_radius_mi=None):
+    from models import Listing
+    return Listing(
+        id=listing_id,
+        user_id=_TEST_SELLER_UUID,
+        price_cents=2000,
+        posted_at=_time.time(),
+        latitude=40.725,
+        longitude=-73.998,
+        zip_code=_SEEDED_ZIP,
+        map_radius_mi=map_radius_mi,
+    )
+
+
+def _mock_db_for_map_listing(listing):
+    """Minimal mock DB session for map.png endpoint tests."""
+    class _Q:
+        def __init__(self, model):
+            self._model = model
+
+        def filter(self, *conds):
+            self._id = None
+            for c in conds:
+                try:
+                    v = c.right.value
+                    if isinstance(v, str):
+                        self._id = v
+                        break
+                except AttributeError:
+                    pass
+            return self
+
+        def first(self):
+            if self._id == listing.id:
+                return listing
+            return None
+
+    class _S:
+        def query(self, model):
+            return _Q(model)
+
+        def get(self, model, key):
+            return None
+
+    return _S()
+
+
+def test_map_png_renders_per_listing_radius(monkeypatch):
+    """GET /api/listings/{id}/map.png uses listing.map_radius_mi when set."""
+    import main
+    from database import get_db
+    from fastapi.testclient import TestClient
+    import services.mapbox as mapbox_mod
+
+    listing = _make_map_listing("mapradiustest01", map_radius_mi=0.3)
+    mock_db = _mock_db_for_map_listing(listing)
+
+    captured = {}
+
+    def _fake_fetch(lat, lng, radius_mi, token):
+        captured["radius_mi"] = radius_mi
+        return b"\x89PNG\r\n\x1a\n"  # minimal PNG-ish bytes
+
+    monkeypatch.setattr(main, "_MAPBOX_TOKEN", "tok")
+    monkeypatch.setattr(mapbox_mod, "fetch_static_map_png", _fake_fetch)
+    main.app.dependency_overrides[get_db] = lambda: mock_db
+
+    try:
+        r = TestClient(main.app).get(f"/api/listings/{listing.id}/map.png")
+        assert r.status_code == 200
+        assert captured["radius_mi"] == 0.3, f"expected 0.3, got {captured['radius_mi']}"
+    finally:
+        main.app.dependency_overrides.pop(get_db, None)
+
+
+def test_map_png_null_radius_uses_default(monkeypatch):
+    """GET /api/listings/{id}/map.png falls back to MAP_CIRCLE_RADIUS_MI when map_radius_mi is None."""
+    import main
+    from database import get_db
+    from fastapi.testclient import TestClient
+    import services.mapbox as mapbox_mod
+
+    listing = _make_map_listing("mapradiustest02", map_radius_mi=None)
+    mock_db = _mock_db_for_map_listing(listing)
+
+    captured = {}
+
+    def _fake_fetch(lat, lng, radius_mi, token):
+        captured["radius_mi"] = radius_mi
+        return b"\x89PNG\r\n\x1a\n"
+
+    monkeypatch.setattr(main, "_MAPBOX_TOKEN", "tok")
+    monkeypatch.setattr(mapbox_mod, "fetch_static_map_png", _fake_fetch)
+    main.app.dependency_overrides[get_db] = lambda: mock_db
+
+    try:
+        r = TestClient(main.app).get(f"/api/listings/{listing.id}/map.png")
+        assert r.status_code == 200
+        assert captured["radius_mi"] == mapbox_mod.MAP_CIRCLE_RADIUS_MI, (
+            f"expected {mapbox_mod.MAP_CIRCLE_RADIUS_MI}, got {captured['radius_mi']}"
+        )
+    finally:
+        main.app.dependency_overrides.pop(get_db, None)

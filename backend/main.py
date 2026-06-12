@@ -1924,9 +1924,8 @@ async def get_listing_map(
         return Response(status_code=204)
 
     from services.mapbox import MAP_CIRCLE_RADIUS_MI, fetch_static_map_png
-    png_bytes = fetch_static_map_png(
-        listing.latitude, listing.longitude, MAP_CIRCLE_RADIUS_MI, _MAPBOX_TOKEN
-    )
+    radius = listing.map_radius_mi if listing.map_radius_mi is not None else MAP_CIRCLE_RADIUS_MI
+    png_bytes = fetch_static_map_png(listing.latitude, listing.longitude, radius, _MAPBOX_TOKEN)
     if png_bytes is None:
         raise HTTPException(status_code=503, detail="Map image unavailable")
 
