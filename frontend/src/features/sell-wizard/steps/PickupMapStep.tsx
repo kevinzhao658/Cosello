@@ -1,4 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+// Static import: Mapbox REQUIRES its stylesheet for the map to display
+// properly, and a fire-and-forget dynamic import can resolve after the map
+// constructs (symptom: the canvas renders as a small strip). The CSS is tiny
+// and harmless when the map never mounts.
+import "mapbox-gl/dist/mapbox-gl.css";
 import { Skeleton } from "../../../components/ui/Skeleton";
 import { circlePolygon } from "../../../lib/geoCircle";
 import { hasMapboxToken, searchAddresses } from "../../../lib/mapboxSearch";
@@ -106,9 +111,12 @@ function PickupMapStepInner({
     angle: Math.random() * Math.PI * 2,
     frac: 0.25 + Math.random() * 0.2, // 25-45% of the radius
   });
-  // Wobble: a brief drift shown ONLY while the seller uses the slider, to
-  // demonstrate that the circle's placement varies. Eases out when idle.
-  const wobbleRef = useRef({ amp: 0, phase: 0, raf: 0, lastActivity: 0 });
+  // Orbit demo: while the seller uses the slider, the circle sweeps AROUND
+  // the pin through every position it could occupy (the pin is the axis; the
+  // center travels the ring of possible placements in x and y). When the
+  // slider goes idle the sweep glides back to the resting offset and the
+  // motion disappears. `sweep` is the extra angle beyond the resting angle.
+  const wobbleRef = useRef({ sweep: 0, raf: 0, lastActivity: 0 });
   // Live mirrors for the rAF loop (avoids stale closures).
   const pinRef = useRef(pin);
   pinRef.current = pin;
@@ -116,60 +124,63 @@ function PickupMapStepInner({
   radiusRef.current = radiusMi;
 
   const maskCenter = useCallback(
-    (p: { lat: number; lng: number }, r: number, wobblePhase = 0, wobbleAmp = 0): { lat: number; lng: number } => {
+    (p: { lat: number; lng: number }, r: number, extraAngle = 0): { lat: number; lng: number } => {
       const { angle, frac } = maskOffsetRef.current;
       const d = r * frac;
-      let lat = p.lat + d * DEG_PER_MILE_LAT * Math.sin(angle);
-      let lng = p.lng + d * DEG_PER_MILE_LNG * Math.cos(angle);
-      if (wobbleAmp > 0) {
-        const w = r * 0.12 * wobbleAmp;
-        lng += w * DEG_PER_MILE_LNG * Math.cos(wobblePhase * 1.7);
-        lat += w * DEG_PER_MILE_LAT * Math.sin(wobblePhase * 2.3);
-      }
-      return { lat, lng };
+      const a = angle + extraAngle;
+      return {
+        lat: p.lat + d * DEG_PER_MILE_LAT * Math.sin(a),
+        lng: p.lng + d * DEG_PER_MILE_LNG * Math.cos(a),
+      };
     },
     [],
   );
 
   const redrawCircle = useCallback(
-    (wobblePhase = 0, wobbleAmp = 0) => {
+    (extraAngle = 0) => {
       const m = mapRef.current;
       const p = pinRef.current;
       if (!m || !circleReadyRef.current || !p) return;
       const source = m.getSource("area") as mapboxgl.GeoJSONSource | undefined;
       if (!source) return;
-      const c = maskCenter(p, radiusRef.current, wobblePhase, wobbleAmp);
+      const c = maskCenter(p, radiusRef.current, extraAngle);
       source.setData(circlePolygon(c.lat, c.lng, radiusRef.current));
     },
     [maskCenter],
   );
 
-  // Start (or extend) the slider wobble. Runs an rAF loop that eases the
-  // wobble amplitude in while the slider is active and back out ~250ms after
-  // the last input, then settles the circle exactly at its base offset.
+  // Start (or extend) the orbit demo. While the slider is active the circle's
+  // center orbits the pin; ~250ms after the last input the sweep takes the
+  // shortest path back to the resting offset and the loop stops.
   const bumpWobble = useCallback(() => {
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const w = wobbleRef.current;
     w.lastActivity = performance.now();
     if (w.raf) return; // loop already running
     const tick = () => {
-      const idleMs = performance.now() - w.lastActivity;
-      const target = idleMs < 250 ? 1 : 0;
-      w.amp += (target - w.amp) * 0.08;
-      w.phase += 0.05;
-      redrawCircle(w.phase, w.amp);
-      if (w.amp < 0.01 && target === 0) {
-        w.amp = 0;
-        w.raf = 0;
-        redrawCircle(0, 0); // settle at the stable offset
-        return;
+      const active = performance.now() - w.lastActivity < 250;
+      if (active) {
+        w.sweep += 0.045; // steady orbit around the pin
+      } else {
+        // Glide home along the shortest path.
+        w.sweep = w.sweep % (Math.PI * 2);
+        if (w.sweep > Math.PI) w.sweep -= Math.PI * 2;
+        if (w.sweep < -Math.PI) w.sweep += Math.PI * 2;
+        w.sweep *= 0.85;
+        if (Math.abs(w.sweep) < 0.01) {
+          w.sweep = 0;
+          w.raf = 0;
+          redrawCircle(0); // settled at the resting offset
+          return;
+        }
       }
+      redrawCircle(w.sweep);
       w.raf = requestAnimationFrame(tick);
     };
     w.raf = requestAnimationFrame(tick);
   }, [redrawCircle]);
 
-  // Cancel any running wobble loop on unmount.
+  // Cancel any running orbit loop on unmount.
   useEffect(() => {
     const w = wobbleRef.current;
     return () => {
@@ -181,10 +192,10 @@ function PickupMapStepInner({
   // Search combobox ref for click-outside
   const comboboxRef = useRef<HTMLDivElement>(null);
 
-  // Lazy-load mapbox-gl (+ its stylesheet — required for attribution styling)
+  // Lazy-load mapbox-gl (its stylesheet is statically imported at the top of
+  // this file so it is guaranteed to be applied before the map constructs)
   useEffect(() => {
     let cancelled = false;
-    void import("mapbox-gl/dist/mapbox-gl.css");
     import("mapbox-gl")
       .then((mod) => {
         if (cancelled) return;
@@ -369,7 +380,7 @@ function PickupMapStepInner({
   // its current amplitude/phase so there's no visual jump.
   useEffect(() => {
     if (!mapRef.current || !circleReadyRef.current || !pin) return;
-    redrawCircle(wobbleRef.current.phase, wobbleRef.current.amp);
+    redrawCircle(wobbleRef.current.sweep);
     // Update marker position if the pin changed from search (not drag)
     if (markerRef.current) {
       const current = markerRef.current.getLngLat();
