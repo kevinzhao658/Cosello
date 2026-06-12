@@ -225,6 +225,19 @@ function PickupMapStepInner({
     if (!gl || !mapContainerRef.current) return;
     if (mapRef.current) return; // already initialized
 
+    // TEMP sliver diagnostics: remove once the canvas-sizing bug is closed.
+    const dbgEl = mapContainerRef.current;
+    console.info(
+      "[PickupMap] init: container",
+      dbgEl.clientWidth, "x", dbgEl.clientHeight,
+      "| frame", dbgEl.parentElement?.clientWidth, "x", dbgEl.parentElement?.clientHeight,
+      "| mapbox css?",
+      Array.from(document.styleSheets).some((s) => {
+        try { return Array.from(s.cssRules).some((r) => r.cssText.includes("mapboxgl-canvas")); }
+        catch { return false; }
+      }),
+    );
+
     const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
     let map: InstanceType<MapboxGl["Map"]>;
     try {
@@ -322,6 +335,16 @@ function PickupMapStepInner({
       // sizing race (layout may settle a frame after `load`).
       map.resize();
       requestAnimationFrame(() => requestAnimationFrame(() => map.resize()));
+
+      // TEMP sliver diagnostics: remove once the canvas-sizing bug is closed.
+      const dbgCanvas = map.getCanvas();
+      console.info(
+        "[PickupMap] loaded: canvas attrs",
+        dbgCanvas.width, "x", dbgCanvas.height,
+        "| canvas css", dbgCanvas.style.width, dbgCanvas.style.height,
+        "| container now",
+        mapContainerRef.current?.clientWidth, "x", mapContainerRef.current?.clientHeight,
+      );
 
       // Add circle source + layers — drawn at the privacy-mask offset, NOT
       // centered on the pin.
@@ -570,7 +593,7 @@ function PickupMapStepInner({
           <span>0.40 mi</span>
         </div>
         <p className="text-[10px] text-muted-soft leading-relaxed">
-          The location mask is applied at a random position around your location.
+          Location mask positioning will be applied randomly around your location.
         </p>
       </div>
     </div>

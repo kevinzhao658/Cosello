@@ -7,11 +7,11 @@ import { ShieldCheck } from "lucide-react";
  */
 export function AddressPrivacyNotice() {
   return (
-    <div className="mt-3 flex justify-center">
+    <div className="mt-6 flex justify-center">
       <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary-soft px-3.5 py-1.5">
         <ShieldCheck className="size-4 text-primary shrink-0" aria-hidden="true" />
         <span className="text-xs font-medium text-ink">
-          Cosello never discloses a seller's address without their explicit consent.
+          Your address will never be disclosed to anyone without your consent.
         </span>
       </div>
     </div>
