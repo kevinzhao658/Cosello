@@ -41,7 +41,7 @@ export function SkeletonImage({
         } ${className ?? ""}`}
         style={style}
         loading={loading}
-        fetchPriority={fetchPriority}
+        {...({ fetchpriority: fetchPriority } as Record<string, string>)}
         decoding="async"
         onLoad={() => setLoaded(true)}
       />
