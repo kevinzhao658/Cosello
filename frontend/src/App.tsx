@@ -1,4 +1,5 @@
 import { Search, Menu, User, X, Settings, ExternalLink, FileText, Shield, AlertTriangle, Scale, Ban, CreditCard, MessageSquare, MessageCircle, RefreshCw, UserCheck, Eye, LogOut, HelpCircle, Sparkles, Leaf, Users, Recycle, Heart, Bell, Pencil, MapPin, ChevronRight, ImagePlus, ArrowRight } from "lucide-react";
+import { Analytics } from "@vercel/analytics/react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { ModalShell } from "./components/ui/ModalShell";
@@ -2125,6 +2126,7 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+      <Analytics />
     </div>
   );
 }
