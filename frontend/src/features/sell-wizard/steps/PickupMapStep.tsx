@@ -92,9 +92,10 @@ function PickupMapStepInner({
   // Search combobox ref for click-outside
   const comboboxRef = useRef<HTMLDivElement>(null);
 
-  // Lazy-load mapbox-gl
+  // Lazy-load mapbox-gl (+ its stylesheet — required for attribution styling)
   useEffect(() => {
     let cancelled = false;
+    void import("mapbox-gl/dist/mapbox-gl.css");
     import("mapbox-gl")
       .then((mod) => {
         if (cancelled) return;
