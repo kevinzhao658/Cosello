@@ -67,7 +67,7 @@ export function GroupsStep({
       <div ref={wizardAnchorRef} />
       <TypedInstruction bulkReviewPhase={bulkReviewPhase} exiting={instructionExiting} onBack={onBackArrow} />
       {bulkReviewPhase === "pickup" && <AddressPrivacyNotice />}
-      <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "reason" || bulkReviewPhase === "pickup" ? "opacity-30" : "opacity-100"}`}>
+      <div className={`flex flex-wrap items-stretch justify-center gap-x-3 gap-y-5 mt-8 mb-2 transition-opacity duration-500 ${bulkReviewPhase === "pickup" ? "hidden" : bulkReviewPhase === "reason" ? "opacity-30" : "opacity-100"}`}>
         {segmentation.groupings.map((group, groupIdx) => (
           <React.Fragment key={groupIdx}>
             {groupIdx > 0 && (

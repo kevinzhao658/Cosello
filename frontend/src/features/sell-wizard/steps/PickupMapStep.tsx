@@ -12,7 +12,7 @@ import type { AddressSuggestion } from "../../../lib/mapboxSearch";
 // Shared class string for the map frame — used for both the container and the
 // Skeleton overlay so they are always the same size.
 const MAP_FRAME_CLS =
-  "w-full h-56 sm:h-72 max-w-2xl mx-auto rounded-md overflow-hidden border border-hairline";
+  "w-full h-72 sm:h-96 max-w-2xl mx-auto rounded-md overflow-hidden border border-hairline";
 
 export interface PickupMapStepProps {
   /** Seed center: pass null to use Manhattan center. */
@@ -225,18 +225,6 @@ function PickupMapStepInner({
     if (!gl || !mapContainerRef.current) return;
     if (mapRef.current) return; // already initialized
 
-    // TEMP sliver diagnostics: remove once the canvas-sizing bug is closed.
-    const dbgEl = mapContainerRef.current;
-    console.info(
-      "[PickupMap] init: container",
-      dbgEl.clientWidth, "x", dbgEl.clientHeight,
-      "| frame", dbgEl.parentElement?.clientWidth, "x", dbgEl.parentElement?.clientHeight,
-      "| mapbox css?",
-      Array.from(document.styleSheets).some((s) => {
-        try { return Array.from(s.cssRules).some((r) => r.cssText.includes("mapboxgl-canvas")); }
-        catch { return false; }
-      }),
-    );
 
     const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
     let map: InstanceType<MapboxGl["Map"]>;
@@ -335,16 +323,6 @@ function PickupMapStepInner({
       // sizing race (layout may settle a frame after `load`).
       map.resize();
       requestAnimationFrame(() => requestAnimationFrame(() => map.resize()));
-
-      // TEMP sliver diagnostics: remove once the canvas-sizing bug is closed.
-      const dbgCanvas = map.getCanvas();
-      console.info(
-        "[PickupMap] loaded: canvas attrs",
-        dbgCanvas.width, "x", dbgCanvas.height,
-        "| canvas css", dbgCanvas.style.width, dbgCanvas.style.height,
-        "| container now",
-        mapContainerRef.current?.clientWidth, "x", mapContainerRef.current?.clientHeight,
-      );
 
       // Add circle source + layers — drawn at the privacy-mask offset, NOT
       // centered on the pin.
@@ -502,63 +480,8 @@ function PickupMapStepInner({
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      {/* Search box — full-width, h-10 touch target, dropdown max-h-52 + overflow-y-auto */}
-      <div ref={comboboxRef} className="relative">
-        <input
-          type="text"
-          value={searchQuery}
-          placeholder={pickupLabel || "Search for an address…"}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          onFocus={() => {
-            if (suggestions.length > 0) setShowDropdown(true);
-          }}
-          onKeyDown={handleSearchKeyDown}
-          autoComplete="off"
-          role="combobox"
-          aria-expanded={showDropdown}
-          aria-autocomplete="list"
-          aria-haspopup="listbox"
-          className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas text-base text-ink md:text-sm placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-        />
-        {showDropdown && (
-          <ul
-            role="listbox"
-            className="absolute left-0 right-0 top-[calc(100%+4px)] z-[300] bg-canvas border border-hairline rounded-md shadow-card max-h-52 overflow-y-auto"
-          >
-            {searchLoading ? (
-              <li className="px-3 py-2 text-sm text-muted select-none">Searching…</li>
-            ) : searchError ? (
-              <li className="px-3 py-2 text-sm text-error select-none">{searchError}</li>
-            ) : suggestions.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-muted select-none">No Manhattan matches</li>
-            ) : (
-              suggestions.map((s, idx) => (
-                <li
-                  key={idx}
-                  role="option"
-                  aria-selected={idx === highlightIndex}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    selectSuggestion(s);
-                  }}
-                  onMouseEnter={() => setHighlightIndex(idx)}
-                  className={`px-3 py-2 text-sm cursor-pointer select-none ${
-                    idx === highlightIndex
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-ink hover:bg-surface-soft"
-                  }`}
-                >
-                  {s.label}
-                </li>
-              ))
-            )}
-          </ul>
-        )}
-      </div>
-
-      {/* Fix 1 + 2: Map container — explicit responsive height, no fixed px height.
-          MAP_FRAME_CLS is shared with the Skeleton so both are always the same size.
-          touch-action is NOT blocked so mapbox marker drag works on touch. */}
+      {/* Map frame. The address search floats over the map's top edge; the map
+          is taller to give the floating input room. */}
       <div className={`relative ${MAP_FRAME_CLS}`}>
         {/* Map stays visible from init (never visibility-hidden — GL needs a
             normally-rendered container); the skeleton overlays on top until load.
@@ -574,7 +497,62 @@ function PickupMapStepInner({
         {!mapLoaded && (
           <Skeleton className="absolute inset-0 z-10 rounded-none pointer-events-none" />
         )}
+
+        {/* Floating address search over the map's top edge */}
+        <div ref={comboboxRef} className="absolute top-3 inset-x-3 z-20">
+          <input
+            type="text"
+            value={searchQuery}
+            placeholder={pickupLabel || "Search for an address…"}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onFocus={() => {
+              if (suggestions.length > 0) setShowDropdown(true);
+            }}
+            onKeyDown={handleSearchKeyDown}
+            autoComplete="off"
+            role="combobox"
+            aria-expanded={showDropdown}
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            className="w-full h-10 px-3 rounded-md border border-border-strong bg-canvas/95 backdrop-blur-sm shadow-card text-base text-ink md:text-sm placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+          />
+          {showDropdown && (
+            <ul
+              role="listbox"
+              className="absolute left-0 right-0 top-[calc(100%+4px)] z-[300] bg-canvas border border-hairline rounded-md shadow-card max-h-52 overflow-y-auto"
+            >
+              {searchLoading ? (
+                <li className="px-3 py-2 text-sm text-muted select-none">Searching…</li>
+              ) : searchError ? (
+                <li className="px-3 py-2 text-sm text-error select-none">{searchError}</li>
+              ) : suggestions.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-muted select-none">No Manhattan matches</li>
+              ) : (
+                suggestions.map((s, idx) => (
+                  <li
+                    key={idx}
+                    role="option"
+                    aria-selected={idx === highlightIndex}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectSuggestion(s);
+                    }}
+                    onMouseEnter={() => setHighlightIndex(idx)}
+                    className={`px-3 py-2 text-sm cursor-pointer select-none ${
+                      idx === highlightIndex
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-ink hover:bg-surface-soft"
+                    }`}
+                  >
+                    {s.label}
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+        </div>
       </div>
+
 
       {/* "Location mask" slider with inline value + helper text */}
       <div className="space-y-1.5">
