@@ -253,6 +253,12 @@ function PickupMapStepInner({
         center: initCenter,
         zoom: 14.5,
         accessToken: TOKEN,
+        // Zoom must only change SCALE, never the pin: anchor scroll and pinch
+        // zoom on the viewport center (default zooms around the cursor/pinch
+        // point, which shifts the center and therefore the center pin).
+        scrollZoom: { around: "center" },
+        touchZoomRotate: { around: "center" },
+        doubleClickZoom: false,
       });
     } catch {
       setGlFailed(true);
@@ -278,6 +284,12 @@ function PickupMapStepInner({
     map.on("moveend", () => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "1";
       const c = map.getCenter();
+      // Zoom-only gesture: center (and so the pin) didn't move. Skip the
+      // commit and the reverse geocode entirely.
+      const prev = pinRef.current;
+      if (prev && Math.abs(prev.lat - c.lat) < 0.00001 && Math.abs(prev.lng - c.lng) < 0.00001) {
+        return;
+      }
       onPinChange({ lat: c.lat, lng: c.lng });
       // Programmatic moves (search selection / profile seed) keep their own
       // label; only user pans re-derive the address from the new center.
