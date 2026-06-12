@@ -185,6 +185,7 @@ Do not silently fix these — name them, recommend the cleanup path, and let the
 - Do not treat communities as market containers or scope listings to them
 - Do not recommend features that replicate competitors without a differentiation angle
 - Do not expose API keys or credentials in frontend code or shared config files
+  - **Documented exception:** URL-restricted *public* map-render tokens (Mapbox `pk.`) are allowed client-side via `VITE_MAPBOX_TOKEN` — dev token restricted to localhost, prod token restricted to the production domain. Secret tokens stay server-side.
 - Do not make broad multi-file changes without first mapping downstream impacts
 
 ---
