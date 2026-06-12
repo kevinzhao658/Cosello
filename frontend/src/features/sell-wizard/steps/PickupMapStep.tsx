@@ -475,7 +475,7 @@ function PickupMapStepInner({
         // Rough Manhattan bounds first: skip the geocode when clearly outside.
         if (lat < 40.68 || lat > 40.88 || lng < -74.03 || lng > -73.9) {
           setLocating(false);
-          flagLocation("You appear to be outside Manhattan. Pickup must be in Manhattan for now.");
+          flagLocation("You appear to be outside Manhattan.");
           return;
         }
         reverseGeocodeAddress(lat, lng)
@@ -486,7 +486,7 @@ function PickupMapStepInner({
               onPinChange({ lat, lng });
               onPickupLabelChange(hit.label);
             } else {
-              flagLocation("You appear to be outside Manhattan. Pickup must be in Manhattan for now.");
+              flagLocation("You appear to be outside Manhattan.");
             }
           })
           .catch(() => {
