@@ -34,7 +34,7 @@ MAP_CIRCLE_RADIUS_MI = 0.15
 MIN_MAP_RADIUS_MI = 0.1
 MAX_MAP_RADIUS_MI = 0.4
 
-_GEOCODE_BASE = "https://api.mapbox.com/geocoding/v5/mapbox.places"
+_GEOCODE_BASE = "https://api.mapbox.com/search/geocode/v6/reverse"
 
 # Mapbox Static Images endpoint base
 _STATIC_BASE = "https://api.mapbox.com/styles/v1/mapbox/streets-v12/static"
@@ -82,24 +82,41 @@ def _circle_geojson(lat: float, lng: float, radius_mi: float, n_points: int = 64
 
 
 def reverse_geocode_zip(lat: float, lng: float, token: str) -> tuple[str, str] | None:
-    """Reverse-geocode a pin to (zip, place_label) via Mapbox. None on any failure.
+    """Reverse-geocode a pin to (zip, place_label) via Mapbox Geocoding v6. None on any failure.
 
     Used by create_listing to derive the listing ZIP from the seller's pin —
     the client-sent ZIP is never trusted. Secret token only; 4s timeout.
+
+    v6 reverse endpoint: GET /search/geocode/v6/reverse?longitude=&latitude=&...
+    Response shape: { "features": [{ "properties": { "full_address": "...",
+                       "context": { "postcode": { "name": "10011" } } } }] }
     """
-    url = f"{_GEOCODE_BASE}/{lng},{lat}.json"
     try:
-        resp = httpx.get(url, params={"access_token": token, "types": "address", "limit": 1}, timeout=4.0)
+        resp = httpx.get(
+            _GEOCODE_BASE,
+            params={
+                "longitude": lng,
+                "latitude": lat,
+                "access_token": token,
+                "types": "address",
+                "limit": 1,
+            },
+            timeout=4.0,
+        )
         if resp.status_code != 200:
             return None
         feats = resp.json().get("features") or []
         if not feats:
             return None
         feat = feats[0]
-        for ctx in feat.get("context", []):
-            if str(ctx.get("id", "")).startswith("postcode"):
-                return (str(ctx["text"]), str(feat.get("place_name", "")))
-        return None
+        props = feat.get("properties") or {}
+        ctx = props.get("context") or {}
+        postcode_block = ctx.get("postcode") or {}
+        zip_code = postcode_block.get("name")
+        full_address = props.get("full_address", "")
+        if not zip_code:
+            return None
+        return (str(zip_code), str(full_address))
     except Exception:
         return None
 

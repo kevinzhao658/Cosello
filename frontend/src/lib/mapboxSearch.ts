@@ -1,11 +1,39 @@
 import { NYC_ZIP_SET } from "./nycZips";
 
 export interface AddressSuggestion {
-  label: string; // full place_name
+  label: string; // full_address from v6 properties
   lat: number;
   lng: number;
   zip: string; // always one of the 42 seeded ZIPs
 }
+
+// --- Mapbox Geocoding v6 response types ---
+
+interface MapboxV6Context {
+  postcode?: { name: string };
+  place?: { name: string };
+  [key: string]: { name: string } | undefined;
+}
+
+interface MapboxV6Properties {
+  full_address: string;
+  name: string;
+  context?: MapboxV6Context;
+}
+
+interface MapboxV6Feature {
+  geometry: {
+    type: "Point";
+    coordinates: [number, number]; // [lng, lat]
+  };
+  properties: MapboxV6Properties;
+}
+
+interface MapboxV6Response {
+  features: MapboxV6Feature[];
+}
+
+// -----------------------------------------
 
 const NYC_BBOX = "-74.03,40.68,-73.90,40.88"; // Manhattan-ish bounds
 const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
@@ -23,25 +51,21 @@ export async function searchAddresses(
   const q = query.trim();
   if (!TOKEN || q.length < 3) return [];
   const url =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
-    `?access_token=${TOKEN}&autocomplete=true&bbox=${NYC_BBOX}&types=address,postcode&limit=5`;
+    `https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(q)}` +
+    `&access_token=${TOKEN}&autocomplete=true&bbox=${NYC_BBOX}&types=address,postcode&limit=5`;
   const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`Address search failed (${res.status})`);
-  const data: {
-    features: {
-      place_name: string;
-      center: [number, number];
-      context?: { id: string; text: string }[];
-      text?: string;
-    }[];
-  } = await res.json();
+  const data: MapboxV6Response = await res.json();
   const out: AddressSuggestion[] = [];
   for (const f of data.features ?? []) {
-    const zip =
-      f.context?.find((c) => c.id.startsWith("postcode"))?.text ??
-      (/^\d{5}$/.test(f.text ?? "") ? (f.text as string) : undefined);
+    const zip = f.properties.context?.postcode?.name;
     if (zip && NYC_ZIP_SET.has(zip)) {
-      out.push({ label: f.place_name, lat: f.center[1], lng: f.center[0], zip });
+      out.push({
+        label: f.properties.full_address,
+        lat: f.geometry.coordinates[1],
+        lng: f.geometry.coordinates[0],
+        zip,
+      });
     }
   }
   return out;
@@ -58,15 +82,18 @@ export async function reverseGeocodeAddress(
 ): Promise<AddressSuggestion | null> {
   if (!TOKEN) return null;
   const url =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
-    `?access_token=${TOKEN}&types=address&limit=1`;
+    `https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lng}&latitude=${lat}` +
+    `&access_token=${TOKEN}&types=address&limit=1`;
   const res = await fetch(url, { signal });
   if (!res.ok) return null;
-  const data: {
-    features: { place_name: string; center: [number, number]; context?: { id: string; text: string }[] }[];
-  } = await res.json();
+  const data: MapboxV6Response = await res.json();
   const f = data.features?.[0];
   if (!f) return null;
-  const zip = f.context?.find((c) => c.id.startsWith("postcode"))?.text ?? "";
-  return { label: f.place_name, lat: f.center[1], lng: f.center[0], zip };
+  const zip = f.properties.context?.postcode?.name ?? "";
+  return {
+    label: f.properties.full_address,
+    lat: f.geometry.coordinates[1],
+    lng: f.geometry.coordinates[0],
+    zip,
+  };
 }
