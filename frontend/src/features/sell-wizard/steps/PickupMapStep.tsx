@@ -323,7 +323,7 @@ function PickupMapStepInner({
     map.on("movestart", () => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "0";
     });
-    map.on("moveend", (e: MoveEndEvent) => {
+    map.on("moveend", (e) => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "1";
       const c = map.getCenter();
       // Zoom-only gesture: center (and so the pin) didn't move. Skip the
@@ -337,7 +337,10 @@ function PickupMapStepInner({
       // Bug #1 fix: programmatic eases (search-select / profile-seed) tag the
       // event with suppressReverse so the chosen label is preserved. Only user
       // pans reach the reverse-geocode path below.
-      if (e.suppressReverse) return;
+      // suppressReverse rides in as custom easeTo eventData (see programmatic
+      // eases below); Mapbox's event types don't model arbitrary data, so we
+      // read it through the local MoveEndEvent shape.
+      if ((e as MoveEndEvent).suppressReverse) return;
       // Water-layer check: query the already-loaded streets-v12 "water" layer at
       // the exact pin point. This catches water bodies where a nearby address is
       // within the 200m distance guard (e.g. East River narrows, Central Park
