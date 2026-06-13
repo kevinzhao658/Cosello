@@ -356,7 +356,7 @@ function PickupMapStepInner({
           const snapDist = metersBetween(c.lat, c.lng, hit.lat, hit.lng);
           if (snapDist > MAX_ADDRESS_SNAP_M) {
             onPickupLabelChange("");
-            setPickupWarning("No pickup address here — drag the pin onto a street.");
+            setPickupWarning("No pickup address found. Please drag the pin to a valid street.");
             onPickupValidityChange?.(false);
           } else {
             onPickupLabelChange(hit.label);
