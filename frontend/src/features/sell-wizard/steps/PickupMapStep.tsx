@@ -338,6 +338,25 @@ function PickupMapStepInner({
       // event with suppressReverse so the chosen label is preserved. Only user
       // pans reach the reverse-geocode path below.
       if (e.suppressReverse) return;
+      // Water-layer check: query the already-loaded streets-v12 "water" layer at
+      // the exact pin point. This catches water bodies where a nearby address is
+      // within the 200m distance guard (e.g. East River narrows, Central Park
+      // reservoir). Fast — no network call. A fast pan that leaves tiles briefly
+      // unloaded returns empty (false-negative), which is acceptable because the
+      // distance guard still backstops. try/catch covers layer missing or
+      // not-yet-queryable conditions.
+      let onWater = false;
+      try {
+        onWater = map.queryRenderedFeatures(map.project(c), { layers: ["water"] }).length > 0;
+      } catch {
+        onWater = false; // 'water' layer missing / not queryable → fall back to distance guard
+      }
+      if (onWater) {
+        onPickupLabelChange("");
+        setPickupWarning("No pickup address found. Please drag the pin to a valid street.");
+        onPickupValidityChange?.(false);
+        return; // skip the reverse-geocode — saves the API call on water
+      }
       reverseAbortRef.current?.abort();
       const controller = new AbortController();
       reverseAbortRef.current = controller;
