@@ -31,6 +31,10 @@ export interface PickupMapStepProps {
   defaultAddress?: string | null;
   /** Render-prop fallback: legacy fields shown when no token / GL init fails. */
   renderFallback: () => React.ReactNode;
+  /** Called when the river/distance guard determines the pin is valid or
+   *  invalid. Only fired on conclusive results — transient HTTP failures (null
+   *  hit) leave validity unchanged so a valid spot isn't spuriously cleared. */
+  onPickupValidityChange?: (valid: boolean) => void;
 }
 
 // Manhattan center fallback
@@ -44,6 +48,28 @@ const SEARCH_BAR_CLEARANCE_PX = 56;
 const DEG_PER_MILE_LAT = 1 / 69.0;
 const DEG_PER_MILE_LNG = 1 / 52.6;
 
+// Bug #2: Maximum allowed snap distance between the pin center and the
+// reverse-geocoded address hit. Pins over water or parks often return a
+// nearest-address that is hundreds of meters away across a river or block.
+// Tune this constant if QA finds false positives/negatives.
+const MAX_ADDRESS_SNAP_M = 200;
+
+/** Haversine distance in metres between two lat/lng points. */
+function metersBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6_371_000; // Earth radius in metres
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Eventdata shape emitted alongside Mapbox moveend for programmatic eases. */
+type MoveEndEvent = { suppressReverse?: boolean };
+
 export function PickupMapStep({
   initialLat,
   initialLng,
@@ -55,6 +81,7 @@ export function PickupMapStep({
   onPickupLabelChange,
   defaultAddress = null,
   renderFallback,
+  onPickupValidityChange,
 }: PickupMapStepProps) {
   // Token check — if missing, fall back immediately
   if (!hasMapboxToken()) {
@@ -73,6 +100,7 @@ export function PickupMapStep({
       onPickupLabelChange={onPickupLabelChange}
       defaultAddress={defaultAddress}
       renderFallback={renderFallback}
+      onPickupValidityChange={onPickupValidityChange}
     />
   );
 }
@@ -89,6 +117,7 @@ function PickupMapStepInner({
   onPickupLabelChange,
   defaultAddress = null,
   renderFallback,
+  onPickupValidityChange,
 }: PickupMapStepProps) {
   type MapboxGl = typeof import("mapbox-gl");
 
@@ -105,13 +134,14 @@ function PickupMapStepInner({
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [locating, setLocating] = useState(false);
+  // Bug #2: inline warning shown when the pin is over water / too far from any
+  // addressable street. Cleared when a valid snap or a chosen suggestion lands.
+  const [pickupWarning, setPickupWarning] = useState<string | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<InstanceType<MapboxGl["Map"]> | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const circleReadyRef = useRef(false);
-  // Skip ONE moveend reverse-geocode after a programmatic ease (search/seed).
-  const suppressReverseRef = useRef(false);
 
   // Debounce ref for search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -209,6 +239,7 @@ function PickupMapStepInner({
         if (hit) {
           onPinChange({ lat: hit.lat, lng: hit.lng });
           onPickupLabelChange(hit.label);
+          onPickupValidityChange?.(true);
         }
       })
       .catch(() => {
@@ -292,7 +323,7 @@ function PickupMapStepInner({
     map.on("movestart", () => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "0";
     });
-    map.on("moveend", () => {
+    map.on("moveend", (e: MoveEndEvent) => {
       if (tooltipRef.current) tooltipRef.current.style.opacity = "1";
       const c = map.getCenter();
       // Zoom-only gesture: center (and so the pin) didn't move. Skip the
@@ -301,19 +332,56 @@ function PickupMapStepInner({
       if (prev && Math.abs(prev.lat - c.lat) < 0.00001 && Math.abs(prev.lng - c.lng) < 0.00001) {
         return;
       }
+      // Always commit the new pin location regardless of move origin.
       onPinChange({ lat: c.lat, lng: c.lng });
-      // Programmatic moves (search selection / profile seed) keep their own
-      // label; only user pans re-derive the address from the new center.
-      if (suppressReverseRef.current) {
-        suppressReverseRef.current = false;
-        return;
+      // Bug #1 fix: programmatic eases (search-select / profile-seed) tag the
+      // event with suppressReverse so the chosen label is preserved. Only user
+      // pans reach the reverse-geocode path below.
+      if (e.suppressReverse) return;
+      // Water-layer check: query the already-loaded streets-v12 "water" layer at
+      // the exact pin point. This catches water bodies where a nearby address is
+      // within the 200m distance guard (e.g. East River narrows, Central Park
+      // reservoir). Fast — no network call. A fast pan that leaves tiles briefly
+      // unloaded returns empty (false-negative), which is acceptable because the
+      // distance guard still backstops. try/catch covers layer missing or
+      // not-yet-queryable conditions.
+      let onWater = false;
+      try {
+        onWater = map.queryRenderedFeatures(map.project(c), { layers: ["water"] }).length > 0;
+      } catch {
+        onWater = false; // 'water' layer missing / not queryable → fall back to distance guard
+      }
+      if (onWater) {
+        onPickupLabelChange("");
+        setPickupWarning("No pickup address found. Please drag the pin to a valid street.");
+        onPickupValidityChange?.(false);
+        return; // skip the reverse-geocode — saves the API call on water
       }
       reverseAbortRef.current?.abort();
       const controller = new AbortController();
       reverseAbortRef.current = controller;
       reverseGeocodeAddress(c.lat, c.lng, controller.signal)
         .then((hit) => {
-          if (!controller.signal.aborted && hit) onPickupLabelChange(hit.label);
+          if (controller.signal.aborted) return;
+          if (!hit) {
+            // null means HTTP failure (e.g. 429 on rapid panning) — transient
+            // error, not a water/no-address result. Keep the previous label and
+            // show no warning so a valid pickup isn't spuriously cleared.
+            return;
+          }
+          // Bug #2 fix: guard against cross-river / park snaps. Rivers do NOT
+          // return null — Mapbox returns the nearest address regardless, so the
+          // snap distance exposes how far away it actually is.
+          const snapDist = metersBetween(c.lat, c.lng, hit.lat, hit.lng);
+          if (snapDist > MAX_ADDRESS_SNAP_M) {
+            onPickupLabelChange("");
+            setPickupWarning("No pickup address found. Please drag the pin to a valid street.");
+            onPickupValidityChange?.(false);
+          } else {
+            onPickupLabelChange(hit.label);
+            setPickupWarning(null);
+            onPickupValidityChange?.(true);
+          }
         })
         .catch(() => {
           /* keep the previous address on failure */
@@ -391,8 +459,9 @@ function PickupMapStepInner({
     redrawCircle(wobbleRef.current.sweep);
     const c = mapRef.current.getCenter();
     if (Math.abs(c.lat - pin.lat) > 0.00005 || Math.abs(c.lng - pin.lng) > 0.00005) {
-      suppressReverseRef.current = true; // keep the chosen label on arrival
-      mapRef.current.easeTo({ center: [pin.lng, pin.lat] });
+      // Bug #1 fix: tag this programmatic ease so the moveend handler knows to
+      // skip the reverse-geocode and keep the chosen label.
+      mapRef.current.easeTo({ center: [pin.lng, pin.lat] }, { suppressReverse: true });
     }
   }, [pin, radiusMi, redrawCircle]);
 
@@ -450,8 +519,10 @@ function PickupMapStepInner({
     setSuggestions([]);
     onPinChange({ lat: s.lat, lng: s.lng });
     onPickupLabelChange(s.label);
+    setPickupWarning(null); // Bug #2: clear any stale water/no-address warning
+    onPickupValidityChange?.(true);
     // Map easing handled by the pin update effect
-  }, [onPinChange, onPickupLabelChange]);
+  }, [onPinChange, onPickupLabelChange, onPickupValidityChange]);
 
   // "Current location" control: geolocate the browser, verify the position
   // is in Manhattan (rough bounds, then the reverse-geocoded ZIP must be one
@@ -485,6 +556,8 @@ function PickupMapStepInner({
               setShowDropdown(false);
               onPinChange({ lat, lng });
               onPickupLabelChange(hit.label);
+              setPickupWarning(null); // Bug #2: clear any stale water/no-address warning
+              onPickupValidityChange?.(true);
             } else {
               flagLocation("You appear to be outside Manhattan.");
             }
@@ -504,7 +577,7 @@ function PickupMapStepInner({
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
     );
-  }, [locating, flagLocation, onPinChange, onPickupLabelChange]);
+  }, [locating, flagLocation, onPinChange, onPickupLabelChange, onPickupValidityChange]);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showDropdown) return;
@@ -593,8 +666,10 @@ function PickupMapStepInner({
             onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={() => {
               setSearchFocused(true);
-              // Start editing from the committed address so it can be refined.
-              if (pickupLabel && searchQuery === "") setSearchQuery(pickupLabel);
+              // Bug #3 fix: always seed from the live committed label so
+              // highlighting the field shows the CURRENT address, not a stale
+              // searchQuery from an earlier session or pin move.
+              if (pickupLabel) setSearchQuery(pickupLabel);
               if (suggestions.length > 0) setShowDropdown(true);
             }}
             onBlur={() => {
@@ -663,6 +738,13 @@ function PickupMapStepInner({
         </div>
       </div>
 
+      {/* Bug #2: distance-snap warning — shown when the pin is over water or
+          too far from any addressable street. Clears on a valid pin snap. */}
+      {pickupWarning && (
+        <p className="text-[11px] text-error leading-snug px-0.5">
+          {pickupWarning}
+        </p>
+      )}
 
       {/* "Location mask" slider with inline value + helper text */}
       <div className="space-y-1.5">

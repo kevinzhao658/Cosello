@@ -159,6 +159,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   const [pickupPin, setPickupPin] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupRadiusMi, setPickupRadiusMi] = useState(0.15);
   const [pickupLabel, setPickupLabel] = useState("");
+  // Validity flag lifted from PickupMapStep's river/distance guard. Defaults to
+  // true so the Post button is not blocked when no river warning has fired.
+  // Tightens to false when the pin is over water; resets to true on a valid snap.
+  const [pickupValid, setPickupValid] = useState(true);
+  // Tracks whether the user has navigated to the pickup step at least once this
+  // session. Prevents the checklist "Pickup location" row from pre-checking via
+  // the profile-address fallback before they've ever seen the step.
+  // Never flips back to false mid-session; only resets on a full wizard reset.
+  const [pickupStepVisited, setPickupStepVisited] = useState(false);
 
   // Prefill pickup ZIP from the seller's profile zip (once, when known) so a
   // returning seller can post without re-opening the dropdown. NYC_ZIP_SET
@@ -200,6 +209,15 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     });
     return () => cancelAnimationFrame(id);
   }, [singlePostPhase, isActive, productDetails]);
+
+  // Mark the pickup step as visited the first time the user reaches it (either
+  // flow). Never resets to false mid-session — only resets on a full wizard
+  // reset — so the checklist checkmark stays stable once the step has been seen.
+  useEffect(() => {
+    if (singlePostPhase === "pickup" || bulkReviewPhase === "pickup") {
+      setPickupStepVisited(true);
+    }
+  }, [singlePostPhase, bulkReviewPhase]);
 
   const draft = useDraftAutosave({
     state,
@@ -330,27 +348,29 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
       }
     }
     const communitySelected = selectedCommunityIds.length > 0;
-    const pickupLocationSet = hasMapboxToken()
-      ? pickupLabel.trim() !== "" || Boolean(user?.pickup_address?.trim())
-      : bulkPickupZip !== "";
+    const pickupLocationSet = pickupStepVisited && (hasMapboxToken()
+      ? pickupLabel.trim() !== ""
+      : bulkPickupZip !== "");
     const preview: BulkPreview | null =
       base && step ? { ...base, step, communitySelected, pickupLocationSet } : null;
     onBulkPreviewChange?.(preview);
-  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, pickupLabel, user?.pickup_address, bulkPickupZip, onBulkPreviewChange]);
+  }, [mode, bulkItems, currentCardIndex, segmentation, brandHints, names, uploadedImages, bulkReviewPhase, productDetails, selectedCommunityIds, pickupStepVisited, pickupLabel, bulkPickupZip, onBulkPreviewChange]);
 
   // Emit checklist signals to the parent so it can render a single static
   // checklist regardless of step/mode. (The Community row was removed from the
   // page checklist; communitySelected is still emitted for type stability.)
   useEffect(() => {
     const communitySelected = selectedCommunityIds.length > 0;
-    // Pickup counts ONLY with an embedded address: a search-selected address
-    // (pickupLabel) or the seller's saved profile address. The auto-seeded map
-    // pin alone must not tick the box. Legacy ZIP path applies sans token.
-    const pickupLocationSet = hasMapboxToken()
-      ? pickupLabel.trim() !== "" || Boolean(user?.pickup_address?.trim())
-      : (productDetails ? postPickupZip !== "" : bulkPickupZip !== "");
+    // Pickup counts only once the user has visited the step (pickupStepVisited)
+    // AND a label/zip is set. The `|| user?.pickup_address` fallback is dropped:
+    // the profile address auto-seeds pickupLabel on step entry, so the label
+    // covers that case; dropping the fallback also means the river-guard's
+    // cleared label correctly unchecks the item.
+    const pickupLocationSet = pickupStepVisited && (hasMapboxToken()
+      ? pickupLabel.trim() !== ""
+      : (productDetails ? postPickupZip !== "" : bulkPickupZip !== ""));
     onChecklistSignalsChange?.({ communitySelected, pickupLocationSet });
-  }, [selectedCommunityIds, pickupLabel, user?.pickup_address, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
+  }, [selectedCommunityIds, pickupStepVisited, pickupLabel, postPickupZip, bulkPickupZip, productDetails, onChecklistSignalsChange]);
 
   // When App.tsx switches away from sell mode, partial-reset bulk state
   // (matches the original effect's behavior): bulkItems + phase + cardIndex
@@ -740,6 +760,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
     setPickupPin(null);
     setPickupRadiusMi(0.15);
     setPickupLabel("");
+    setPickupValid(true);
+    setPickupStepVisited(false);
     draft.resetSaveStatus();
     segmentationAbortRef.current?.abort();
     segmentationAbortRef.current = null;
@@ -1218,7 +1240,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             onRadiusChange={setPickupRadiusMi}
             pickupLabel={pickupLabel}
             onPickupLabelChange={setPickupLabel}
-              defaultAddress={user?.pickup_address ?? null}
+            defaultAddress={user?.pickup_address ?? null}
+            onPickupValidityChange={setPickupValid}
             renderFallback={() => (
               <PickupStep
                 bulkPickupLocation={bulkPickupLocation}
@@ -1241,7 +1264,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
             <div className="mt-5">
               <button
                 type="button"
-                disabled={isPostingBulk || (!pickupPin && bulkPickupZip === "")}
+                disabled={isPostingBulk || (!pickupPin && bulkPickupZip === "") || (hasMapboxToken() && !pickupValid)}
                 onClick={() => {
                   if (!isAuthenticated) { onRequestSignIn(); return; }
                   post.postBulkFromPickup();
@@ -1306,6 +1329,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
               pickupLabel={pickupLabel}
               onPickupLabelChange={setPickupLabel}
               defaultAddress={user?.pickup_address ?? null}
+              onPickupValidityChange={setPickupValid}
               renderFallback={() => (
                 <SinglePickupStep
                   postPickupLocation={postPickupLocation}
@@ -1329,7 +1353,7 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
         <div className="mt-5 max-w-md mx-auto">
           <button
             type="button"
-            disabled={!pickupPin && postPickupZip === ""}
+            disabled={(!pickupPin && postPickupZip === "") || (hasMapboxToken() && !pickupValid)}
             onClick={() => {
               if (!isAuthenticated) { onRequestSignIn(); return; }
               onRequestSinglePostConfirm();
