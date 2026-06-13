@@ -62,6 +62,18 @@
   }
 }
 
+/*
+  Checklist item completion animations — used by ListingChecklist.
+  check-pop: the check circle scales in with a small overshoot.
+  Both are instant for prefers-reduced-motion users (handled in
+  ListingChecklist via the motion-safe: Tailwind variant).
+*/
+@keyframes check-pop {
+  0%   { transform: scale(0); }
+  60%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
 /* ── Minimal Scrollbar ── */
 .scrollbar-thin::-webkit-scrollbar {
   height: 4px;

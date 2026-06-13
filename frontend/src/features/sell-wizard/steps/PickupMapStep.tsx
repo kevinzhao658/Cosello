@@ -31,6 +31,10 @@ export interface PickupMapStepProps {
   defaultAddress?: string | null;
   /** Render-prop fallback: legacy fields shown when no token / GL init fails. */
   renderFallback: () => React.ReactNode;
+  /** Called when the river/distance guard determines the pin is valid or
+   *  invalid. Only fired on conclusive results — transient HTTP failures (null
+   *  hit) leave validity unchanged so a valid spot isn't spuriously cleared. */
+  onPickupValidityChange?: (valid: boolean) => void;
 }
 
 // Manhattan center fallback
@@ -77,6 +81,7 @@ export function PickupMapStep({
   onPickupLabelChange,
   defaultAddress = null,
   renderFallback,
+  onPickupValidityChange,
 }: PickupMapStepProps) {
   // Token check — if missing, fall back immediately
   if (!hasMapboxToken()) {
@@ -95,6 +100,7 @@ export function PickupMapStep({
       onPickupLabelChange={onPickupLabelChange}
       defaultAddress={defaultAddress}
       renderFallback={renderFallback}
+      onPickupValidityChange={onPickupValidityChange}
     />
   );
 }
@@ -111,6 +117,7 @@ function PickupMapStepInner({
   onPickupLabelChange,
   defaultAddress = null,
   renderFallback,
+  onPickupValidityChange,
 }: PickupMapStepProps) {
   type MapboxGl = typeof import("mapbox-gl");
 
@@ -232,6 +239,7 @@ function PickupMapStepInner({
         if (hit) {
           onPinChange({ lat: hit.lat, lng: hit.lng });
           onPickupLabelChange(hit.label);
+          onPickupValidityChange?.(true);
         }
       })
       .catch(() => {
@@ -349,9 +357,11 @@ function PickupMapStepInner({
           if (snapDist > MAX_ADDRESS_SNAP_M) {
             onPickupLabelChange("");
             setPickupWarning("No pickup address here — drag the pin onto a street.");
+            onPickupValidityChange?.(false);
           } else {
             onPickupLabelChange(hit.label);
             setPickupWarning(null);
+            onPickupValidityChange?.(true);
           }
         })
         .catch(() => {
@@ -491,8 +501,9 @@ function PickupMapStepInner({
     onPinChange({ lat: s.lat, lng: s.lng });
     onPickupLabelChange(s.label);
     setPickupWarning(null); // Bug #2: clear any stale water/no-address warning
+    onPickupValidityChange?.(true);
     // Map easing handled by the pin update effect
-  }, [onPinChange, onPickupLabelChange]);
+  }, [onPinChange, onPickupLabelChange, onPickupValidityChange]);
 
   // "Current location" control: geolocate the browser, verify the position
   // is in Manhattan (rough bounds, then the reverse-geocoded ZIP must be one
@@ -527,6 +538,7 @@ function PickupMapStepInner({
               onPinChange({ lat, lng });
               onPickupLabelChange(hit.label);
               setPickupWarning(null); // Bug #2: clear any stale water/no-address warning
+              onPickupValidityChange?.(true);
             } else {
               flagLocation("You appear to be outside Manhattan.");
             }
@@ -546,7 +558,7 @@ function PickupMapStepInner({
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
     );
-  }, [locating, flagLocation, onPinChange, onPickupLabelChange]);
+  }, [locating, flagLocation, onPinChange, onPickupLabelChange, onPickupValidityChange]);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showDropdown) return;
