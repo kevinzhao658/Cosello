@@ -38,6 +38,7 @@ from services.evidence import build_evidence_block, _format_single_image_evidenc
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 from services import storage
 from services.neighborhood import get_neighborhood_community
+from services.circles import seller_circles_for_viewer
 
 logger = logging.getLogger(__name__)
 
@@ -1665,6 +1666,17 @@ def get_listings(
         listing_copy["mutualCommunityNames"] = [m["name"] for m in mutual]
         listing_copy["mutualCommunities"] = mutual
         listing_copy["allCommunities"] = all_comms
+        seller_id = l.get("userId")
+        if seller_id:
+            listing_copy["circles"] = seller_circles_for_viewer(
+                db, seller_id, current_user, viewer_circle_ids=my_community_ids
+            )
+        else:
+            listing_copy["circles"] = {
+                "building": {"shared": False, "label": "Same building"},
+                "school": {"shared": False, "label": ""},
+                "mutualFriends": {"count": 0},
+            }
         enriched.append(listing_copy)
     return enriched
 
@@ -1783,6 +1795,11 @@ def get_public_listings(
                     all_comms.append({**pub_info[cid], "is_mutual": False})
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
+        listing_copy["circles"] = {
+            "building": {"shared": False, "label": "Same building"},
+            "school": {"shared": False, "label": ""},
+            "mutualFriends": {"count": 0},
+        }
         enriched_pub.append(listing_copy)
     return enriched_pub
 
