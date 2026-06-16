@@ -224,10 +224,13 @@ from sqlalchemy.orm import Session
 from models import Community, CommunityMember, SchoolSeed, User
 
 # Unit designators we strip so "123 Main St Apt 4" == "123 Main St".
-_UNIT_RE = re.compile(
-    r"[,#]?\s*\b(apt|apartment|unit|ste|suite|fl|floor|#)\b\.?\s*\S*",
+# Two patterns: keyword-based (apt/unit/suite/floor) and a bare hash (#4B),
+# since "#4B" has no keyword to anchor on.
+_UNIT_KEYWORD_RE = re.compile(
+    r"[,]?\s*\b(apt|apartment|unit|ste|suite|fl|floor)\b\.?\s*\S*",
     re.IGNORECASE,
 )
+_UNIT_HASH_RE = re.compile(r"\s*#\s*\S*")
 _PUNCT_RE = re.compile(r"[.,]")
 _WS_RE = re.compile(r"\s+")
 
@@ -236,7 +239,8 @@ def normalize_address(address: str | None) -> str:
     """Return a stable lowercase key for building matching, or '' if empty."""
     if not address:
         return ""
-    s = _UNIT_RE.sub("", address)
+    s = _UNIT_KEYWORD_RE.sub("", address)
+    s = _UNIT_HASH_RE.sub("", s)
     s = _PUNCT_RE.sub("", s)
     s = _WS_RE.sub(" ", s)
     return s.strip().lower()
