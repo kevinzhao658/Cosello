@@ -94,7 +94,14 @@ def test_add_user_school_enforces_cap_of_two(db_session, make_user, seeded_schoo
     db_session.commit()
 
 
+from scripts.seed_schools import parse_rows
 from services.circles import set_circle_consent
+
+
+def test_parse_rows_dedupes_and_skips_blanks():
+    csv_text = "name,state\nNew York University,NY\nNew York University,NY\n,NY\nMIT,MA\n"
+    rows = parse_rows(csv_text)
+    assert rows == [("New York University", "NY"), ("MIT", "MA")]
 
 
 def test_set_circle_consent_toggles_membership_flag(db_session, make_user):
