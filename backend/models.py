@@ -18,6 +18,7 @@ class User(Base):
     pickup_address = Column(String(255), nullable=True)
     zip_code = Column(String(10), nullable=True)
     zip_confirmed = Column(Boolean, nullable=False, server_default="false", default=False)
+    share_mutual_friends = Column(Boolean, nullable=False, server_default="false", default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -30,6 +31,8 @@ class Community(Base):
     neighborhood = Column(String(100), nullable=True)
     pickup_address = Column(String(255), nullable=True)
     zip_code = Column(String(10), nullable=True)
+    kind = Column(String(20), nullable=False, server_default="interest", default="interest")
+    school_seed_id = Column(Integer, ForeignKey("school_seed.id"), nullable=True)
     image = Column(String(255), nullable=True)
     is_public = Column(Boolean, default=True)
     invite_code = Column(String(30), unique=True, index=True, nullable=False)
@@ -44,11 +47,21 @@ class CommunityMember(Base):
     community_id = Column(Integer, ForeignKey("communities.id"), nullable=False)
     user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     role = Column(String(20), default="member")
+    share_with_mutuals = Column(Boolean, nullable=False, server_default="false", default=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         UniqueConstraint("community_id", "user_id", name="uq_community_user"),
     )
+
+
+class SchoolSeed(Base):
+    __tablename__ = "school_seed"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    state = Column(String(2), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class JoinRequest(Base):
