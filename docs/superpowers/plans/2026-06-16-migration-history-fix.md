@@ -19,7 +19,8 @@ This blocks `db push` for *all* future migrations (e.g. `0013_circles.sql`), not
 Mark the already-applied migrations as applied on the remote so `db push` stops replaying them. Run from the repo root with the project linked:
 
 ```bash
-supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012
+# 0013 was applied manually via the SQL editor, so it is included here too.
+supabase migration repair --status applied 0001 0002 0003 0004 0005 0006 0007 0008 0009 0010 0011 0012 0013
 ```
 
 Then verify local vs remote agree:
