@@ -10,7 +10,7 @@ import secrets
 
 from sqlalchemy.orm import Session
 
-from models import Community, CommunityMember, SchoolSeed, User
+from models import Community, CommunityMember, Friendship, SchoolSeed, User
 
 # Unit designators we strip so "123 Main St Apt 4" == "123 Main St".
 # Pattern 1: keyword-based (apt, unit, suite, floor, etc.) optionally preceded by comma/hash.
@@ -153,3 +153,74 @@ def set_circle_consent(db: Session, user_id: str, community_id: int, share: bool
         return
     m.share_with_mutuals = share
     db.commit()
+
+
+def count_mutual_friends(db: Session, a_id: str, b_id: str) -> int:
+    """Count accepted friends shared by both users (friendships are bidirectional)."""
+    def friend_ids(uid: str) -> set[str]:
+        rows = (
+            db.query(Friendship)
+            .filter(
+                Friendship.status == "accepted",
+                (Friendship.user_id == uid) | (Friendship.friend_id == uid),
+            )
+            .all()
+        )
+        out: set[str] = set()
+        for r in rows:
+            out.add(r.friend_id if r.user_id == uid else r.user_id)
+        return out
+
+    return len(friend_ids(a_id) & friend_ids(b_id))
+
+
+def seller_circles_for_viewer(
+    db: Session,
+    seller_id: str,
+    viewer: User,
+    *,
+    viewer_circle_ids: set[int] | None = None,
+) -> dict:
+    """The seller's revealed circles relative to a viewer.
+
+    A circle is "shared" only when the seller opted in (share_with_mutuals) AND
+    the viewer is in the same circle. Mutual friends is gated by the seller's
+    user-level share_mutual_friends flag. `viewer_circle_ids` may be passed in
+    to avoid re-querying the viewer's memberships in a feed loop.
+    """
+    if viewer_circle_ids is None:
+        viewer_circle_ids = {
+            m.community_id
+            for m in db.query(CommunityMember.community_id)
+            .filter(CommunityMember.user_id == viewer.id)
+            .all()
+        }
+
+    building = {"shared": False, "label": "Same building"}
+    school = {"shared": False, "label": ""}
+
+    revealed = (
+        db.query(Community)
+        .join(CommunityMember, CommunityMember.community_id == Community.id)
+        .filter(
+            CommunityMember.user_id == seller_id,
+            CommunityMember.share_with_mutuals.is_(True),
+            Community.kind.in_(("building", "school")),
+        )
+        .all()
+    )
+    for community in revealed:
+        if community.id not in viewer_circle_ids:
+            continue
+        if community.kind == "building":
+            building["shared"] = True
+        elif community.kind == "school" and not school["shared"]:
+            school["shared"] = True
+            school["label"] = community.name
+
+    seller = db.query(User).filter(User.id == seller_id).first()
+    mf = 0
+    if seller is not None and seller.share_mutual_friends:
+        mf = count_mutual_friends(db, seller_id, viewer.id)
+
+    return {"building": building, "school": school, "mutualFriends": {"count": mf}}

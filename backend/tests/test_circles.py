@@ -120,3 +120,42 @@ def test_set_circle_consent_toggles_membership_flag(db_session, make_user):
     db_session.query(CommunityMember).filter(CommunityMember.community_id == community.id).delete()
     db_session.query(Community).filter(Community.id == community.id).delete()
     db_session.commit()
+
+
+from models import Friendship
+from services.circles import count_mutual_friends, seller_circles_for_viewer, set_circle_consent, set_user_building
+
+
+def _friend(db, a_id, b_id):
+    db.add(Friendship(user_id=a_id, friend_id=b_id, status="accepted"))
+    db.commit()
+
+
+def test_count_mutual_friends_counts_accepted_overlap(db_session, make_user):
+    seller = make_user(display_name="Seller")
+    viewer = make_user(display_name="Viewer")
+    shared = make_user(display_name="Shared")
+    _friend(db_session, seller.id, shared.id)
+    _friend(db_session, viewer.id, shared.id)
+    assert count_mutual_friends(db_session, seller.id, viewer.id) == 1
+    db_session.query(Friendship).filter(Friendship.user_id.in_([seller.id, viewer.id])).delete(synchronize_session=False)
+    db_session.commit()
+
+
+def test_seller_circles_for_viewer_respects_consent_and_match(db_session, make_user):
+    seller = make_user(display_name="Seller")
+    viewer = make_user(display_name="Viewer")
+    # both in the same building, but seller has NOT opted in yet
+    b = set_user_building(db_session, seller, "500 W 30th St")
+    set_user_building(db_session, viewer, "500 W 30th St")
+    res = seller_circles_for_viewer(db_session, seller.id, viewer)
+    assert res["building"]["shared"] is False         # consent off
+    set_circle_consent(db_session, seller.id, b.id, True)
+    res = seller_circles_for_viewer(db_session, seller.id, viewer)
+    assert res["building"]["shared"] is True           # consent on + same building
+    assert res["building"]["label"] == "Same building"
+    assert res["mutualFriends"]["count"] == 0
+    # cleanup
+    db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
+    db_session.query(Community).filter(Community.id == b.id).delete()
+    db_session.commit()
