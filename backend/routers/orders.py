@@ -23,6 +23,16 @@ PICKUP_TZ = ZoneInfo("America/New_York")
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 
+def _listing_is_neighborhood(db: Session, listing) -> bool:
+    """A listing is a local-pickup ("neighborhood") listing when its seller has
+    a neighborhood set. Replaces the legacy `"neighborhood" in communities`
+    sentinel now that listings are no longer scoped to communities."""
+    if listing is None:
+        return False
+    seller = db.query(User).filter(User.id == listing.user_id).first()
+    return bool(seller and seller.neighborhood)
+
+
 class CreateOrderRequest(BaseModel):
     listing_id: str
     selected_pickup_slots: list[dict]
@@ -205,8 +215,7 @@ def confirm_order(
     # Snapshot seller's pickup address for neighborhood listings
     listing = _find_listing(order.listing_id, db)
     if listing:
-        communities = json.loads(listing.communities) if listing.communities else []
-        if "neighborhood" in communities and current_user.pickup_address:
+        if _listing_is_neighborhood(db, listing) and current_user.pickup_address:
             order.pickup_address = current_user.pickup_address
         # Update listing status to sold
         listing.status = "sold"
@@ -599,8 +608,7 @@ def release_address(
         }
 
     listing = _find_listing(order.listing_id, db)
-    communities = json.loads(listing.communities) if listing and listing.communities else []
-    is_neighborhood = listing and "neighborhood" in communities
+    is_neighborhood = _listing_is_neighborhood(db, listing)
 
     if not is_neighborhood or not order.pickup_address:
         raise HTTPException(status_code=400, detail="Address release not applicable")
@@ -731,7 +739,6 @@ def get_orders(
         if o.status == "pending":
             _check_and_expire_order(o, db)
 
-        communities = json.loads(listing.communities) if listing.communities else []
         results.append({
             "id": o.id,
             "listing_id": o.listing_id,
@@ -754,7 +761,7 @@ def get_orders(
             "seller_reviewed": bool(o.seller_reviewed),
             "pickup_address": o.pickup_address if o.address_released else None,
             "address_released": bool(o.address_released),
-            "is_neighborhood": "neighborhood" in communities,
+            "is_neighborhood": _listing_is_neighborhood(db, listing),
             "pickup_notified": bool(o.pickup_notified),
         })
 
