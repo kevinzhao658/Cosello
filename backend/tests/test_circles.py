@@ -92,3 +92,24 @@ def test_add_user_school_enforces_cap_of_two(db_session, make_user, seeded_schoo
     # cleanup memberships
     db_session.query(CommunityMember).filter(CommunityMember.user_id == u.id).delete()
     db_session.commit()
+
+
+from services.circles import set_circle_consent
+
+
+def test_set_circle_consent_toggles_membership_flag(db_session, make_user):
+    u = make_user(display_name="C")
+    community = set_user_building(db_session, u, "55 Hudson St")
+    set_circle_consent(db_session, u.id, community.id, True)
+    m = db_session.query(CommunityMember).filter(
+        CommunityMember.community_id == community.id,
+        CommunityMember.user_id == u.id,
+    ).first()
+    assert m.share_with_mutuals is True
+    set_circle_consent(db_session, u.id, community.id, False)
+    db_session.refresh(m)
+    assert m.share_with_mutuals is False
+    # cleanup
+    db_session.query(CommunityMember).filter(CommunityMember.community_id == community.id).delete()
+    db_session.query(Community).filter(Community.id == community.id).delete()
+    db_session.commit()
