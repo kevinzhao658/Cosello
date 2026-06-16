@@ -14,3 +14,21 @@ def test_models_have_circle_columns():
     assert hasattr(CommunityMember, "share_with_mutuals")
     assert hasattr(User, "share_mutual_friends")
     assert SchoolSeed.__tablename__ == "school_seed"
+
+
+from services.circles import normalize_address
+
+
+def test_normalize_address_strips_unit_and_case():
+    assert normalize_address("123 W 21st St, Apt 4B") == "123 w 21st st"
+    assert normalize_address("123 W 21st St #4B") == "123 w 21st st"
+    assert normalize_address("123 W 21st St, Unit 4") == "123 w 21st st"
+
+
+def test_normalize_address_collapses_whitespace_and_punct():
+    assert normalize_address("  123   W 21st  St.  ") == "123 w 21st st"
+
+
+def test_normalize_address_empty_is_empty():
+    assert normalize_address("") == ""
+    assert normalize_address(None) == ""
