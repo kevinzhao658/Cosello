@@ -52,3 +52,43 @@ def test_set_user_building_dedupes_by_normalized_address(db_session, make_user):
     db_session.query(CommunityMember).filter(CommunityMember.community_id == c1.id).delete()
     db_session.query(Community).filter(Community.id == c1.id).delete()
     db_session.commit()
+
+
+import pytest
+from services.circles import search_schools, add_user_school, list_user_schools, TooManySchools
+
+
+@pytest.fixture
+def seeded_schools(db_session):
+    rows = [
+        SchoolSeed(name="New York University", state="NY"),
+        SchoolSeed(name="Columbia University", state="NY"),
+        SchoolSeed(name="University of Michigan", state="MI"),
+    ]
+    db_session.add_all(rows)
+    db_session.commit()
+    ids = [r.id for r in rows]
+    yield rows
+    db_session.query(Community).filter(Community.school_seed_id.in_(ids)).delete(synchronize_session=False)
+    db_session.query(SchoolSeed).filter(SchoolSeed.id.in_(ids)).delete(synchronize_session=False)
+    db_session.commit()
+
+
+def test_search_schools_prefix_and_substring(db_session, seeded_schools):
+    names = [r.name for r in search_schools(db_session, "univers")]
+    assert "Columbia University" in names and "University of Michigan" in names
+    assert search_schools(db_session, "") == []
+
+
+def test_add_user_school_enforces_cap_of_two(db_session, make_user, seeded_schools):
+    u = make_user(display_name="S")
+    add_user_school(db_session, u, seeded_schools[0].id)
+    add_user_school(db_session, u, seeded_schools[1].id)
+    with pytest.raises(TooManySchools):
+        add_user_school(db_session, u, seeded_schools[2].id)
+    assert {s.name for s in list_user_schools(db_session, u.id)} == {
+        "New York University", "Columbia University",
+    }
+    # cleanup memberships
+    db_session.query(CommunityMember).filter(CommunityMember.user_id == u.id).delete()
+    db_session.commit()
