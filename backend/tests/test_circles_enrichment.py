@@ -42,17 +42,35 @@ def test_feed_listing_exposes_circles_for_mutual_viewer(
     db_session.commit()
 
 
+def _img_bytes() -> bytes:
+    # 1x1 transparent PNG — smallest valid image bytes.
+    return (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xfc\xff"
+        b"\xff?\x03\x00\x06\xfc\x02\xfe\xa7V\xbd\xe7\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+
 def test_created_listing_has_no_communities(db_session, make_user, client, override_auth_user, mock_storage):
+    import json as _json
     seller = make_user(display_name="Creator", neighborhood="SoHo")
     override_auth_user(seller)
-    resp = client.post("/api/listings", data={
-        "title": "Mug", "description": "ceramic", "price": "8",
-        "category": "home", "brand": "Unknown", "name": "Mug",
-        "communities": "1,2,3",   # legacy field — must be ignored
+    resp = client.post("/api/listings", files={
+        "data": (None, _json.dumps({
+            "brand": "Unknown", "name": "Mug",
+            "description": "ceramic", "priceCents": 800,
+            "condition": "Good", "tags": [],
+            "category": "other", "categoryAttributes": {},
+        })),
+        "communities": (None, "1,2,3"),   # legacy field — must be ignored
+        "visibility": (None, "public"),
+        "pickup_location": (None, "SoHo, NYC"),
+        "pickup_zip": (None, "10012"),
+        "images": ("test.png", _img_bytes(), "image/png"),
     })
     assert resp.status_code in (200, 201)
     from models import Listing
-    row = db_session.query(Listing).filter(Listing.user_id == seller.id, Listing.title == "Mug").first()
+    row = db_session.query(Listing).filter(Listing.user_id == seller.id, Listing.name == "Mug").first()
     assert row is not None
     assert (row.communities or "[]") in ("[]", None, "")
     db_session.query(Listing).filter(Listing.id == row.id).delete()

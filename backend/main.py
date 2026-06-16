@@ -1102,7 +1102,6 @@ async def generate_listings(
 async def create_listing(
     images: list[UploadFile] = File(default_factory=list),
     data: str = Form(...),
-    communities: str = Form(""),
     visibility: str = Form("public"),
     pickup_location: str = Form(""),
     pickup_zip: str = Form(""),
@@ -1141,61 +1140,6 @@ async def create_listing(
 
     if len(parsed_draft_urls) + len(images) > 20:
         raise HTTPException(status_code=400, detail="At most 20 images allowed per listing")
-
-    # Parse community IDs the listing is posted to.
-    # Post-PR-3: only integer IDs are recognized. Legacy "neighborhood" strings
-    # from older clients are silently dropped (they map to no community).
-    community_ids: list[int] = []
-    if communities:
-        for part in communities.split(","):
-            part = part.strip()
-            if not part:
-                continue
-            try:
-                community_ids.append(int(part))
-            except ValueError:
-                pass  # silently drop non-int values (incl. legacy "neighborhood")
-
-    # Hard cap of 3 — enforced for both public and private listings.
-    if len(community_ids) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="At most 3 communities per listing",
-        )
-
-    # Validate each id: exists + user is a member.
-    for cid in community_ids:
-        comm = db.query(Community).filter(Community.id == cid).first()
-        if not comm:
-            raise HTTPException(status_code=400, detail=f"Community {cid} not found")
-        is_member = (
-            db.query(CommunityMember)
-            .filter(
-                CommunityMember.community_id == cid,
-                CommunityMember.user_id == current_user.id,
-            )
-            .first()
-        )
-        if not is_member:
-            raise HTTPException(
-                status_code=400,
-                detail=f"You are not a member of community {cid}",
-            )
-
-    # Private-listing extra rules: must have ≥1 community and all must be private.
-    if visibility != "public":
-        if len(community_ids) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Private listing must have at least one community",
-            )
-        for cid in community_ids:
-            comm = db.query(Community).filter(Community.id == cid).first()
-            if comm.is_public:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Community {cid} is not private",
-                )
 
     # Validate category slug
     category_slug = details.get("category", "other")
@@ -1420,7 +1364,7 @@ async def create_listing(
         identifier_confidence=identifier_confidence_in,
         location=current_user.neighborhood or details.get("location", ""),
         tags=json.dumps(details.get("tags", [])),
-        communities=json.dumps(community_ids),
+        communities=None,  # communities retired (Phase 2): circles derive from the seller, not the listing
         visibility=visibility,
         image_url=image_urls[0],
         image_urls=json.dumps(image_urls),
