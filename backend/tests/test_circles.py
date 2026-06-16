@@ -122,7 +122,8 @@ def test_set_circle_consent_toggles_membership_flag(db_session, make_user):
     db_session.commit()
 
 
-from models import Friendship
+from services.ranking import _community_overlap
+from models import Friendship, Listing as RankingListing
 from services.circles import count_mutual_friends, seller_circles_for_viewer, set_circle_consent, set_user_building
 
 
@@ -156,6 +157,30 @@ def test_seller_circles_for_viewer_respects_consent_and_match(db_session, make_u
     assert res["building"]["label"] == "Same building"
     assert res["mutualFriends"]["count"] == 0
     # cleanup
+    db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
+    db_session.query(Community).filter(Community.id == b.id).delete()
+    db_session.commit()
+
+
+import time as _time
+import uuid as _uuid
+
+
+def test_ranking_overlap_uses_seller_memberships(db_session, make_user):
+    seller = make_user(display_name="RankSeller")
+    viewer = make_user(display_name="RankViewer")
+    b = set_user_building(db_session, seller, "9 Bank St")
+    set_user_building(db_session, viewer, "9 Bank St")  # share the building circle
+    listing = RankingListing(
+        id=_uuid.uuid4().hex[:12],
+        user_id=seller.id, description="d", price_cents=500,
+        category="home", brand="Unknown", name="Chair",
+        posted_at=_time.time(),
+    )
+    db_session.add(listing); db_session.commit(); db_session.refresh(listing)
+    # 1 shared circle / COMMUNITY_OVERLAP_NORM(3) ≈ 0.333
+    assert _community_overlap(viewer, listing, db_session) > 0.0
+    db_session.query(RankingListing).filter(RankingListing.id == listing.id).delete()
     db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
     db_session.query(Community).filter(Community.id == b.id).delete()
     db_session.commit()
