@@ -31,7 +31,12 @@ CREATE INDEX IF NOT EXISTS idx_school_seed_name_lower
   ON public.school_seed (lower(name));
 
 -- Link a school-kind community back to the seed row it was created from.
-ALTER TABLE public.communities
-  ADD CONSTRAINT fk_communities_school_seed
-  FOREIGN KEY (school_seed_id) REFERENCES public.school_seed(id)
-  ON DELETE SET NULL;
+-- Wrapped so the whole migration is safely re-runnable (ADD CONSTRAINT has no
+-- IF NOT EXISTS in Postgres).
+DO $$ BEGIN
+  ALTER TABLE public.communities
+    ADD CONSTRAINT fk_communities_school_seed
+    FOREIGN KEY (school_seed_id) REFERENCES public.school_seed(id)
+    ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
