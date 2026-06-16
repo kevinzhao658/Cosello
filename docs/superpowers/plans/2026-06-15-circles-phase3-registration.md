@@ -366,6 +366,7 @@ export function NameStep({ firstName, lastName, onFirst, onLast }: NameStepProps
 
 ```tsx
 // frontend/src/pages/signup/steps/LocationStep.tsx
+import { Building2 } from "lucide-react";
 import { AddressAutocompleteInput } from "../../../components/AddressAutocompleteInput";
 import { LocationCombobox } from "../../../components/LocationCombobox";
 
@@ -383,6 +384,9 @@ export interface LocationStepProps {
 export function LocationStep(p: LocationStepProps) {
   return (
     <div className="space-y-4">
+      <div className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center">
+        <Building2 className="size-5" />
+      </div>
       <h2 className="text-xl font-extrabold text-ink tracking-tight">Where are you based?</h2>
       <p className="text-sm text-muted">We use this to group nearby listings and set your building.</p>
       <AddressAutocompleteInput
@@ -411,6 +415,7 @@ export function LocationStep(p: LocationStepProps) {
 ```tsx
 // frontend/src/pages/signup/steps/SchoolStep.tsx
 import { useState } from "react";
+import { GraduationCap } from "lucide-react";
 import { Input } from "../../../components/ui/input";
 import { useSchoolSearch, type School } from "../../../lib/useSchoolSearch";
 
@@ -429,6 +434,9 @@ export function SchoolStep({ token, selected, onAdd, onRemove }: SchoolStepProps
   const full = selected.length >= 2;
   return (
     <div className="space-y-3">
+      <div className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center">
+        <GraduationCap className="size-5" />
+      </div>
       <h2 className="text-xl font-extrabold text-ink tracking-tight">Add your school</h2>
       <p className="text-sm text-muted">We use this to connect you with other students or alumni from your university.</p>
       {!full && (
