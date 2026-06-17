@@ -1,12 +1,11 @@
 import { Heart } from "lucide-react";
-import type { Listing, ListingCommunity } from "../lib/types";
+import type { Listing } from "../lib/types";
 import { formatTitle } from "../lib/format";
 import { ListingImage } from "./ui/ListingImage";
-import type { PLACEHOLDER_COMMUNITY } from "../lib/listings";
+import { CircleByline } from "./CircleByline";
 
 interface ListingCardProps {
   listing: Listing;
-  heroCommunity: ListingCommunity | typeof PLACEHOLDER_COMMUNITY;
   isOwn: boolean;
   isAuthenticated: boolean;
   isWishlisted: boolean;
@@ -20,7 +19,6 @@ interface ListingCardProps {
 
 export function ListingCard({
   listing,
-  heroCommunity,
   isOwn,
   isAuthenticated,
   isWishlisted,
@@ -42,17 +40,8 @@ export function ListingCard({
       className="group cursor-pointer motion-safe:animate-mkt-card-in"
       style={{ animationDelay: `${animationDelayMs}ms` }}
     >
-      {/* Community byline — above the photo */}
-      <div className="flex items-center gap-1.5 mb-1.5">
-        {heroCommunity.image ? (
-          <img src={heroCommunity.image} alt="" aria-hidden="true" className="size-5 rounded-full object-cover shrink-0" />
-        ) : (
-          <span aria-hidden="true" className="size-5 rounded-full bg-primary shrink-0 inline-flex items-center justify-center text-on-primary text-[9px] font-bold">
-            {heroCommunity.name.charAt(0).toUpperCase()}
-          </span>
-        )}
-        <span className="text-xs font-medium text-body line-clamp-1">{heroCommunity.name}</span>
-      </div>
+      {/* Circle byline — fixed three slots above the photo */}
+      <CircleByline circles={listing.circles} />
 
       {/* Photo */}
       <div className="relative aspect-square bg-surface-soft rounded-lg overflow-hidden">
