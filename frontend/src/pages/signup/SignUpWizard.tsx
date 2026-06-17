@@ -1,79 +1,102 @@
 // frontend/src/pages/signup/SignUpWizard.tsx
+// Sell-wizard–chrome registration flow: Name → Location → School → Review → Welcome.
+// ALL field state is lifted here so Back/Edit never resets anything.
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
-import { Button } from "../../components/ui/button";
+import { ChevronLeft, Loader2 } from "lucide-react";
+import { TypedHeadline } from "../../components/TypedHeadline";
 import type { AuthUser } from "../../contexts/AuthContext";
-import { useNeighborhoods } from "../../lib/useNeighborhoods";
-import { NYC_ZIP_SET, ZIP_NEIGHBORHOOD } from "../../lib/nycZips";
 import type { School } from "../../lib/useSchoolSearch";
 import { NameStep } from "./steps/NameStep";
 import { LocationStep } from "./steps/LocationStep";
 import { SchoolStep } from "./steps/SchoolStep";
-import { CirclesStep, type Consent } from "./steps/CirclesStep";
+import { ReviewStep } from "./steps/ReviewStep";
 import { WelcomeStep } from "./steps/WelcomeStep";
 
 export interface SignUpWizardProps {
   pendingToken: string;
-  onComplete: (user: AuthUser) => void;     // finalize auth/session
-  onStartSelling: () => void;               // route into the sell wizard
-  onBrowse: () => void;                      // route into the marketplace
+  onComplete: (user: AuthUser) => void;  // finalizes auth — does NOT navigate
+  onStartSelling: () => void;            // routes into sell wizard
+  onBrowse: () => void;                  // routes into marketplace
   onCancel: () => void;
 }
 
-const STEPS = ["name", "location", "school", "circles"] as const;
+const STEP_KEYS = ["name", "location", "school", "review"] as const;
+type StepKey = (typeof STEP_KEYS)[number];
 
-export function SignUpWizard({ pendingToken, onComplete, onStartSelling, onBrowse, onCancel }: SignUpWizardProps) {
-  const { list: neighborhoodsList } = useNeighborhoods();
-  const neighborhoods = neighborhoodsList ?? [];
+const HEADLINES: Record<StepKey, string> = {
+  name: "What's your name?",
+  location: "Where are you based?",
+  school: "What school are you from?",
+  review: "Does everything look good?",
+};
 
-  const [step, setStep] = useState(0);
+export function SignUpWizard({
+  pendingToken,
+  onComplete,
+  onStartSelling,
+  onBrowse,
+}: SignUpWizardProps) {
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  const [stepIndex, setStepIndex] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // ── Lifted field state — never reset between steps ──────────────────────────
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [pronouns, setPronouns] = useState("");
   const [address, setAddress] = useState("");
-  const [zip, setZip] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
+  const [zip, setZip] = useState("");
+  const [addrSelected, setAddrSelected] = useState(false);
   const [schools, setSchools] = useState<School[]>([]);
-  const [consent, setConsent] = useState<Consent>({ building: null, school: null, mutualFriends: null });
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
-  const validNeighborhood = neighborhoods.some((n) => n.toLowerCase() === neighborhood.trim().toLowerCase());
+  const currentStep: StepKey = STEP_KEYS[stepIndex];
 
-  const stepValid = (): boolean => {
-    switch (STEPS[step]) {
-      case "name": return !!firstName.trim() && !!lastName.trim();
-      case "location": return validNeighborhood && NYC_ZIP_SET.has(zip);
-      case "school": return true; // optional
-      case "circles": {
-        const keys: (keyof Consent)[] = ["building", "mutualFriends", ...(schools.length ? (["school"] as (keyof Consent)[]) : [])];
-        return keys.every((k) => consent[k] !== null);
-      }
+  // ── Per-step gate ────────────────────────────────────────────────────────────
+  const stepReady = (): boolean => {
+    switch (currentStep) {
+      case "name":     return !!firstName.trim() && !!lastName.trim();
+      case "location": return addrSelected;
+      case "school":   return true; // optional
+      case "review":   return termsAccepted;
     }
   };
 
+  const HINT: Record<StepKey, string> = {
+    name:     "Enter your first and last name to continue",
+    location: "Select your address to continue",
+    school:   "",
+    review:   "Agree to the Terms & Conditions to continue",
+  };
+
+  // ── Submit ───────────────────────────────────────────────────────────────────
   const submit = async () => {
     setSubmitting(true);
     setError("");
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${pendingToken}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pendingToken}`,
+        },
         body: JSON.stringify({
           display_name: `${firstName.trim()} ${lastName.trim()}`,
           neighborhood: neighborhood.trim(),
           pickup_address: address.trim() || undefined,
           zip_code: zip,
+          pronouns: pronouns || undefined,
           school_seed_ids: schools.map((s) => s.id),
-          share_building: consent.building === true,
-          share_school: consent.school === true,
-          share_mutual_friends: consent.mutualFriends === true,
         }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ detail: "Registration failed" }));
-        throw new Error((data as { detail: string }).detail);
+        const data: { detail?: string } = await res.json().catch(() => ({ detail: "Registration failed" }));
+        throw new Error(data.detail ?? "Registration failed");
       }
       onComplete((await res.json()) as AuthUser);
       setDone(true);
@@ -84,67 +107,131 @@ export function SignUpWizard({ pendingToken, onComplete, onStartSelling, onBrows
     }
   };
 
-  const next = () => {
-    if (!stepValid()) return;
-    if (step < STEPS.length - 1) setStep(step + 1);
-    else void submit();
+  const handleContinue = () => {
+    if (!stepReady()) return;
+    if (currentStep === "review") {
+      void submit();
+    } else {
+      setStepIndex((i) => i + 1);
+    }
   };
 
-  /** When the user picks a ZIP via the combobox, also auto-derive the neighborhood. */
-  const handleZipChange = (newZip: string) => {
-    setZip(newZip);
-    const derived = ZIP_NEIGHBORHOOD[newZip];
-    if (derived) setNeighborhood(derived);
-  };
+  if (done) {
+    return (
+      <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 bg-canvas">
+        <div className="w-full max-w-md px-5">
+          <WelcomeStep
+            firstName={firstName.trim()}
+            onStartSelling={onStartSelling}
+            onBrowse={onBrowse}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  const isReady = stepReady();
+  const hint = HINT[currentStep];
 
   return (
-    <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 bg-canvas">
-      <div className="w-full max-w-sm bg-canvas border border-hairline rounded-md p-8 shadow-card">
-        {done ? (
-          <WelcomeStep firstName={firstName.trim()} onStartSelling={onStartSelling} onBrowse={onBrowse} />
-        ) : (
-          <>
-            <div className="flex gap-1.5 mb-6">
-              {STEPS.map((_, i) => (
-                <span key={i} className={`h-1 w-6 rounded-full ${i <= step ? "bg-primary" : "bg-hairline"}`} />
-              ))}
-            </div>
+    <section className="min-h-[calc(100vh-64px)] flex flex-col items-center justify-center px-4 bg-canvas py-10">
+      <div className="w-full max-w-md">
+        {/* ── Top bar: back button (hidden on step 0) ── */}
+        <div className="relative flex items-center justify-center h-[26px] mb-1.5">
+          {stepIndex > 0 && (
+            <button
+              type="button"
+              aria-label="Back"
+              onClick={() => setStepIndex((i) => i - 1)}
+              className="absolute left-0 w-[26px] h-[26px] rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-all"
+            >
+              <ChevronLeft className="w-[15px] h-[15px]" />
+            </button>
+          )}
+        </div>
 
-            {STEPS[step] === "name" && <NameStep firstName={firstName} lastName={lastName} onFirst={setFirstName} onLast={setLastName} />}
-            {STEPS[step] === "location" && (
-              <LocationStep
-                address={address} zip={zip} neighborhood={neighborhood} neighborhoods={neighborhoods}
-                onAddress={setAddress}
-                onSelectAddress={(label, z) => { setAddress(label); handleZipChange(z); }}
-                onZip={handleZipChange}
-                onNeighborhood={setNeighborhood}
-              />
-            )}
-            {STEPS[step] === "school" && (
-              <SchoolStep token={pendingToken} selected={schools}
-                onAdd={(s) => setSchools((prev) => (prev.length < 2 ? [...prev, s] : prev))}
-                onRemove={(id) => setSchools((prev) => prev.filter((s) => s.id !== id))} />
-            )}
-            {STEPS[step] === "circles" && (
-              <CirclesStep hasSchool={schools.length > 0} consent={consent}
-                onAnswer={(k, v) => setConsent((prev) => ({ ...prev, [k]: v }))} />
-            )}
+        {/* ── Typed headline — keyed by step so component remounts and re-types ── */}
+        <TypedHeadline text={HEADLINES[currentStep]} key={currentStep} />
 
-            {error && <p className="text-sm text-error mt-3">{error}</p>}
+        {/* ── Step content ── */}
+        <div className="max-w-md mx-auto mt-[22px]" style={{ animation: "wizardStepIn 300ms ease-out both" }}>
+          {currentStep === "name" && (
+            <NameStep
+              firstName={firstName}
+              lastName={lastName}
+              pronouns={pronouns}
+              onFirst={setFirstName}
+              onLast={setLastName}
+              onPronouns={setPronouns}
+            />
+          )}
+          {currentStep === "location" && (
+            <LocationStep
+              address={address}
+              city={city}
+              state={state}
+              neighborhood={neighborhood}
+              zip={zip}
+              addrSelected={addrSelected}
+              onChangeText={setAddress}
+              onSelect={(s) => {
+                setAddress(s.label);
+                setZip(s.zip);
+                setCity(s.city ?? "");
+                setState(s.state ?? "");
+                setNeighborhood(s.neighborhood ?? "");
+                setAddrSelected(true);
+              }}
+            />
+          )}
+          {currentStep === "school" && (
+            <SchoolStep
+              token={pendingToken}
+              selected={schools}
+              onAdd={(s) => setSchools((prev) => (prev.length < 2 && !prev.some((x) => x.id === s.id) ? [...prev, s] : prev))}
+              onRemove={(id) => setSchools((prev) => prev.filter((s) => s.id !== id))}
+            />
+          )}
+          {currentStep === "review" && (
+            <ReviewStep
+              firstName={firstName}
+              lastName={lastName}
+              pronouns={pronouns}
+              address={address}
+              neighborhood={neighborhood}
+              schools={schools}
+              termsAccepted={termsAccepted}
+              onTermsChange={setTermsAccepted}
+              onEdit={(idx) => setStepIndex(idx)}
+            />
+          )}
 
-            <Button onClick={next} disabled={!stepValid() || submitting} className="w-full mt-6 disabled:opacity-40">
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : step === STEPS.length - 1 ? "Finish" : "Continue"}
-            </Button>
-            <div className="flex justify-between mt-3 text-sm">
-              <button onClick={() => (step > 0 ? setStep(step - 1) : onCancel())} className="text-muted hover:text-ink">
-                {step > 0 ? "Back" : "Cancel"}
-              </button>
-              {STEPS[step] === "school" && (
-                <button onClick={() => setStep(step + 1)} className="text-muted hover:text-ink">Skip for now</button>
-              )}
-            </div>
-          </>
-        )}
+          {error && <p className="text-sm text-error mt-3 text-center">{error}</p>}
+        </div>
+
+        {/* ── CTA button + hint ── */}
+        <div className="max-w-md mx-auto mt-6">
+          <button
+            type="button"
+            onClick={handleContinue}
+            disabled={!isReady || submitting}
+            className="w-full text-center font-bold text-sm px-4 py-[13px] rounded-sm bg-primary text-on-primary border-none cursor-pointer disabled:bg-primary-disabled disabled:cursor-default transition-colors"
+          >
+            {submitting ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                Creating profile…
+              </span>
+            ) : currentStep === "review" ? (
+              "Create profile"
+            ) : (
+              "Continue"
+            )}
+          </button>
+          {!isReady && hint && (
+            <p className="text-center text-[10.5px] text-muted-soft mt-[9px]">{hint}</p>
+          )}
+        </div>
       </div>
     </section>
   );
