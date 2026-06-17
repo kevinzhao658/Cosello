@@ -28,3 +28,10 @@ design_handoff_cosello/
 # Brainstorm server runtime state — ephemeral process artifacts, not durable docs.
 # The content/*.html files stay tracked; the per-session state/ dir does not.
 docs/superpowers/brainstorm/*/state/
+
+# Large school bootstrap dataset — loaded once into the school_seed table, not
+# committed (hundreds of MB). The 20-row backend/data/us_higher_ed.csv sample stays tracked.
+backend/data/Most-Recent-Cohorts-Institution.csv
+
+# Supabase CLI temp/runtime artifacts.
+supabase/.temp/
