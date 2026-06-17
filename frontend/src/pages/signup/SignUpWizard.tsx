@@ -142,21 +142,7 @@ export function SignUpWizard({
 
   return (
     <section className="min-h-[calc(100vh-64px)] flex flex-col items-center px-4 bg-canvas pt-6 pb-16">
-      <div className="w-full max-w-md">
-        {/* ── Top bar: back button (hidden on step 0) ── */}
-        <div className="relative flex items-center justify-center h-[26px] mb-1.5">
-          {stepIndex > 0 && (
-            <button
-              type="button"
-              aria-label="Back"
-              onClick={() => setStepIndex((i) => i - 1)}
-              className="absolute left-0 w-[26px] h-[26px] rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-all"
-            >
-              <ChevronLeft className="w-[15px] h-[15px]" />
-            </button>
-          )}
-        </div>
-
+      <div className="w-full max-w-md pt-[82px]">
         {/* ── Step icon chip — above the headline, null on review step ── */}
         {STEP_ICONS[currentStep] !== null && (() => {
           const Icon = STEP_ICONS[currentStep] as LucideIcon;
@@ -166,6 +152,22 @@ export function SignUpWizard({
             </div>
           );
         })()}
+
+        {/* ── Back chevron — same markup as TypedInstruction's onBack chevron,
+            centered relative container mb-2 directly above the typed headline.
+            Hidden on step 0 (no back). ── */}
+        <div className="relative flex items-center justify-center mb-2">
+          {stepIndex > 0 && (
+            <button
+              type="button"
+              aria-label="Back"
+              onClick={() => setStepIndex((i) => i - 1)}
+              className="absolute left-0 size-6 rounded-full flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+          )}
+        </div>
 
         {/* ── Typed headline — keyed by step so component remounts and re-types ── */}
         <TypedHeadline text={HEADLINES[currentStep]} key={currentStep} />
