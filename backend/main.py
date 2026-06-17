@@ -25,6 +25,7 @@ from database import get_db
 from models import User, Community, CommunityMember, WishlistItem, WishlistFolder, PurchaseOrder, Notification, Listing
 from auth import get_current_user, get_optional_user
 from routers.auth import router as auth_router
+from routers.circles import router as circles_router
 from routers.communities import router as communities_router
 from routers.events import router as events_router
 from routers.friends import router as friends_router
@@ -55,6 +56,7 @@ app.add_middleware(
 
 # Include routes
 app.include_router(auth_router)
+app.include_router(circles_router)
 app.include_router(communities_router)
 app.include_router(events_router)
 app.include_router(friends_router)
