@@ -825,15 +825,11 @@ export default function App() {
           <SignUpPage
             pendingToken={pendingSignupToken}
             onComplete={(completedUser) => {
+              // Finalize the session so the user is authenticated, but do NOT
+              // navigate away here. The wizard renders the Welcome step next
+              // (setDone(true)), and navigation happens only when the user
+              // taps "Start selling" or "Browse for now" in that step.
               login(pendingSignupToken, completedUser);
-              setPendingSignupToken(null);
-              setPendingSignupUser(null);
-              if (pendingSellPublish) {
-                setPendingSellPublish(false);
-                setPage("newlisting");
-              } else {
-                setPage("account");
-              }
             }}
             onCancel={() => {
               // Sign out the Supabase session so the half-registered user
@@ -845,8 +841,18 @@ export default function App() {
                 setPage("home");
               });
             }}
-            onStartSelling={() => { setPage("newlisting"); }}
-            onBrowse={() => { setPage("market"); }}
+            onStartSelling={() => {
+              setPendingSignupToken(null);
+              setPendingSignupUser(null);
+              setPendingSellPublish(false);
+              setPage("newlisting");
+            }}
+            onBrowse={() => {
+              setPendingSignupToken(null);
+              setPendingSignupUser(null);
+              setPendingSellPublish(false);
+              setPage("market");
+            }}
           />
         </Suspense>
       )}
