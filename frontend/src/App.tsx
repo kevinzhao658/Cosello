@@ -845,6 +845,8 @@ export default function App() {
                 setPage("home");
               });
             }}
+            onStartSelling={() => { setPage("newlisting"); }}
+            onBrowse={() => { setPage("market"); }}
           />
         </Suspense>
       )}
