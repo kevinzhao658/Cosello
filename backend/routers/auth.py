@@ -10,6 +10,7 @@ from models import User
 from auth import get_current_user
 from services import storage
 from services.neighborhood import set_user_neighborhood
+from services.circles import set_user_building, add_user_school, set_circle_consent, TooManySchools
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -45,6 +46,10 @@ class RegisterRequest(BaseModel):
     neighborhood: str = Field(..., min_length=1, max_length=100)
     pickup_address: Optional[str] = Field(None, max_length=255)
     zip_code: Optional[str] = Field(None, max_length=10)
+    school_seed_ids: list[int] = []
+    share_building: bool = False
+    share_school: bool = False
+    share_mutual_friends: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -128,6 +133,25 @@ def register(
         set_user_neighborhood(db, existing, req.neighborhood)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Mutual-friends consent is a user-level flag.
+    existing.share_mutual_friends = bool(req.share_mutual_friends)
+
+    # Building circle, derived from the address; consent per req.share_building.
+    if req.pickup_address:
+        building = set_user_building(db, existing, req.pickup_address)
+        if building is not None:
+            set_circle_consent(db, existing.id, building.id, req.share_building)
+
+    # School circles (max 2, enforced by add_user_school); consent per req.share_school.
+    for seed_id in (req.school_seed_ids or [])[:2]:
+        try:
+            school = add_user_school(db, existing, seed_id)
+        except (TooManySchools, ValueError):
+            continue
+        set_circle_consent(db, existing.id, school.id, req.share_school)
+
+    db.commit()
 
     db.refresh(existing)
     return _user_to_out(db, existing)
