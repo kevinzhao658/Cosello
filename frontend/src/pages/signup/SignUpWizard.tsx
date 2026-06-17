@@ -141,7 +141,7 @@ export function SignUpWizard({
   const hint = HINT[currentStep];
 
   return (
-    <section className="min-h-[calc(100vh-64px)] flex flex-col items-center justify-center px-4 bg-canvas py-10">
+    <section className="min-h-[calc(100vh-64px)] flex flex-col items-center px-4 bg-canvas pt-6 pb-16">
       <div className="w-full max-w-md">
         {/* ── Top bar: back button (hidden on step 0) ── */}
         <div className="relative flex items-center justify-center h-[26px] mb-1.5">
