@@ -203,7 +203,6 @@ export function SignUpWizard({
           )}
           {currentStep === "school" && (
             <SchoolStep
-              token={pendingToken}
               selected={schools}
               onAdd={(s) => setSchools((prev) => (prev.length < 2 && !prev.some((x) => x.id === s.id) ? [...prev, s] : prev))}
               onRemove={(id) => setSchools((prev) => prev.filter((s) => s.id !== id))}

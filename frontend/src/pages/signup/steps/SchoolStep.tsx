@@ -6,15 +6,14 @@ import { MapPin, ShieldCheck } from "lucide-react";
 import { useSchoolSearch, type School } from "../../../lib/useSchoolSearch";
 
 export interface SchoolStepProps {
-  token: string;
   selected: School[];
   onAdd: (s: School) => void;
   onRemove: (id: number) => void;
 }
 
-export function SchoolStep({ token, selected, onAdd, onRemove }: SchoolStepProps) {
+export function SchoolStep({ selected, onAdd, onRemove }: SchoolStepProps) {
   const [query, setQuery] = useState("");
-  const results = useSchoolSearch(query, token).filter(
+  const results = useSchoolSearch(query).filter(
     (r) => !selected.some((s) => s.id === r.id),
   );
   const full = selected.length >= 2;
