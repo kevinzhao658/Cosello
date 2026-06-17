@@ -71,6 +71,8 @@ Steps:
 
 → **Welcome** screen: primary CTA **"Start selling"** (into the sell wizard), secondary "Browse for now." Biases new users toward listing.
 
+**Auth lifecycle (added 2026-06-17):** the user is **not** treated as signed in during the wizard — registration only completes (and `login()` fires) on "Create profile". **Any navigation away or disruption mid-wizard abandons registration and signs the Supabase OTP session out** — no completed profile is created and the header shows signed-out throughout. (No more force-trapping incomplete-profile users on the signup page; `App.tsx` abandon-on-leave effect, commit `357dfd6`.)
+
 ### 5b. Marketplace feed
 
 - Listing card byline = the fixed three-slot grammar (§4). Lit on revealed-mutual, faded otherwise, no faded tooltips, mutual-friends count when lit.
