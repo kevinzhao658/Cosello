@@ -35,3 +35,6 @@ backend/data/Most-Recent-Cohorts-Institution.csv
 
 # Supabase CLI temp/runtime artifacts.
 supabase/.temp/
+
+# Stray screenshots dropped at the repo root (durable design refs live in docs/).
+Screenshot*.png
