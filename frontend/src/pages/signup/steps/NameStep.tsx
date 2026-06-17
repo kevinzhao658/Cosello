@@ -1,7 +1,6 @@
 // frontend/src/pages/signup/steps/NameStep.tsx
 // Name step: labeled First/Last inputs + pronouns select (revealed when both names filled).
 // TypedHeadline and icon chip are rendered by SignUpWizard shell.
-import { User } from "lucide-react";
 
 const PRONOUN_OPTIONS = [
   { value: "", label: "Select pronouns" },
@@ -27,11 +26,6 @@ export function NameStep({ firstName, lastName, pronouns, onFirst, onLast, onPro
 
   return (
     <div>
-      {/* Icon chip */}
-      <div className="w-[38px] h-[38px] rounded-lg bg-primary-soft text-primary-text flex items-center justify-center mx-auto mb-3">
-        <User className="w-5 h-5" />
-      </div>
-
       {/* First + Last — side by side */}
       <div className="flex gap-[10px]">
         <div className="flex-1 min-w-0">

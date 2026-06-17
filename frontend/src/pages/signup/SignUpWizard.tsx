@@ -2,7 +2,7 @@
 // Sell-wizard–chrome registration flow: Name → Location → School → Review → Welcome.
 // ALL field state is lifted here so Back/Edit never resets anything.
 import { useState } from "react";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2, User, Building2, GraduationCap, type LucideIcon } from "lucide-react";
 import { TypedHeadline } from "../../components/TypedHeadline";
 import type { AuthUser } from "../../contexts/AuthContext";
 import type { School } from "../../lib/useSchoolSearch";
@@ -28,6 +28,13 @@ const HEADLINES: Record<StepKey, string> = {
   location: "Where are you based?",
   school: "What school are you from?",
   review: "Does everything look good?",
+};
+
+const STEP_ICONS: Record<StepKey, LucideIcon | null> = {
+  name:     User,
+  location: Building2,
+  school:   GraduationCap,
+  review:   null,
 };
 
 export function SignUpWizard({
@@ -149,6 +156,16 @@ export function SignUpWizard({
             </button>
           )}
         </div>
+
+        {/* ── Step icon chip — above the headline, null on review step ── */}
+        {STEP_ICONS[currentStep] !== null && (() => {
+          const Icon = STEP_ICONS[currentStep] as LucideIcon;
+          return (
+            <div className="w-[38px] h-[38px] rounded-lg bg-primary-soft text-primary-text flex items-center justify-center mx-auto mb-3">
+              <Icon className="w-5 h-5" />
+            </div>
+          );
+        })()}
 
         {/* ── Typed headline — keyed by step so component remounts and re-types ── */}
         <TypedHeadline text={HEADLINES[currentStep]} key={currentStep} />

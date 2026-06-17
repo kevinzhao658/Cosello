@@ -1,7 +1,7 @@
 // frontend/src/pages/signup/steps/LocationStep.tsx
 // Location step: address autocomplete → revealed read-only city/state/neighborhood/zip,
 // building disclosure always shown. Icon chip + TypedHeadline are in the wizard shell.
-import { Building2, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { AddressAutocompleteInput } from "../../../components/AddressAutocompleteInput";
 import type { AddressSuggestion } from "../../../lib/mapboxSearch";
 
@@ -32,11 +32,6 @@ export function LocationStep({
 }: LocationStepProps) {
   return (
     <div>
-      {/* Icon chip */}
-      <div className="w-[38px] h-[38px] rounded-lg bg-primary-soft text-primary-text flex items-center justify-center mx-auto mb-3">
-        <Building2 className="w-5 h-5" />
-      </div>
-
       {/* Street address autocomplete */}
       <div className="text-[11px] font-semibold text-muted-soft mb-[5px]">Street address</div>
       <AddressAutocompleteInput

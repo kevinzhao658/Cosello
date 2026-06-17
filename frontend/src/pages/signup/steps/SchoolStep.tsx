@@ -2,7 +2,7 @@
 // School step: search + pills below search bar (search hidden at 2). School disclosure always shown.
 // Icon chip + TypedHeadline are in the wizard shell.
 import { useState } from "react";
-import { GraduationCap, MapPin, ShieldCheck } from "lucide-react";
+import { MapPin, ShieldCheck } from "lucide-react";
 import { useSchoolSearch, type School } from "../../../lib/useSchoolSearch";
 
 export interface SchoolStepProps {
@@ -21,11 +21,6 @@ export function SchoolStep({ token, selected, onAdd, onRemove }: SchoolStepProps
 
   return (
     <div>
-      {/* Icon chip */}
-      <div className="w-[38px] h-[38px] rounded-lg bg-primary-soft text-primary-text flex items-center justify-center mx-auto mb-3">
-        <GraduationCap className="w-5 h-5" />
-      </div>
-
       <div className="text-[11px] font-semibold text-muted-soft mb-[5px]">Schools</div>
 
       {/* Search input — hidden when 2 schools selected */}
