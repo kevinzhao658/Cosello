@@ -47,7 +47,7 @@ export function TypedHeadline({ text }: TypedHeadlineProps) {
       className="text-center"
       style={{ animation: "wizardStepIn 300ms ease-out both" }}
     >
-      <p className="text-3xl sm:text-4xl font-extrabold text-ink leading-[1.05] tracking-display">
+      <p className="text-4xl sm:text-5xl font-extrabold text-ink leading-[1.05] tracking-display">
         {typed}
         {isTyping && (
           <span className="text-primary motion-safe:animate-pulse">|</span>
