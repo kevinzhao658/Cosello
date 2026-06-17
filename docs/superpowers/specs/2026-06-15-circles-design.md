@@ -29,11 +29,17 @@ Sellers no longer choose where to "post." A listing inherits the seller's circle
 
 ## 3. Consent model
 
-- **Per-circle opt-in.** Each circle has its own visibility toggle (`share_with_mutuals`).
-- **Default: nothing shared.** Forced active choice at registration (no skippable default on the consent step) so the launch opt-in metric measures genuine intent.
-- **Opt in →** the circle *activates* (lights up) when a mutual views the seller's listings.
-- **Opt out →** the circle stays *permanently faded*, even when a mutual views the listing.
-- **Launch metric:** track per-circle opt-in rate (% of users enabling building / school / mutual friends).
+**Revised 2026-06-17 (post-design-iteration): sharing is default-on, disclosed inline, opt-out in Settings** — not a per-circle opt-in. A separate opt-in checkbox at signup tested as too much friction/confusion; the chosen model minimizes friction while staying transparent.
+
+- **Default-on, disclosed at capture.** Circle sharing (building, school, mutual friends) is ON by default for a new account, disclosed via an inline notice on the Location and School steps (not a checkbox). Users adjust or disable any circle anytime in My Account → Circles (Phase 5). The granular per-circle control lives there.
+- **Registration sets consent true.** When `register` creates the building/school memberships it sets `share_with_mutuals = true`, and sets `users.share_mutual_friends = true`. The `community_members.share_with_mutuals` column default stays `false` (safe for rows created elsewhere); registration sets it explicitly.
+- **Terms acceptance required.** The review step requires an explicit "I agree to the Terms & Conditions and Privacy Policy" checkbox before the account is created.
+- **Display:** a shared circle activates (lights up) when a mutual views the seller's listings; otherwise it stays faded (uniform, no leak — §4).
+- **Launch metric:** since everyone starts shared, track the **opt-out** rate per circle (% who disable each in Settings), not opt-in.
+
+Disclosure copy:
+- Building (Location step): *"Your exact address stays private. We'll let others in your building know you're neighbors, so it's easier to sell to people you trust. You can change this in Settings."*
+- School (School step): *"We'll let others from your school know you attended too, so it's easier to sell to people you trust. You can change this in Settings."*
 
 ## 4. Display grammar — fixed faded slots
 
@@ -47,18 +53,23 @@ The listing-card byline (above the photo, replacing the old hero-community bylin
 
 ## 5. Surfaces
 
-### 5a. Registration — 4-step wizard + welcome
+### 5a. Registration — wizard embedded in the sell-wizard chrome
 
-Today registration is a single form (`SignUpPage.tsx`) collecting name, street address, neighborhood, ZIP via `POST /api/auth/register`. There is no auth credential step (real auth is the Twilio backlog, out of scope). Segment it into:
+**Revised 2026-06-17.** Registration is rebuilt to match the existing sell wizard so it drops into that flow for signed-out users. Today registration is a single form (`SignUpPage.tsx`); real auth credentials are the Twilio backlog (out of scope). Chrome (mirrors `TypedInstruction.tsx` + the sell-wizard layout):
 
-1. **Name** — first + last.
-2. **Location** — street address autocomplete; **neighborhood + ZIP auto-derived** from the address via Mapbox reverse-geocoding (Manhattan gate enforced here); derives the **building** circle. Disclosure copy: *"Your address always stays private, unless you choose to share it with mutuals or confirmed buyers."*
-3. **School** — search and select from the seed list; up to 2; **optional with Skip**. Copy: *"We use this to connect you with other students or alumni from your university."*
-4. **Circles consent** — the Yes/No clicker, **only for circles the user actually has** (skip school → building + mutual friends only). Per-circle question "Show to {people} from your {circle}", Yes/No answers, live preview byline that lights the slot on Yes, Back navigation between steps, forced choice (Continue locked until answered).
+- **Typed headline** per step — `text-4xl sm:text-5xl`, `font-extrabold`, `tracking-display`; types char-by-char (28ms after a 320ms delay); pulsing primary caret that stops when typing completes; wrapped in the global `wizardStepIn` animation. A reusable `TypedHeadline` component (generalized from `TypedInstruction`).
+- **Back button** above the headline (the sell-wizard ringed chevron), shown on every step after the first.
+- **No progress bar.** A centered `max-w-md` column on the app shell, no modal card.
+- Each step opens with a primary-soft **icon chip** (user / building / graduation-cap) above the headline. No body commentary.
+- **State persists** across Back/Edit navigation — nothing resets.
 
-→ **Welcome** screen: primary CTA **"Start selling"** (into the sell wizard), secondary "Browse for now." Deliberately biases new users toward listing.
+Steps:
+1. **Name** — labeled First + Last; **Continue gated** until both are filled. An optional **Pronouns** dropdown (she/her, he/him, they/them, she/they, he/they, Prefer not to say) **reveals once both names are entered**.
+2. **Location** — labeled Street-address autocomplete. Selecting a valid address **reveals and auto-populates City / State / Neighborhood / ZIP** (read-only, from the Mapbox geocode of the selection); derives the **building** circle; Manhattan gate enforced. **Continue gated** until a valid address is selected. The building disclosure (§3) shows at all times.
+3. **School** — labeled search; selecting saves the school as a **pill below the search** (up to 2; at 2 the search bar disappears). No graduation year / status. Optional (not gated). The school disclosure (§3) shows.
+4. **Review — "Does everything look good?"** — a summary card with three rows (Name + pronouns if set, Location, Schools), each with an **Edit** button jumping to that step. A single **Terms & Conditions** checkbox (required) gates **"Create profile"**. No share-circle checkbox, no preview byline (consent is default-on, disclosed on steps 2–3). The checkbox toggles in place (no re-render).
 
-Consent clicker copy: prompt *"Would you like mutuals to view your circles?"*; blurb *"Sharing a circle reveals it only when others in the same circle are viewing your listings."*
+→ **Welcome** screen: primary CTA **"Start selling"** (into the sell wizard), secondary "Browse for now." Biases new users toward listing.
 
 ### 5b. Marketplace feed
 
@@ -83,11 +94,12 @@ Consent clicker copy: prompt *"Would you like mutuals to view your circles?"*; b
 - **Models:** `Circle` (type: building | school, identifier), `CircleMembership` (user_id, circle_id, `share_with_mutuals`). Building = normalized address entity; School = seed-table row. Mutual friends reuses the friend graph (no membership rows).
 - **Seed:** US higher-ed institutions table (one-time bootstrap).
 - **Endpoints:**
-  - `register` extended: derive building from address, accept up to 2 school claims, capture per-circle consent flags.
+  - `register` extended: capture `pronouns`; derive building from address; accept up to 2 school claims; **set consent flags to true** (default-on model, §3) — no per-circle consent input from the client.
   - Circles management (My Account): toggle visibility, add/remove schools.
   - Feed/listing enrichment: for each listing + viewer, compute revealed-mutual circles — building match, school match, mutual-friend count — gated by the seller's `share_with_mutuals` per circle.
+- **New user column:** `pronouns` (nullable string) on `users`; surfaced on the profile.
 - **Retire:** seller-picks path (`CommunityPicker`, `selectedCommunityIds`, the `communities` form field on create-listing). `Listing.communities` column becomes legacy.
-- **Geocoding:** neighborhood auto-derive uses existing Mapbox (geotag Phase 2), not a new dependency.
+- **Geocoding:** the Location step's City/State/Neighborhood/ZIP come from the Mapbox geocode of the selected address — `mapboxSearch.ts` `AddressSuggestion` / `onSelect` is extended to carry `city`, `state`, `neighborhood` (it already carries `zip`). Uses existing Mapbox (geotag Phase 2), not a new dependency. (City/State are effectively fixed to New York/NY for the Manhattan MVP but are captured + displayed.)
 
 ## 7. Out of scope / backlog
 

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cosello — registration final flow</title>
+<style>
+  :root {
+    --canvas:#FFFFFF; --surface-soft:#F6F4FB; --surface-strong:#EFEBF8;
+    --primary:#7C3AED; --primary-hover:#6D28D9; --primary-soft:#EDE7FB; --primary-tint:#E3D9F9; --primary-text:#6D28D9; --primary-disabled:#D9CCF5;
+    --ink:#14101F; --body:#3F3A4D; --muted:#6B6577; --muted-soft:#9A93A6;
+    --hairline:#E7E3F0; --border-strong:#C9C2DB; --on-primary:#FFFFFF; --legal-link:#6D28D9;
+    --shadow-overlay:0 16px 40px rgba(20,16,31,.16), 0 2px 8px rgba(20,16,31,.08);
+    --tracking-display:-1.5px;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:#FFFFFF; color:var(--body); font-family:'Inter', system-ui, sans-serif; }
+  body { padding:28px 20px 44px; }
+  .note { max-width:760px; margin:0 auto 20px; color:var(--muted); font-size:13px; text-align:center; }
+  .note b { color:var(--ink); }
+
+  .browser { max-width:760px; margin:0 auto; border:1px solid var(--hairline); border-radius:12px; overflow:hidden; background:var(--canvas); box-shadow:var(--shadow-overlay); }
+  .browser-bar { display:flex; align-items:center; gap:8px; padding:10px 14px; background:var(--surface-soft); border-bottom:1px solid var(--hairline); }
+  .tl { width:11px; height:11px; border-radius:9999px; } .tl.r{background:#ff5f57}.tl.y{background:#febc2e}.tl.g{background:#28c840}
+  .addr { margin-left:10px; flex:1; background:var(--canvas); border:1px solid var(--hairline); border-radius:6px; font-size:11px; color:var(--muted-soft); padding:5px 12px; }
+  .shell { padding:34px 20px 36px; }
+
+  /* back button — sell-wizard style: small ringed circle, centered above headline */
+  .topbar { position:relative; display:flex; align-items:center; justify-content:center; height:26px; margin-bottom:6px; }
+  .back { position:absolute; left:0; width:26px; height:26px; border-radius:9999px; border:none; background:none; color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
+  .back:hover { color:var(--ink); background:var(--surface-soft); }
+  .back svg { width:15px; height:15px; }
+
+  .step-ico { width:38px; height:38px; border-radius:8px; background:var(--primary-soft); color:var(--primary-text); display:flex; align-items:center; justify-content:center; margin:0 auto 12px; }
+  .step-ico svg { width:20px; height:20px; }
+  .headline-wrap { text-align:center; }
+  .headline { font-size:34px; font-weight:800; color:var(--ink); line-height:1.05; letter-spacing:var(--tracking-display); margin:0; }
+  @media (min-width:640px){ .headline { font-size:46px; } }
+  .caret { color:var(--primary); animation:blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  .content { max-width:28rem; margin:22px auto 0; animation:stepIn .3s ease-out both; }
+  @keyframes stepIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .commentary { text-align:center; font-size:13px; color:var(--muted); margin:0 0 20px; line-height:1.5; }
+
+  .minput { width:100%; border:1.5px solid var(--border-strong); border-radius:4px; padding:11px 13px; font-size:14px; color:var(--ink); background:#fff; margin-bottom:10px; font-family:inherit; }
+  .minput::placeholder { color:var(--muted-soft); }
+  .row2 { display:flex; gap:10px; } .row2 .minput { margin-bottom:0; }
+  .row2 > div { flex:1; min-width:0; }
+  .field { margin-bottom:10px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .chip { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--ink); background:var(--surface-soft); border:1px solid var(--hairline); border-radius:9999px; padding:6px 7px 6px 13px; }
+  .chip button { border:none; background:var(--surface-strong); color:var(--muted); width:18px; height:18px; border-radius:9999px; cursor:pointer; }
+
+  .addr-wrap { position:relative; }
+  .sugg { position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--canvas); border:1px solid var(--hairline); border-radius:6px; box-shadow:var(--shadow-overlay); z-index:20; display:none; overflow:hidden; }
+  .sugg.open { display:block; }
+  .sugg button { width:100%; text-align:left; border:none; background:none; padding:11px 13px; font-size:13px; color:var(--ink); cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:9px; }
+  .sugg button:hover { background:var(--surface-soft); }
+  .sugg svg { width:15px; height:15px; color:var(--muted-soft); flex:none; }
+  .reveal-block { display:none; }
+  .reveal-block.show { display:block; animation:stepIn .25s ease-out both; }
+  .fgrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:4px; margin-bottom:2px; }
+  .fgrid .minput { margin-bottom:0; }
+  .flabel { font-size:11px; color:var(--muted-soft); margin-bottom:5px; font-weight:600; }
+  .minput.ro { background:var(--surface-soft); color:var(--body); }
+  .opt { font-weight:500; color:var(--muted-soft); }
+  .srow2 { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--hairline); }
+  .sico-sm { width:30px; height:30px; border-radius:7px; background:var(--surface-soft); color:var(--primary-text); display:flex; align-items:center; justify-content:center; flex:none; }
+  .sico-sm svg { width:16px; height:16px; }
+  .school-name { flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gradsel { width:auto; min-width:142px; margin-bottom:0; padding:8px 34px 8px 11px; font-size:12.5px; flex:none; }
+  .x-btn { flex:none; border:none; background:var(--surface-strong); color:var(--muted); width:22px; height:22px; border-radius:9999px; cursor:pointer; }
+  .x-btn:hover { color:var(--ink); }
+  .schoolMax { font-size:11px; color:var(--muted-soft); margin:10px 2px 0; }
+  .seg { display:inline-flex; border:1.5px solid var(--border-strong); border-radius:6px; overflow:hidden; flex:none; }
+  .seg-b { border:none; background:var(--canvas); color:var(--muted); font-family:inherit; font-size:12px; font-weight:600; padding:7px 13px; cursor:pointer; }
+  .seg-b.on { background:var(--primary); color:var(--on-primary); }
+  .seg-b + .seg-b { border-left:1.5px solid var(--border-strong); }
+  .mselect { appearance:none; -webkit-appearance:none; cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239A93A6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 12px center; background-size:16px; padding-right:38px; }
+
+  /* inline disclosure callout */
+  .disclosure { display:flex; gap:9px; align-items:flex-start; margin-top:16px; padding:11px 13px; border:1px solid var(--hairline); background:var(--surface-soft); border-radius:8px; }
+  .disclosure svg { width:15px; height:15px; color:var(--primary-text); flex:none; margin-top:1px; }
+  .disclosure p { margin:0; font-size:11.5px; color:var(--muted); line-height:1.5; }
+  .disclosure b { color:var(--body); font-weight:600; }
+
+  /* review summary */
+  .summary { border:1px solid var(--hairline); border-radius:8px; overflow:hidden; margin-bottom:18px; }
+  .srow { display:flex; align-items:center; gap:12px; padding:13px 15px; }
+  .srow + .srow { border-top:1px solid var(--hairline); }
+  .sico { width:30px; height:30px; border-radius:7px; background:var(--surface-soft); color:var(--primary-text); display:flex; align-items:center; justify-content:center; flex:none; }
+  .sico svg { width:16px; height:16px; }
+  .sbody { flex:1; min-width:0; }
+  .slabel { font-size:11px; color:var(--muted-soft); text-transform:uppercase; letter-spacing:.04em; }
+  .sval { font-size:13.5px; color:var(--ink); font-weight:600; }
+  .pron { font-weight:500; color:var(--muted); }
+  .edit { flex:none; display:inline-flex; align-items:center; gap:5px; border:none; background:none; cursor:pointer; color:var(--muted); font-family:inherit; font-size:12px; font-weight:600; padding:5px 7px; border-radius:6px; }
+  .edit:hover { color:var(--primary-text); background:var(--primary-soft); }
+  .edit svg { width:13px; height:13px; }
+
+  .preview-cap { text-align:center; font-size:11px; font-weight:600; color:var(--muted); margin:0 0 10px; }
+  .byline { display:flex; justify-content:space-evenly; align-items:center; height:28px; margin-bottom:22px; }
+  .slot { color:var(--muted-soft); opacity:.3; } .slot.lit { color:var(--primary); opacity:1; }
+  .slot svg { width:19px; height:19px; }
+
+  .check { display:flex; gap:11px; align-items:flex-start; cursor:pointer; margin-bottom:4px; }
+  .box { width:20px; height:20px; border-radius:5px; border:1.5px solid var(--border-strong); flex:none; display:flex; align-items:center; justify-content:center; margin-top:1px; transition:all .15s; background:var(--canvas); }
+  .box svg { width:13px; height:13px; color:#fff; opacity:0; }
+  .check.on .box { background:var(--primary); border-color:var(--primary); }
+  .check.on .box svg { opacity:1; }
+  .ctext { font-size:12.5px; color:var(--body); line-height:1.45; }
+  .ctext a { color:var(--legal-link); font-weight:600; text-decoration:none; }
+
+  .cta { margin:24px auto 0; max-width:28rem; }
+  .btn { width:100%; text-align:center; font-weight:700; font-size:14px; padding:13px; border-radius:4px; background:var(--primary); color:#fff; border:none; cursor:pointer; }
+  .btn:disabled { background:var(--primary-disabled); cursor:default; }
+  .hint { text-align:center; font-size:10.5px; color:var(--muted-soft); margin-top:9px; }
+</style>
+</head>
+<body>
+  <p class="note">Final flow: sell-wizard chrome, <b>back button</b> above the headline, inline <b>disclosures</b> on Location &amp; School (sharing is default-on, adjustable in Settings), and a Review page with only the Terms checkbox.</p>
+
+  <div class="browser">
+    <div class="browser-bar">
+      <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+      <span class="addr">cosello.app/sell</span>
+    </div>
+    <div class="shell">
+      <div class="topbar">
+        <button class="back" id="back" onclick="back()" style="visibility:hidden" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+      </div>
+      <div class="headline-wrap">
+        <div id="stepIco"></div>
+        <p class="headline"><span id="typed"></span><span class="caret" id="caret">|</span></p>
+      </div>
+      <div class="content" id="content"></div>
+      <div class="cta"><button class="btn" id="cta" onclick="next()">Continue</button><p class="hint" id="hint" style="display:none"></p></div>
+    </div>
+  </div>
+
+<script>
+  var ICONS = {
+    building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>',
+    school: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.42 10.92a1 1 0 0 0-.02-1.84L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.83l8.57 3.91a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg>',
+    friends: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"/><path d="m9 12 2 2 4-4"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
+  };
+
+  function discl(text){
+    return '<div class="disclosure">'+ICONS.shield+'<p>'+text+'</p></div>';
+  }
+  function gradYearOptions(sel){ sel = sel || 'Currently attending'; var opts=['Currently attending']; for (var y=2026; y>=1980; y--) opts.push(String(y)); var o=''; for (var i=0;i<opts.length;i++){ o+='<option'+(opts[i]===sel?' selected':'')+'>'+opts[i]+'</option>'; } return o; }
+
+  var STEPS = [
+    { headline:"What's your name?", icon:"user", commentary:"",
+      content:'<div class="row2"><div><div class="flabel">First name</div><input class="minput" id="fname" placeholder="First" oninput="checkName()"></div><div><div class="flabel">Last name</div><input class="minput" id="lname" placeholder="Last" oninput="checkName()"></div></div>'
+        + '<div class="reveal-block" id="pronounReveal" style="margin-top:12px;"><div class="flabel">Pronouns<span class="opt">· optional</span></div>'
+        + '<select class="minput mselect" id="pronoun" onchange="pronouns=this.value"><option value="">Select pronouns</option><option>she/her</option><option>he/him</option><option>they/them</option><option>she/they</option><option>he/they</option><option>Prefer not to say</option></select></div>', gate:'name' },
+    { headline:"Where are you based?", icon:"building", commentary:"",
+      content:
+        '<div class="flabel">Street address</div>'
+        + '<div class="addr-wrap">'
+        + '<input class="minput" id="addr" placeholder="Start typing your address" oninput="showSugg()" onfocus="showSugg()" autocomplete="off">'
+        + '<div class="sugg" id="sugg"><button type="button" onclick="selectAddr()">'
+        +   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>'
+        +   '123 W 21st St, New York, NY 10011</button></div>'
+        + '</div>'
+        + '<div class="reveal-block" id="addrReveal">'
+        +   '<div class="fgrid">'
+        +     '<div><div class="flabel">City</div><input class="minput ro" value="New York" readonly></div>'
+        +     '<div><div class="flabel">State</div><input class="minput ro" value="NY" readonly></div>'
+        +     '<div><div class="flabel">Neighborhood</div><input class="minput ro" value="Chelsea" readonly></div>'
+        +     '<div><div class="flabel">ZIP</div><input class="minput ro" value="10011" readonly></div>'
+        +   '</div>'
+        + '</div>'
+        + discl('Your exact address stays private. We\'ll let others <b>in your building</b> know you\'re neighbors, so it\'s easier to sell to people you trust. You can change this in Settings.'),
+      gate:'addr' },
+    { headline:"What school are you from?", icon:"school", commentary:"",
+      content:'<div class="flabel">Schools</div>'
+        + '<div class="addr-wrap" id="schoolWrap"><input class="minput" id="school" placeholder="Search your school" oninput="showSchoolSugg()" onfocus="showSchoolSugg()" autocomplete="off">'
+        + '<div class="sugg" id="schoolSugg"><button type="button" onclick="selectSchool(\'New York University\')">'+ICONS.school+'New York University</button><button type="button" onclick="selectSchool(\'Columbia University\')">'+ICONS.school+'Columbia University</button><button type="button" onclick="selectSchool(\'University of Michigan\')">'+ICONS.school+'University of Michigan</button></div></div>'
+        + '<div id="schoolList"></div>'
+        + discl('We\'ll let others <b>from your school</b> know you attended too, so it\'s easier to sell to people you trust. You can change this in Settings.') },
+    { headline:"Does everything look good?", icon:null, commentary:"", review:true }
+  ];
+
+  var step = 0, c1 = false, addrSelected = false, nameValid = false, typingTimer = null, delayTimer = null, schools = [], fname = '', lname = '', pronouns = '', addrLabel = '';
+  function $(id){ return document.getElementById(id); }
+
+  function reviewContent(){
+    return ''
+      + '<div class="summary">'
+      +   '<div class="srow"><span class="sico">'+ICONS.user+'</span><span class="sbody"><div class="slabel">Name</div><div class="sval">'+((fname+' '+lname).trim()||'Not set')+((pronouns && pronouns!=='Prefer not to say')?' <span class="pron">· '+pronouns+'</span>':'')+'</div></span><button class="edit" onclick="goTo(0)">'+ICONS.pencil+' Edit</button></div>'
+      +   '<div class="srow"><span class="sico">'+ICONS.building+'</span><span class="sbody"><div class="slabel">Location</div><div class="sval">Chelsea · 123 W 21st St</div></span><button class="edit" onclick="goTo(1)">'+ICONS.pencil+' Edit</button></div>'
+      +   '<div class="srow"><span class="sico">'+ICONS.school+'</span><span class="sbody"><div class="slabel">Schools</div><div class="sval">'+(schools.length?schools.map(function(s){return s.name;}).join(', '):'None added')+'</div></span><button class="edit" onclick="goTo(2)">'+ICONS.pencil+' Edit</button></div>'
+      + '</div>'
+      + '<label class="check'+(c1?' on':'')+'" onclick="toggleC1()"><span class="box">'+ICONS.check+'</span><span class="ctext">By creating a profile, I agree to the <a href="#">Terms &amp; Conditions</a> and <a href="#">Privacy Policy</a>.</span></label>';
+  }
+
+  function typeHeadline(text){
+    clearTimeout(delayTimer); clearInterval(typingTimer);
+    $('typed').textContent = ''; $('caret').style.display = 'inline';
+    var i = 0;
+    delayTimer = setTimeout(function(){
+      typingTimer = setInterval(function(){ i++; $('typed').textContent = text.slice(0,i); if (i>=text.length){ clearInterval(typingTimer); $('caret').style.display='none'; } }, 28);
+    }, 320);
+  }
+
+  function render(){
+    var s = STEPS[step];
+    $('back').style.visibility = step > 0 ? 'visible' : 'hidden';
+    $('stepIco').innerHTML = s.icon ? '<div class="step-ico">'+ICONS[s.icon]+'</div>' : '';
+    typeHeadline(s.headline);
+    $('content').innerHTML = (s.commentary ? '<p class="commentary">'+s.commentary+'</p>' : '') + (s.review ? reviewContent() : s.content);
+    $('content').style.animation = 'none'; void $('content').offsetWidth; $('content').style.animation = '';
+    // restore saved values into the freshly-rendered fields so nothing vanishes
+    if (s.gate === 'name'){
+      if ($('fname')) $('fname').value = fname;
+      if ($('lname')) $('lname').value = lname;
+      if ($('pronoun')) $('pronoun').value = pronouns;
+      nameValid = !!(fname.trim() && lname.trim());
+      if (nameValid && $('pronounReveal')) $('pronounReveal').classList.add('show');
+    }
+    if (s.gate === 'addr' && addrSelected){
+      if ($('addr')) $('addr').value = addrLabel;
+      if ($('addrReveal')) $('addrReveal').classList.add('show');
+    }
+    renderSchools();
+    var review = !!s.review;
+    $('cta').textContent = review ? 'Create profile' : 'Continue';
+    var disabled = (review && !c1) || (s.gate === 'addr' && !addrSelected) || (s.gate === 'name' && !nameValid);
+    $('cta').disabled = disabled;
+    $('hint').style.display = disabled ? 'block' : 'none';
+    $('hint').textContent = review ? 'Agree to the Terms & Conditions to continue'
+      : s.gate === 'name' ? 'Enter your first and last name to continue'
+      : 'Select your address to continue';
+  }
+
+  function next(){ if (step < STEPS.length-1){ step++; render(); } }
+  function back(){ if (step > 0){ step--; render(); } }
+  function goTo(i){ step = i; render(); }
+  function toggleC1(){
+    c1 = !c1;
+    var box = document.querySelector('.check'); if (box) box.classList.toggle('on', c1);
+    var c=$('cta'); if (c) c.disabled = !c1;
+    var h=$('hint'); if (h) h.style.display = c1 ? 'none' : 'block';
+  }
+  function showSugg(){ var s=$('sugg'), a=$('addr'); if (s && a && a.value.trim()) s.classList.add('open'); }
+  function selectAddr(){ var a=$('addr'), s=$('sugg'), r=$('addrReveal'); addrLabel='123 W 21st St'; if (a) a.value=addrLabel; if (s) s.classList.remove('open'); if (r) r.classList.add('show'); addrSelected=true; var c=$('cta'); if (c) c.disabled=false; var h=$('hint'); if (h) h.style.display='none'; }
+  function checkName(){ var f=$('fname'), l=$('lname'), p=$('pronoun'), r=$('pronounReveal'); if (f) fname=f.value; if (l) lname=l.value; if (p) pronouns=p.value; var ok = !!(fname.trim() && lname.trim()); if (r) r.classList.toggle('show', ok); nameValid = ok; var c=$('cta'); if (c) c.disabled = !ok; var h=$('hint'); if (h) h.style.display = ok ? 'none' : 'block'; }
+  function showSchoolSugg(){ var s=$('schoolSugg'), a=$('school'); if (s && a && a.value.trim()) s.classList.add('open'); }
+  function renderSchools(){
+    var list=$('schoolList'); if (!list) return;
+    var html='';
+    if (schools.length){
+      html = '<div class="chips" style="margin:12px 0;">';
+      for (var i=0;i<schools.length;i++){
+        html += '<span class="chip">'+schools[i].name+' <button type="button" onclick="removeSchool('+i+')">&times;</button></span>';
+      }
+      html += '</div>';
+    }
+    list.innerHTML=html;
+    var full = schools.length>=2;
+    var w=$('schoolWrap'); if (w) w.style.display = full?'none':'block';
+    var inp=$('school'); if (inp) inp.value='';
+    var sg=$('schoolSugg'); if (sg) sg.classList.remove('open');
+  }
+  function selectSchool(name){ if (schools.length>=2 || schools.some(function(s){return s.name===name;})) return; schools.push({name:name}); renderSchools(); }
+  function removeSchool(i){ schools.splice(i,1); renderSchools(); }
+
+  render();
+</script>
+</body>
+</html>
