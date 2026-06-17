@@ -406,19 +406,23 @@ export default function App() {
     }
   }, [isAuthenticated, page, pendingSignupToken]);
 
-  // If a live session still needs registration, backfill pendingSignupToken
-  // from the session token (lost on reload since it only lives in App state)
-  // and force the signup page. This prevents a half-registered user from
-  // browsing the app as if they were fully signed in.
+  // While a session still needs registration, keep the user in the wizard ONLY
+  // while they are on the signup page. If they navigate anywhere else (press a
+  // nav item, or restore a stale incomplete session), abandon registration:
+  // sign out fully so no profile is created and they browse as a signed-out
+  // visitor. We never treat the user as signed in until the wizard completes.
   useEffect(() => {
     if (!needsRegistration) return;
-    if (!pendingSignupToken && token) {
-      setPendingSignupToken(token);
+    if (page === "signup") {
+      // Active in the wizard: backfill the token it needs (lost on reload).
+      if (!pendingSignupToken && token) setPendingSignupToken(token);
+      return;
     }
-    if (page !== "signup") {
-      setPage("signup");
-    }
-  }, [needsRegistration, pendingSignupToken, token, page]);
+    // Navigated away mid-registration → abandon + sign out (same as onCancel).
+    setPendingSignupToken(null);
+    setPendingSignupUser(null);
+    void logout();
+  }, [needsRegistration, page, pendingSignupToken, token, logout]);
 
   const userInitials = (() => {
     const name = user?.display_name?.trim();
@@ -635,7 +639,7 @@ export default function App() {
                 col is removed from grid auto-placement and would otherwise
                 let the right cluster fall back into the 1fr middle cell. */}
             <div className="flex items-center gap-2 justify-self-end">
-              {isAuthenticated ? (
+              {isAuthenticated && !needsRegistration ? (
                 <>
                 {/* Message (placeholder — no route) */}
                 <button
