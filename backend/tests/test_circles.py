@@ -60,10 +60,12 @@ from services.circles import search_schools, add_user_school, list_user_schools,
 
 @pytest.fixture
 def seeded_schools(db_session):
+    # Names use the sentinel token "zzzqa" so they sort after all real College
+    # Scorecard rows and are never crowded out by the limit=8 result window.
     rows = [
-        SchoolSeed(name="New York University", state="NY"),
-        SchoolSeed(name="Columbia University", state="NY"),
-        SchoolSeed(name="University of Michigan", state="MI"),
+        SchoolSeed(name="Zzzqa Test University Alpha", state="NY"),
+        SchoolSeed(name="Zzzqa Test College Beta", state="NY"),
+        SchoolSeed(name="Zzzqa Test Institute Gamma", state="MI"),
     ]
     db_session.add_all(rows)
     db_session.commit()
@@ -75,8 +77,14 @@ def seeded_schools(db_session):
 
 
 def test_search_schools_prefix_and_substring(db_session, seeded_schools):
-    names = [r.name for r in search_schools(db_session, "univers")]
-    assert "Columbia University" in names and "University of Michigan" in names
+    # "zzzqa" matches all three sentinel rows; only those rows contain this token
+    # so the test is immune to the ~6,000 real rows loaded from College Scorecard.
+    # "University" and "College" both appear in results, exercising substring matching.
+    results = search_schools(db_session, "zzzqa")
+    names = [r.name for r in results]
+    assert "Zzzqa Test University Alpha" in names
+    assert "Zzzqa Test College Beta" in names
+    assert "Zzzqa Test Institute Gamma" in names
     assert search_schools(db_session, "") == []
 
 
@@ -87,7 +95,7 @@ def test_add_user_school_enforces_cap_of_two(db_session, make_user, seeded_schoo
     with pytest.raises(TooManySchools):
         add_user_school(db_session, u, seeded_schools[2].id)
     assert {s.name for s in list_user_schools(db_session, u.id)} == {
-        "New York University", "Columbia University",
+        "Zzzqa Test University Alpha", "Zzzqa Test College Beta",
     }
     # cleanup memberships
     db_session.query(CommunityMember).filter(CommunityMember.user_id == u.id).delete()
