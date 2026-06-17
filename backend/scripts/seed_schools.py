@@ -13,11 +13,22 @@ from models import SchoolSeed
 
 def parse_rows(csv_text: str) -> list[tuple[str, str]]:
     reader = csv.DictReader(io.StringIO(csv_text))
+    fieldnames = reader.fieldnames or []
+    scorecard_mode = "INSTNM" in fieldnames
+
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
     for row in reader:
-        name = (row.get("name") or "").strip()
-        state = (row.get("state") or "").strip()[:2]
+        if scorecard_mode:
+            # College Scorecard schema: filter closed institutions first
+            if (row.get("CURROPER") or "").strip() != "1":
+                continue
+            name = (row.get("INSTNM") or "").strip()
+            state = (row.get("STABBR") or "").strip()[:2]
+        else:
+            name = (row.get("name") or "").strip()
+            state = (row.get("state") or "").strip()[:2]
+
         if not name or name.lower() in seen:
             continue
         seen.add(name.lower())

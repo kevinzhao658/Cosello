@@ -104,6 +104,24 @@ def test_parse_rows_dedupes_and_skips_blanks():
     assert rows == [("New York University", "NY"), ("MIT", "MA")]
 
 
+def test_parse_rows_scorecard_format():
+    # Scorecard-style CSV: extra columns, CURROPER filter, duplicate, closed school
+    csv_text = (
+        "UNITID,INSTNM,CITY,STABBR,CURROPER\n"
+        "100001,New York University,New York,NY,1\n"   # keep
+        "100002,Closed College,Albany,NY,0\n"          # drop: CURROPER != 1
+        "100003,MIT,Cambridge,MA,1\n"                  # keep
+        "100004,New York University,New York,NY,1\n"   # drop: duplicate (case-insensitive)
+        "100005,  Boston University  ,Boston,MA,1\n"   # keep: whitespace stripped
+    )
+    rows = parse_rows(csv_text)
+    assert rows == [
+        ("New York University", "NY"),
+        ("MIT", "MA"),
+        ("Boston University", "MA"),
+    ]
+
+
 def test_set_circle_consent_toggles_membership_flag(db_session, make_user):
     u = make_user(display_name="C")
     community = set_user_building(db_session, u, "55 Hudson St")
