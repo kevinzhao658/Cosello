@@ -2,6 +2,7 @@
 import { Building2 } from "lucide-react";
 import { AddressAutocompleteInput } from "../../../components/AddressAutocompleteInput";
 import { LocationCombobox } from "../../../components/LocationCombobox";
+import { TypedHeadline } from "../../../components/TypedHeadline";
 
 export interface LocationStepProps {
   address: string;
@@ -20,8 +21,8 @@ export function LocationStep(p: LocationStepProps) {
       <div className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center">
         <Building2 className="size-5" />
       </div>
-      <h2 className="text-xl font-extrabold text-ink tracking-tight">Where are you based?</h2>
-      <p className="text-sm text-muted">We use this to group nearby listings and set your building.</p>
+      <TypedHeadline text="Where are you based?" />
+      <p className="text-sm text-muted text-center">We use this to group nearby listings and set your building.</p>
       <AddressAutocompleteInput
         id="signup-address"
         placeholder="Street address"

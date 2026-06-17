@@ -3,6 +3,7 @@ import { useState } from "react";
 import { GraduationCap } from "lucide-react";
 import { Input } from "../../../components/ui/input";
 import { useSchoolSearch, type School } from "../../../lib/useSchoolSearch";
+import { TypedHeadline } from "../../../components/TypedHeadline";
 
 export interface SchoolStepProps {
   token: string;
@@ -22,8 +23,8 @@ export function SchoolStep({ token, selected, onAdd, onRemove }: SchoolStepProps
       <div className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center">
         <GraduationCap className="size-5" />
       </div>
-      <h2 className="text-xl font-extrabold text-ink tracking-tight">Add your school</h2>
-      <p className="text-sm text-muted">We use this to connect you with other students or alumni from your university.</p>
+      <TypedHeadline text="Add your school" />
+      <p className="text-sm text-muted text-center">We use this to connect you with other students or alumni from your university.</p>
       {!full && (
         <div className="relative">
           <Input placeholder="Search your school" value={query} onChange={(e) => setQuery(e.target.value)} />

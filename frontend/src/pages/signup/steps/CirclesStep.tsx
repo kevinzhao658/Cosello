@@ -1,5 +1,6 @@
 // frontend/src/pages/signup/steps/CirclesStep.tsx
 import { CirclePreview } from "../CirclePreview";
+import { TypedHeadline } from "../../../components/TypedHeadline";
 
 export type Consent = { building: boolean | null; school: boolean | null; mutualFriends: boolean | null };
 
@@ -21,8 +22,8 @@ export function CirclesStep({ hasSchool, consent, onAnswer }: CirclesStepProps) 
   );
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-extrabold text-ink tracking-tight">Would you like mutuals to view your circles?</h2>
-      <p className="text-sm text-muted">Sharing a circle reveals it only when others in the same circle are viewing your listings.</p>
+      <TypedHeadline text="Would you like mutuals to view your circles?" />
+      <p className="text-sm text-muted text-center">Sharing a circle reveals it only when others in the same circle are viewing your listings.</p>
       {keys.map((k) => (
         <div key={k} className="border border-border-strong rounded-sm p-4">
           <p className="text-sm font-semibold text-body mb-3">{ASK[k]}</p>
