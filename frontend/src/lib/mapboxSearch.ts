@@ -5,6 +5,9 @@ export interface AddressSuggestion {
   lat: number;
   lng: number;
   zip: string; // always one of the 42 seeded ZIPs
+  city?: string;
+  state?: string;
+  neighborhood?: string;
 }
 
 // --- Mapbox Geocoding v6 response types ---
@@ -12,7 +15,9 @@ export interface AddressSuggestion {
 interface MapboxV6Context {
   postcode?: { name: string };
   place?: { name: string };
-  [key: string]: { name: string } | undefined;
+  region?: { name: string; region_code_full?: string; region_code?: string };
+  neighborhood?: { name: string };
+  [key: string]: { name: string; region_code_full?: string; region_code?: string } | undefined;
 }
 
 interface MapboxV6Properties {
@@ -58,13 +63,17 @@ export async function searchAddresses(
   const data: MapboxV6Response = await res.json();
   const out: AddressSuggestion[] = [];
   for (const f of data.features ?? []) {
-    const zip = f.properties.context?.postcode?.name;
+    const ctx = f.properties.context;
+    const zip = ctx?.postcode?.name;
     if (zip && NYC_ZIP_SET.has(zip)) {
       out.push({
         label: f.properties.full_address,
         lat: f.geometry.coordinates[1],
         lng: f.geometry.coordinates[0],
         zip,
+        city: ctx?.place?.name,
+        state: ctx?.region?.region_code ?? ctx?.region?.name,
+        neighborhood: ctx?.neighborhood?.name,
       });
     }
   }
@@ -89,11 +98,15 @@ export async function reverseGeocodeAddress(
   const data: MapboxV6Response = await res.json();
   const f = data.features?.[0];
   if (!f) return null;
-  const zip = f.properties.context?.postcode?.name ?? "";
+  const ctx = f.properties.context;
+  const zip = ctx?.postcode?.name ?? "";
   return {
     label: f.properties.full_address,
     lat: f.geometry.coordinates[1],
     lng: f.geometry.coordinates[0],
     zip,
+    city: ctx?.place?.name,
+    state: ctx?.region?.region_code ?? ctx?.region?.name,
+    neighborhood: ctx?.neighborhood?.name,
   };
 }
