@@ -142,7 +142,7 @@ export function SignUpWizard({
 
   return (
     <section className="min-h-[calc(100vh-64px)] flex flex-col items-center px-4 bg-canvas pt-6 pb-16">
-      <div className="w-full max-w-md pt-[82px]">
+      <div className="w-full max-w-md pt-[81px]">
         {/* ── Step icon chip — above the headline, null on review step ── */}
         {STEP_ICONS[currentStep] !== null && (() => {
           const Icon = STEP_ICONS[currentStep] as LucideIcon;
