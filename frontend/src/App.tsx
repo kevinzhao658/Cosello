@@ -1585,15 +1585,10 @@ export default function App() {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
-                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => {
-                    const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
-                      ?? listing.allCommunities?.[0]
-                      ?? PLACEHOLDER_COMMUNITY;
-                    return (
+                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => (
                       <ListingCard
                         key={listing.id}
                         listing={listing}
-                        heroCommunity={heroCommunity}
                         isOwn={isAuthenticated && listing.userId === user?.id}
                         isAuthenticated={isAuthenticated}
                         isWishlisted={wishlist.ids.has(listing.id)}
@@ -1604,8 +1599,7 @@ export default function App() {
                         onToggleWishlist={() => wishlist.toggle(listing.id)}
                         onPulseEnd={() => wishlist.clearPulse(listing.id)}
                       />
-                    );
-                  })}
+                  ))}
                 </div>
 
                 {/* End sentinel — also drives the IntersectionObserver. */}
