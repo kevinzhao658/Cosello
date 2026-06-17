@@ -61,6 +61,11 @@ def test_register_captures_building_school_and_consent(
     db_session.commit()
 
 
+def test_user_model_has_pronouns():
+    from models import User
+    assert hasattr(User, "pronouns")
+
+
 def test_schools_search_endpoint(db_session, client, authed_client):
     seeds = [SchoolSeed(name="Boston University", state="MA"),
              SchoolSeed(name="Boston College", state="MA")]

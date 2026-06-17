@@ -19,6 +19,7 @@ class User(Base):
     zip_code = Column(String(10), nullable=True)
     zip_confirmed = Column(Boolean, nullable=False, server_default="false", default=False)
     share_mutual_friends = Column(Boolean, nullable=False, server_default="false", default=False)
+    pronouns = Column(String(40), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
