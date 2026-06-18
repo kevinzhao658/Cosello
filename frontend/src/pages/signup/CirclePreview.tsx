@@ -16,7 +16,7 @@ export function CirclePreview({ building, school, mutualFriends }: CirclePreview
       circles={{
         building: { shared: building, label: "Same building" },
         school: { shared: school, label: "" },
-        mutualFriends: { count: mutualFriends ? 1 : 0 },
+        mutualFriends: { count: 0, directFriend: mutualFriends },
       }}
     />
   );

@@ -45,6 +45,15 @@ export function CircleByline({ circles, tooltips = true, showFriendCount = true 
   const building = circles?.building.shared ?? false;
   const school = circles?.school.shared ?? false;
   const friendCount = circles?.mutualFriends.count ?? 0;
+  const directFriend = circles?.mutualFriends.directFriend ?? false;
+
+  const friendLit = friendCount > 0 || directFriend;
+  const friendTooltip =
+    directFriend && friendCount > 0
+      ? `Friend · ${friendCount} mutual`
+      : directFriend
+        ? "Friend"
+        : `${friendCount} mutual friends`;
 
   return (
     <div className="flex items-center justify-evenly h-6 mb-1.5">
@@ -55,8 +64,8 @@ export function CircleByline({ circles, tooltips = true, showFriendCount = true 
         <GraduationCap className="size-[17px]" />
       </Slot>
       <Slot
-        lit={friendCount > 0}
-        label={`${friendCount} mutual friends`}
+        lit={friendLit}
+        label={friendTooltip}
         count={showFriendCount ? friendCount : undefined}
         tooltips={tooltips}
       >

@@ -29,7 +29,7 @@ export interface MutualCommunity {
 export interface ListingCircles {
   building: { shared: boolean; label: string };
   school: { shared: boolean; label: string };
-  mutualFriends: { count: number };
+  mutualFriends: { count: number; directFriend: boolean };
 }
 
 export interface Listing {
