@@ -88,6 +88,32 @@ def test_search_schools_prefix_and_substring(db_session, seeded_schools):
     assert search_schools(db_session, "") == []
 
 
+def test_search_schools_ranks_prefix_first(db_session):
+    # Insert one row where the token appears at the start (prefix) and one where
+    # it appears only mid-string.  The prefix row must rank before the mid-string
+    # row regardless of alphabetical order (mid-string name sorts earlier).
+    token = "zzzqaprefix"
+    prefix_row = SchoolSeed(name="Zzzqaprefix University", state="NY")
+    midstr_row = SchoolSeed(name="College of Zzzqaprefix", state="NY")
+    db_session.add_all([prefix_row, midstr_row])
+    db_session.commit()
+    try:
+        results = search_schools(db_session, token)
+        names = [r.name for r in results]
+        assert "Zzzqaprefix University" in names
+        assert "College of Zzzqaprefix" in names
+        prefix_idx = names.index("Zzzqaprefix University")
+        midstr_idx = names.index("College of Zzzqaprefix")
+        assert prefix_idx < midstr_idx, (
+            f"Expected prefix match first but got: {names}"
+        )
+    finally:
+        db_session.query(SchoolSeed).filter(
+            SchoolSeed.id.in_([prefix_row.id, midstr_row.id])
+        ).delete(synchronize_session=False)
+        db_session.commit()
+
+
 def test_add_user_school_enforces_cap_of_two(db_session, make_user, seeded_schools):
     u = make_user(display_name="S")
     add_user_school(db_session, u, seeded_schools[0].id)

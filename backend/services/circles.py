@@ -8,6 +8,7 @@ user-level flag (services here do not touch the friend graph).
 import re
 import secrets
 
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from models import Community, CommunityMember, Friendship, SchoolSeed, User
@@ -87,16 +88,21 @@ class TooManySchools(Exception):
     """Raised when a user tries to add more than MAX_SCHOOLS school circles."""
 
 
-def search_schools(db: Session, query: str, limit: int = 8) -> list[SchoolSeed]:
-    """Case-insensitive substring search over the school seed table."""
+def search_schools(db: Session, query: str, limit: int = 10) -> list[SchoolSeed]:
+    """Case-insensitive substring search over the school seed table.
+
+    Prefix matches (name starts with the query) rank ahead of mid-string matches,
+    then both groups are sorted alphabetically within their rank.
+    """
     q = (query or "").strip()
     if not q:
         return []
-    pattern = f"%{q.lower()}%"
+    ql = q.lower()
+    prefix_rank = case((func.lower(SchoolSeed.name).like(ql + "%"), 0), else_=1)
     return (
         db.query(SchoolSeed)
-        .filter(SchoolSeed.name.ilike(pattern))
-        .order_by(SchoolSeed.name)
+        .filter(SchoolSeed.name.ilike(f"%{q}%"))
+        .order_by(prefix_rank, SchoolSeed.name)
         .limit(limit)
         .all()
     )
