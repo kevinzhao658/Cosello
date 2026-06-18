@@ -51,6 +51,40 @@ def _img_bytes() -> bytes:
     )
 
 
+def test_mine_listing_exposes_circles_for_seller(
+    db_session, make_user, client, override_auth_user
+):
+    """GET /api/listings/mine enriches each listing with a circles object whose
+    consented building circle is shared=True when the seller is in it."""
+    seller = make_user(display_name="MineSeller", neighborhood="Chelsea")
+    b = set_user_building(db_session, seller, "42 W 10th St")
+    set_circle_consent(db_session, seller.id, b.id, True)
+    listing = Listing(
+        id=uuid.uuid4().hex[:12],
+        user_id=seller.id, description="shelf", price_cents=3000,
+        category="home", brand="IKEA", name="Billy",
+        posted_at=time.time(),
+    )
+    db_session.add(listing); db_session.commit(); db_session.refresh(listing)
+
+    override_auth_user(seller)
+    resp = client.get("/api/listings/mine")
+    assert resp.status_code == 200
+    mine = next((l for l in resp.json() if l["id"] == listing.id), None)
+    assert mine is not None, "listing not found in /api/listings/mine response"
+    assert "circles" in mine, "/api/listings/mine listing missing 'circles' key"
+    assert mine["circles"]["building"]["shared"] is True
+    assert mine["circles"]["school"]["shared"] is False
+    assert mine["circles"]["mutualFriends"]["count"] == 0
+    assert "directFriend" in mine["circles"]["mutualFriends"]
+
+    # cleanup
+    db_session.query(Listing).filter(Listing.id == listing.id).delete()
+    db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
+    db_session.query(Community).filter(Community.id == b.id).delete()
+    db_session.commit()
+
+
 def test_created_listing_has_no_communities(db_session, make_user, client, override_auth_user, mock_storage):
     import json as _json
     seller = make_user(display_name="Creator", neighborhood="SoHo")

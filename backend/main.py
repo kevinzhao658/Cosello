@@ -1815,6 +1815,12 @@ def get_my_listings(
         all_comms.sort(key=lambda c: (not c["is_mutual"], c["name"]))
         listing_copy["allCommunities"] = all_comms
 
+        # Attach circles — viewer is the seller themselves (self-preview of
+        # how mutuals will see their listing).
+        listing_copy["circles"] = seller_circles_for_viewer(
+            db, current_user.id, current_user, viewer_circle_ids=my_community_ids
+        )
+
         enriched.append(listing_copy)
     return enriched
 
