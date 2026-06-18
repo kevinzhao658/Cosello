@@ -148,6 +148,29 @@ def test_set_circle_consent_toggles_membership_flag(db_session, make_user):
     db_session.commit()
 
 
+def test_seller_circles_for_viewer_marks_direct_friend(db_session, make_user):
+    seller = make_user(display_name="SellerDF")
+    viewer = make_user(display_name="ViewerDF")
+    # seller opts into sharing mutual-friend info
+    from models import Friendship as _F
+    seller.share_mutual_friends = True
+    db_session.commit()
+    # create a direct accepted friendship between seller and viewer
+    db_session.add(_F(user_id=seller.id, friend_id=viewer.id, status="accepted"))
+    db_session.commit()
+
+    res = seller_circles_for_viewer(db_session, seller.id, viewer)
+    assert res["mutualFriends"]["directFriend"] is True
+    assert res["mutualFriends"]["count"] == 0  # no shared third-party friends
+
+    # cleanup
+    db_session.query(_F).filter(
+        _F.user_id == seller.id, _F.friend_id == viewer.id
+    ).delete()
+    seller.share_mutual_friends = False
+    db_session.commit()
+
+
 from services.ranking import _community_overlap
 from models import Friendship, Listing as RankingListing
 from services.circles import count_mutual_friends, seller_circles_for_viewer, set_circle_consent, set_user_building
@@ -182,6 +205,7 @@ def test_seller_circles_for_viewer_respects_consent_and_match(db_session, make_u
     assert res["building"]["shared"] is True           # consent on + same building
     assert res["building"]["label"] == "Same building"
     assert res["mutualFriends"]["count"] == 0
+    assert res["mutualFriends"]["directFriend"] is False
     # cleanup
     db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
     db_session.query(Community).filter(Community.id == b.id).delete()

@@ -174,6 +174,21 @@ def count_mutual_friends(db: Session, a_id: str, b_id: str) -> int:
     return len(friend_ids(a_id) & friend_ids(b_id))
 
 
+def are_direct_friends(db: Session, a_id: str, b_id: str) -> bool:
+    """True if an accepted Friendship exists between a and b in either direction."""
+    return (
+        db.query(Friendship)
+        .filter(
+            Friendship.status == "accepted",
+            (
+                ((Friendship.user_id == a_id) & (Friendship.friend_id == b_id))
+                | ((Friendship.user_id == b_id) & (Friendship.friend_id == a_id))
+            ),
+        )
+        .first()
+    ) is not None
+
+
 def seller_circles_for_viewer(
     db: Session,
     seller_id: str,
@@ -220,7 +235,9 @@ def seller_circles_for_viewer(
 
     seller = db.query(User).filter(User.id == seller_id).first()
     mf = 0
+    direct = False
     if seller is not None and seller.share_mutual_friends:
         mf = count_mutual_friends(db, seller_id, viewer.id)
+        direct = are_direct_friends(db, seller_id, viewer.id)
 
-    return {"building": building, "school": school, "mutualFriends": {"count": mf}}
+    return {"building": building, "school": school, "mutualFriends": {"count": mf, "directFriend": direct}}

@@ -1621,7 +1621,7 @@ def get_listings(
             listing_copy["circles"] = {
                 "building": {"shared": False, "label": "Same building"},
                 "school": {"shared": False, "label": ""},
-                "mutualFriends": {"count": 0},
+                "mutualFriends": {"count": 0, "directFriend": False},
             }
         enriched.append(listing_copy)
     return enriched
@@ -1744,7 +1744,7 @@ def get_public_listings(
         listing_copy["circles"] = {
             "building": {"shared": False, "label": "Same building"},
             "school": {"shared": False, "label": ""},
-            "mutualFriends": {"count": 0},
+            "mutualFriends": {"count": 0, "directFriend": False},
         }
         enriched_pub.append(listing_copy)
     return enriched_pub
