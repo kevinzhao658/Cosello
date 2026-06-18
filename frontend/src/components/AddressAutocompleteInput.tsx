@@ -13,6 +13,14 @@ interface AddressAutocompleteInputProps {
 }
 
 /**
+ * Minimum trimmed query length before we declare "no results" rather than
+ * showing the gentler "keep typing" prompt. Mapbox returns sparse results for
+ * very short or partial strings, so anything under this threshold is still
+ * narrowing — not a genuine miss.
+ */
+const MATCH_VERDICT_MIN_CHARS = 8;
+
+/**
  * Free-text address input with NYC address autocomplete (Mapbox forward
  * geocode, suggestions filtered to the 42 seeded Manhattan ZIPs). Behaves as
  * a plain text input when no public Mapbox token is configured. Used in the
@@ -122,6 +130,8 @@ export function AddressAutocompleteInput({
         >
           {loading ? (
             <li className="px-3 py-2 text-sm text-muted select-none">Searching…</li>
+          ) : suggestions.length === 0 && value.trim().length < MATCH_VERDICT_MIN_CHARS ? (
+            <li className="px-3 py-2 text-sm text-muted select-none">Keep typing to narrow your address</li>
           ) : suggestions.length === 0 ? (
             <li className="px-3 py-2 text-sm text-muted select-none">No Manhattan matches</li>
           ) : (
