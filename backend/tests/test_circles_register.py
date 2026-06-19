@@ -53,3 +53,24 @@ def test_schools_search_endpoint(db_session, client, authed_client):
     assert all({"id", "name"} <= set(r) for r in resp.json())
     db_session.query(SchoolSeed).filter(SchoolSeed.id.in_(ids)).delete(synchronize_session=False)
     db_session.commit()
+
+
+def test_schools_search_accessible_without_profile_row(db_session, client):
+    """Regression guard: school search must return 200 during registration wizard
+    when the caller has no profile row yet (no Authorization header). This was
+    broken when the endpoint used get_current_user, which raises 401 for any
+    request where there is no matching public.users row."""
+    seed = SchoolSeed(name="Zzzqa Wizard University", state="NY")
+    db_session.add(seed); db_session.commit()
+    # No Authorization header at all — simulates a browser before sign-in, or
+    # the mid-registration state where the Supabase session exists but no
+    # public.users row has been created yet.
+    resp = client.get("/api/schools/search", params={"q": "zzzqa wizard"})
+    assert resp.status_code == 200, (
+        f"Expected 200 but got {resp.status_code}: {resp.text!r} — "
+        "school search must not require an authenticated profile row"
+    )
+    names = [r["name"] for r in resp.json()]
+    assert "Zzzqa Wizard University" in names
+    db_session.query(SchoolSeed).filter(SchoolSeed.id == seed.id).delete()
+    db_session.commit()
