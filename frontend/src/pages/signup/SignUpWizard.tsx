@@ -2,7 +2,7 @@
 // Sell-wizard–chrome registration flow: Name → Location → School → Review → Welcome.
 // ALL field state is lifted here so Back/Edit never resets anything.
 import { useState } from "react";
-import { ChevronLeft, Loader2, User, Building2, GraduationCap, type LucideIcon } from "lucide-react";
+import { ChevronLeft, Loader2, User, Building2, GraduationCap, LogIn, type LucideIcon } from "lucide-react";
 import { TypedHeadline } from "../../components/TypedHeadline";
 import type { AuthUser } from "../../contexts/AuthContext";
 import type { School } from "../../lib/useSchoolSearch";
@@ -18,6 +18,7 @@ export interface SignUpWizardProps {
   onStartSelling: () => void;            // routes into sell wizard
   onBrowse: () => void;                  // routes into marketplace
   onCancel: () => void;
+  onSessionExpired: () => void;          // 401 on register — clear session and return to sign-in
 }
 
 const STEP_KEYS = ["name", "location", "school", "review"] as const;
@@ -42,12 +43,14 @@ export function SignUpWizard({
   onComplete,
   onStartSelling,
   onBrowse,
+  onSessionExpired,
 }: SignUpWizardProps) {
   // ── Navigation ─────────────────────────────────────────────────────────────
   const [stepIndex, setStepIndex] = useState(0);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // ── Lifted field state — never reset between steps ──────────────────────────
   const [firstName, setFirstName] = useState("");
@@ -102,13 +105,19 @@ export function SignUpWizard({
         }),
       });
       if (!res.ok) {
-        const data: { detail?: string } = await res.json().catch(() => ({ detail: "Registration failed" }));
-        throw new Error(data.detail ?? "Registration failed");
+        if (res.status === 401) {
+          // The Supabase session expired while the user was filling out the wizard.
+          // Show a friendly notice so the user can read it before navigating away.
+          setSessionExpired(true);
+          return;
+        }
+        const data: { detail?: string } = await res.json().catch(() => ({ detail: "Something went wrong. Please try again." }));
+        throw new Error(data.detail ?? "Something went wrong. Please try again.");
       }
       onComplete((await res.json()) as AuthUser);
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed");
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -132,6 +141,33 @@ export function SignUpWizard({
             onStartSelling={onStartSelling}
             onBrowse={onBrowse}
           />
+        </div>
+      </section>
+    );
+  }
+
+  if (sessionExpired) {
+    return (
+      <section className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 bg-canvas">
+        <div className="w-full max-w-sm">
+          <div className="bg-canvas border border-hairline rounded-md p-8 shadow-card text-center">
+            <div className="inline-flex items-center justify-center size-14 bg-primary-soft rounded-full mb-4">
+              <LogIn className="size-7 text-primary" />
+            </div>
+            <h2 className="text-xl font-extrabold tracking-tight text-ink mb-2" style={{ letterSpacing: "-0.4px" }}>
+              Your session expired
+            </h2>
+            <p className="text-muted text-sm mb-6">
+              Please sign in again to finish creating your profile.
+            </p>
+            <button
+              type="button"
+              onClick={onSessionExpired}
+              className="w-full text-center font-bold text-sm px-4 py-[13px] rounded-sm bg-primary text-on-primary border-none cursor-pointer transition-colors"
+            >
+              Sign in again
+            </button>
+          </div>
         </div>
       </section>
     );

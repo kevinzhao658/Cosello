@@ -6,6 +6,7 @@ interface SignUpPageProps {
   pendingToken: string;
   onComplete: (user: AuthUser) => void;
   onCancel: () => void;
+  onSessionExpired: () => void;
   onStartSelling: () => void;
   onBrowse: () => void;
 }

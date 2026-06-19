@@ -845,6 +845,16 @@ export default function App() {
                 setPage("home");
               });
             }}
+            onSessionExpired={() => {
+              // The register call returned 401 (expired Supabase token).
+              // Clear local session state and return the user to sign-in for a fresh OTP.
+              void logout().then(() => {
+                setPendingSignupToken(null);
+                setPendingSignupUser(null);
+                setPendingSellPublish(false);
+                setPage("signin");
+              });
+            }}
             onStartSelling={() => {
               setPendingSignupToken(null);
               setPendingSignupUser(null);
