@@ -33,18 +33,34 @@ _WS_RE = re.compile(r"\s+")
 def compute_acronym(name: str) -> str | None:
     """Compute the standard uppercase acronym for a school name.
 
-    Algorithm: split on whitespace, extract the first alphabetic character of
-    each token that is NOT a stopword and is not a pure-punctuation/digit-only
-    token, then join and upper-case. Returns None when fewer than 2 significant
-    words produce a letter, to avoid spurious single-char matches.
+    Algorithm:
+    1. Normalize separators — hyphens, en/em dashes, and slashes are replaced
+       with spaces so that "California-Los Angeles" becomes two tokens
+       ("California", "Los Angeles") rather than one.
+    2. Tokenize on whitespace.
+    3. Drop stopwords and pure-punctuation/digit-only tokens.
+    4. Take the first alphabetic character of each remaining token, join,
+       upper-case.
+    5. Return None when fewer than 2 significant tokens contribute a letter.
 
     Examples:
-      "New York University"             -> "NYU"
-      "University of California, Los Angeles" -> "UCLA"
-      "Massachusetts Institute of Technology" -> "MIT"
+      "New York University"                     -> "NYU"
+      "University of California-Los Angeles"    -> "UCLA"
+      "University of California, Los Angeles"   -> "UCLA"
+      "Massachusetts Institute of Technology"   -> "MIT"
+      "University of North Carolina-Chapel Hill"-> "UNCCH"
     """
+    # Step 1: normalize word-joining separators to spaces so hyphenated
+    # campus suffixes (e.g. "-Los Angeles", "-Chapel Hill") split correctly.
+    normalized = (
+        name
+        .replace("—", " ")  # em dash
+        .replace("–", " ")  # en dash
+        .replace("-", " ")
+        .replace("/", " ")
+    )
     letters: list[str] = []
-    for token in name.split():
+    for token in normalized.split():
         # Grab the first run of alpha chars in this token (strips punctuation
         # such as trailing commas or parentheses that may be attached to a word).
         m = _ALPHA_WORD_RE.search(token)

@@ -246,7 +246,11 @@ def test_compute_acronym_nyu():
 
 
 def test_compute_acronym_ucla():
+    # Comma form (original test).
     assert compute_acronym("University of California, Los Angeles") == "UCLA"
+    # Hyphen form — the actual College Scorecard encoding; was broken before
+    # separator normalization was added.
+    assert compute_acronym("University of California-Los Angeles") == "UCLA"
 
 
 def test_compute_acronym_mit():
