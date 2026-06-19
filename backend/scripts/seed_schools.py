@@ -9,6 +9,7 @@ import sys
 
 from database import SessionLocal
 from models import SchoolSeed
+from services.circles import compute_acronym
 
 
 def parse_rows(csv_text: str) -> list[tuple[str, str]]:
@@ -42,7 +43,10 @@ def load(path: str) -> int:
     db = SessionLocal()
     try:
         db.query(SchoolSeed).delete()
-        db.add_all([SchoolSeed(name=n, state=s or None) for n, s in rows])
+        db.add_all([
+            SchoolSeed(name=n, state=s or None, acronym=compute_acronym(n))
+            for n, s in rows
+        ])
         db.commit()
         return len(rows)
     finally:

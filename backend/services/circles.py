@@ -8,10 +8,15 @@ user-level flag (services here do not touch the friend graph).
 import re
 import secrets
 
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from models import Community, CommunityMember, Friendship, SchoolSeed, User
+
+# Stopwords to drop when computing institution acronyms.
+_ACRONYM_STOPWORDS = frozenset({"of", "and", "the", "at", "for", "in", "a", "an"})
+# Matches a word-boundary token of one or more alphabetic characters.
+_ALPHA_WORD_RE = re.compile(r"[a-zA-Z]+")
 
 # Unit designators we strip so "123 Main St Apt 4" == "123 Main St".
 # Pattern 1: keyword-based (apt, unit, suite, floor, etc.) optionally preceded by comma/hash.
@@ -23,6 +28,35 @@ _UNIT_KEYWORD_RE = re.compile(
 _UNIT_HASH_RE = re.compile(r"\s*#\s*\S*")
 _PUNCT_RE = re.compile(r"[.,]")
 _WS_RE = re.compile(r"\s+")
+
+
+def compute_acronym(name: str) -> str | None:
+    """Compute the standard uppercase acronym for a school name.
+
+    Algorithm: split on whitespace, extract the first alphabetic character of
+    each token that is NOT a stopword and is not a pure-punctuation/digit-only
+    token, then join and upper-case. Returns None when fewer than 2 significant
+    words produce a letter, to avoid spurious single-char matches.
+
+    Examples:
+      "New York University"             -> "NYU"
+      "University of California, Los Angeles" -> "UCLA"
+      "Massachusetts Institute of Technology" -> "MIT"
+    """
+    letters: list[str] = []
+    for token in name.split():
+        # Grab the first run of alpha chars in this token (strips punctuation
+        # such as trailing commas or parentheses that may be attached to a word).
+        m = _ALPHA_WORD_RE.search(token)
+        if m is None:
+            continue  # pure punctuation / numeric token
+        word = m.group(0)
+        if word.lower() in _ACRONYM_STOPWORDS:
+            continue
+        letters.append(word[0].upper())
+    if len(letters) < 2:
+        return None
+    return "".join(letters)
 
 
 def normalize_address(address: str | None) -> str:
@@ -89,20 +123,60 @@ class TooManySchools(Exception):
 
 
 def search_schools(db: Session, query: str, limit: int = 10) -> list[SchoolSeed]:
-    """Case-insensitive substring search over the school seed table.
+    """Case-insensitive search over the school seed table.
 
-    Prefix matches (name starts with the query) rank ahead of mid-string matches,
-    then both groups are sorted alphabetically within their rank.
+    Supports both name substring matching and acronym matching so that e.g.
+    "NYU" resolves to "New York University".
+
+    Ranking order (lowest rank wins):
+      0 — name prefix match
+      1 — exact acronym match
+      2 — acronym prefix match
+      3 — name substring (mid-string)
+
+    Rows with no match on any criterion are excluded. Within each rank bucket
+    results are sorted alphabetically by name.
     """
     q = (query or "").strip()
     if not q:
         return []
     ql = q.lower()
-    prefix_rank = case((func.lower(SchoolSeed.name).like(ql + "%"), 0), else_=1)
+
+    # Build acronym candidate: uppercase letters/digits only, 2+ chars required.
+    qa = re.sub(r"[^A-Z0-9]", "", q.upper())
+    use_acronym = len(qa) >= 2
+
+    # Name-based predicates.
+    name_prefix_pred = func.lower(SchoolSeed.name).like(ql + "%")
+    name_substr_pred = SchoolSeed.name.ilike(f"%{q}%")
+
+    if use_acronym:
+        acronym_exact_pred = SchoolSeed.acronym == qa
+        acronym_prefix_pred = SchoolSeed.acronym.like(qa + "%")
+
+        filter_pred = or_(
+            name_substr_pred,
+            acronym_exact_pred,
+            acronym_prefix_pred,
+        )
+
+        rank = case(
+            (name_prefix_pred, 0),
+            (acronym_exact_pred, 1),
+            (acronym_prefix_pred, 2),
+            else_=3,
+        )
+    else:
+        filter_pred = name_substr_pred
+        rank = case(
+            (name_prefix_pred, 0),
+            else_=3,
+        )
+
     return (
         db.query(SchoolSeed)
-        .filter(SchoolSeed.name.ilike(f"%{q}%"))
-        .order_by(prefix_rank, SchoolSeed.name)
+        .filter(filter_pred)
+        .order_by(rank, SchoolSeed.name)
         .limit(limit)
         .all()
     )

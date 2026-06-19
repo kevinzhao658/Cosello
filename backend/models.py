@@ -62,6 +62,7 @@ class SchoolSeed(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     state = Column(String(2), nullable=True)
+    acronym = Column(String(16), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

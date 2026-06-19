@@ -238,6 +238,90 @@ def test_seller_circles_for_viewer_respects_consent_and_match(db_session, make_u
     db_session.commit()
 
 
+from services.circles import compute_acronym
+
+
+def test_compute_acronym_nyu():
+    assert compute_acronym("New York University") == "NYU"
+
+
+def test_compute_acronym_ucla():
+    assert compute_acronym("University of California, Los Angeles") == "UCLA"
+
+
+def test_compute_acronym_mit():
+    assert compute_acronym("Massachusetts Institute of Technology") == "MIT"
+
+
+def test_compute_acronym_single_word_returns_none():
+    # A single meaningful word yields only one letter; must return None.
+    assert compute_acronym("Harvard") is None
+
+
+def test_compute_acronym_stopwords_only_returns_none():
+    # All tokens are stopwords; no letters collected.
+    assert compute_acronym("of the and") is None
+
+
+def test_search_schools_acronym_match(db_session):
+    """Querying "NYU" should return "New York University" ranked above a
+    name-substring-only match, and above noise rows that share no letters."""
+    token = "zzzqaacronym"
+    nyu_row = SchoolSeed(name="Zzzqaacronym York University", state="NY",
+                         acronym="ZYU")
+    noise_row = SchoolSeed(name="Zzzqaacronym Community College", state="NY",
+                           acronym=None)
+    db_session.add_all([nyu_row, noise_row])
+    db_session.commit()
+    try:
+        # Acronym query for "ZYU" — should find nyu_row (exact acronym match)
+        # but NOT noise_row (acronym is None and name doesn't match "ZYU").
+        results = search_schools(db_session, "ZYU")
+        names = [r.name for r in results]
+        assert "Zzzqaacronym York University" in names, (
+            f"Expected acronym match but got: {names}"
+        )
+        # noise_row lacks the acronym "ZYU" and its name doesn't contain "ZYU",
+        # so it must not appear.
+        assert "Zzzqaacronym Community College" not in names, (
+            f"Noise row should be excluded: {names}"
+        )
+        # The acronym-matched row must rank first (rank=1 exact) vs name-substring
+        # matches which would rank 3 at best.
+        assert names[0] == "Zzzqaacronym York University", (
+            f"Acronym match must rank first but got: {names}"
+        )
+    finally:
+        db_session.query(SchoolSeed).filter(
+            SchoolSeed.id.in_([nyu_row.id, noise_row.id])
+        ).delete(synchronize_session=False)
+        db_session.commit()
+
+
+def test_search_schools_acronym_prefix_match(db_session):
+    """Acronym prefix query (e.g. "NY") should match rows whose acronym starts
+    with "NY", ranked after exact acronym matches."""
+    token = "zzzqapfx"
+    row_nyu = SchoolSeed(name=f"{token} York University", state="NY",
+                         acronym="NZYU")
+    row_ny_college = SchoolSeed(name=f"{token} York College", state="NY",
+                                acronym="NYC")
+    db_session.add_all([row_nyu, row_ny_college])
+    db_session.commit()
+    try:
+        # Query "NZ" — prefix of "NZYU"; should return row_nyu via acronym prefix.
+        results = search_schools(db_session, "NZ")
+        names = [r.name for r in results]
+        assert f"{token} York University" in names, (
+            f"Expected acronym prefix match for 'NZ' but got: {names}"
+        )
+    finally:
+        db_session.query(SchoolSeed).filter(
+            SchoolSeed.id.in_([row_nyu.id, row_ny_college.id])
+        ).delete(synchronize_session=False)
+        db_session.commit()
+
+
 import time as _time
 import uuid as _uuid
 
