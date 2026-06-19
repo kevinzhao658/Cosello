@@ -26,10 +26,19 @@ export function useSchoolSearch(query: string): School[] {
         const res = await apiFetch(`/api/schools/search?q=${encodeURIComponent(q)}`, {
           signal: ctrl.signal,
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.error(
+            `[useSchoolSearch] /api/schools/search returned ${res.status} for q="${q}"`,
+          );
+          return;
+        }
         setResults((await res.json()) as School[]);
-      } catch {
-        /* aborted or network error — leave prior results */
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          /* expected on every keystroke / unmount — swallow silently */
+        } else {
+          console.error("[useSchoolSearch] request failed", err);
+        }
       }
     }, 200);
     return () => {
