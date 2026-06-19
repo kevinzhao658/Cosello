@@ -75,9 +75,10 @@ def _get_admin():
 
 
 def _random_test_phone() -> str:
-    # FCC test range, 60000-99999 suffix to avoid colliding with the prod-seeded
-    # test users (+15555550101-103) and other concurrent test runs.
-    return f"+15555{random.randint(60000, 99999)}"
+    # FCC test range, 10000-99999 suffix (90k values, wider than the former 40k
+    # range) to reduce birthday-paradox collisions in large test runs while
+    # still avoiding the prod-seeded test users (+15555550101-103).
+    return f"+15555{random.randint(10000, 99999)}"
 
 
 @pytest.fixture
@@ -432,6 +433,9 @@ def test_sales_brand_match_contributes(db_session, cleanup):
 
 
 def test_community_overlap_one_shared(db_session, cleanup):
+    # Phase 2 (circles): overlap is computed from CommunityMember rows for both
+    # the viewer and the seller — the listing's `communities` JSON is no longer
+    # consulted.  Both parties must be members of the same circle for overlap > 0.
     user = _mk_user(db_session)
     seller = _mk_user(db_session)
     cleanup["user_ids"].update({user.id, seller.id})
@@ -442,15 +446,16 @@ def test_community_overlap_one_shared(db_session, cleanup):
     db_session.refresh(community)
     cleanup["community_ids"].add(community.id)
 
+    # Both viewer and seller must be in the circle for overlap to register.
     db_session.add(CommunityMember(community_id=community.id, user_id=user.id))
+    db_session.add(CommunityMember(community_id=community.id, user_id=seller.id))
     db_session.commit()
 
-    candidate = _mk_listing(
-        db_session, user_id=seller.id, brand="A", communities=[community.id],
-    )
+    candidate = _mk_listing(db_session, user_id=seller.id, brand="A")
     cleanup["listing_ids"].add(candidate.id)
 
     s = _community_overlap(user, candidate, db_session)
+    # 1 shared circle out of COMMUNITY_OVERLAP_NORM (3) = 0.333...
     expected = 1.0 / 3.0
     assert s == pytest.approx(expected)
 
