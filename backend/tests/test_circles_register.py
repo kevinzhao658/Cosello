@@ -9,10 +9,31 @@ from models import Community, CommunityMember, SchoolSeed, User
 from services.circles import list_user_schools
 
 
+def _get_or_create_school(db_session, name: str, state: str) -> tuple[SchoolSeed, bool]:
+    """Return (seed_row, created).
+
+    Tries to find an existing row first to avoid violating the
+    uq_school_seed_name_state unique constraint on the shared live DB.
+    Returns created=False when an existing row is reused so the teardown
+    knows NOT to delete a row it didn't own.
+    """
+    existing = (
+        db_session.query(SchoolSeed)
+        .filter(SchoolSeed.name == name, SchoolSeed.state == state)
+        .first()
+    )
+    if existing:
+        return existing, False
+    seed = SchoolSeed(name=name, state=state)
+    db_session.add(seed)
+    db_session.commit()
+    db_session.refresh(seed)
+    return seed, True
+
+
 def test_register_defaults_consent_on_and_captures_pronouns(db_session, make_user, client, override_auth_user):
     user = make_user(display_name="Pre")
-    seed = SchoolSeed(name="New York University", state="NY")
-    db_session.add(seed); db_session.commit(); db_session.refresh(seed)
+    seed, seed_created = _get_or_create_school(db_session, "New York University", "NY")
     override_auth_user(user)
     resp = client.post("/api/auth/register", json={
         "display_name": "Maya Rodriguez", "neighborhood": "Chelsea",
@@ -33,7 +54,11 @@ def test_register_defaults_consent_on_and_captures_pronouns(db_session, make_use
     assert sm.share_with_mutuals is True                        # default-on
     db_session.query(CommunityMember).filter(CommunityMember.user_id==user.id).delete()
     db_session.query(Community).filter(Community.id.in_([b.id, schools[0].id])).delete(synchronize_session=False)
-    db_session.query(SchoolSeed).filter(SchoolSeed.id==seed.id).delete(); db_session.commit()
+    # Only delete the seed row if this test created it — reused rows from the
+    # seeded school_seed table must not be removed.
+    if seed_created:
+        db_session.query(SchoolSeed).filter(SchoolSeed.id == seed.id).delete()
+    db_session.commit()
 
 
 def test_user_model_has_pronouns():
@@ -42,17 +67,19 @@ def test_user_model_has_pronouns():
 
 
 def test_schools_search_endpoint(db_session, client, authed_client):
-    seeds = [SchoolSeed(name="Boston University", state="MA"),
-             SchoolSeed(name="Boston College", state="MA")]
-    db_session.add_all(seeds); db_session.commit()
-    ids = [s.id for s in seeds]
+    # Use get_or_create so the test is safe whether or not these schools are
+    # already in the seeded school_seed table (UNIQUE constraint on name+state).
+    bu, bu_created = _get_or_create_school(db_session, "Boston University", "MA")
+    bc, bc_created = _get_or_create_school(db_session, "Boston College", "MA")
+    created_ids = [s.id for s, created in [(bu, bu_created), (bc, bc_created)] if created]
     resp = authed_client.get("/api/schools/search", params={"q": "boston"})
     assert resp.status_code == 200
     names = {r["name"] for r in resp.json()}
     assert {"Boston University", "Boston College"} <= names
     assert all({"id", "name"} <= set(r) for r in resp.json())
-    db_session.query(SchoolSeed).filter(SchoolSeed.id.in_(ids)).delete(synchronize_session=False)
-    db_session.commit()
+    if created_ids:
+        db_session.query(SchoolSeed).filter(SchoolSeed.id.in_(created_ids)).delete(synchronize_session=False)
+        db_session.commit()
 
 
 def test_schools_search_accessible_without_profile_row(db_session, client):
@@ -60,8 +87,7 @@ def test_schools_search_accessible_without_profile_row(db_session, client):
     when the caller has no profile row yet (no Authorization header). This was
     broken when the endpoint used get_current_user, which raises 401 for any
     request where there is no matching public.users row."""
-    seed = SchoolSeed(name="Zzzqa Wizard University", state="NY")
-    db_session.add(seed); db_session.commit()
+    seed, seed_created = _get_or_create_school(db_session, "Zzzqa Wizard University", "NY")
     # No Authorization header at all — simulates a browser before sign-in, or
     # the mid-registration state where the Supabase session exists but no
     # public.users row has been created yet.
@@ -72,5 +98,6 @@ def test_schools_search_accessible_without_profile_row(db_session, client):
     )
     names = [r["name"] for r in resp.json()]
     assert "Zzzqa Wizard University" in names
-    db_session.query(SchoolSeed).filter(SchoolSeed.id == seed.id).delete()
-    db_session.commit()
+    if seed_created:
+        db_session.query(SchoolSeed).filter(SchoolSeed.id == seed.id).delete()
+        db_session.commit()

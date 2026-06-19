@@ -1,11 +1,15 @@
 """One-time loader: populate public.school_seed from a US higher-ed CSV.
 
 Usage: python -m scripts.seed_schools backend/data/us_higher_ed.csv
-Idempotent: clears and reloads the table.
+Idempotent: clears and reloads the table. The INSERT uses ON CONFLICT DO NOTHING
+on (name, state) as a safety net so partial re-runs cannot introduce duplicates
+even if the DELETE is somehow skipped.
 """
 import csv
 import io
 import sys
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import SessionLocal
 from models import SchoolSeed
@@ -43,10 +47,14 @@ def load(path: str) -> int:
     db = SessionLocal()
     try:
         db.query(SchoolSeed).delete()
-        db.add_all([
-            SchoolSeed(name=n, state=s or None, acronym=compute_acronym(n))
+        # Use INSERT … ON CONFLICT DO NOTHING so that re-running the loader
+        # (e.g. after a partial failure) cannot introduce duplicate (name, state)
+        # rows even if the preceding DELETE somehow did not clear all rows.
+        stmt = pg_insert(SchoolSeed).values([
+            {"name": n, "state": s or None, "acronym": compute_acronym(n)}
             for n, s in rows
-        ])
+        ]).on_conflict_do_nothing(constraint="uq_school_seed_name_state")
+        db.execute(stmt)
         db.commit()
         return len(rows)
     finally:
