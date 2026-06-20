@@ -39,7 +39,11 @@ from services.evidence import build_evidence_block, _format_single_image_evidenc
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 from services import storage
 from services.neighborhood import get_neighborhood_community
-from services.circles import seller_circles_for_viewer
+from services.circles import (
+    seller_circles_for_viewer,
+    seller_circles_for_viewer_batch,
+    EMPTY_CIRCLES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1586,6 +1590,17 @@ def get_listings(
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
             community_info_map[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
 
+    # Task C: batch-compute circles for all distinct sellers in one pass
+    # (replaces ~4-5 queries per listing with ~4 queries total).
+    distinct_seller_ids = list({l["userId"] for l in results if l.get("userId")})
+    circles_batch: dict[str, dict] = seller_circles_for_viewer_batch(
+        db,
+        distinct_seller_ids,
+        current_user,
+        viewer_circle_ids=my_community_ids,
+        seller_map=poster_map,
+    )
+
     enriched = []
     for l in results:
         listing_copy = dict(l)
@@ -1613,16 +1628,7 @@ def get_listings(
         listing_copy["mutualCommunities"] = mutual
         listing_copy["allCommunities"] = all_comms
         seller_id = l.get("userId")
-        if seller_id:
-            listing_copy["circles"] = seller_circles_for_viewer(
-                db, seller_id, current_user, viewer_circle_ids=my_community_ids
-            )
-        else:
-            listing_copy["circles"] = {
-                "neighborhood": {"shared": False, "label": ""},
-                "school": {"shared": False, "label": ""},
-                "mutualFriends": {"count": 0, "directFriend": False},
-            }
+        listing_copy["circles"] = circles_batch.get(seller_id, EMPTY_CIRCLES) if seller_id else EMPTY_CIRCLES
         enriched.append(listing_copy)
     return enriched
 
@@ -1794,6 +1800,16 @@ def get_my_listings(
         for m in db.query(CommunityMember).filter(CommunityMember.user_id == current_user.id).all()
     }
 
+    # Task A: seller == viewer for every listing in /mine, so circles is
+    # identical across all rows.  Compute once and reuse (read-only in response).
+    my_circles = seller_circles_for_viewer(
+        db,
+        current_user.id,
+        current_user,
+        viewer_circle_ids=my_community_ids,
+        seller=current_user,
+    )
+
     enriched = []
     for l in my_listings:
         listing_copy = dict(l)
@@ -1815,11 +1831,8 @@ def get_my_listings(
         all_comms.sort(key=lambda c: (not c["is_mutual"], c["name"]))
         listing_copy["allCommunities"] = all_comms
 
-        # Attach circles — viewer is the seller themselves (self-preview of
-        # how mutuals will see their listing).
-        listing_copy["circles"] = seller_circles_for_viewer(
-            db, current_user.id, current_user, viewer_circle_ids=my_community_ids
-        )
+        # Attach circles — same dict for every listing (seller == viewer).
+        listing_copy["circles"] = my_circles
 
         enriched.append(listing_copy)
     return enriched
