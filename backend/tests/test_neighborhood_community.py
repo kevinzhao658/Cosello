@@ -9,8 +9,8 @@ Fixture notes:
 - All fixtures clean up after themselves by deleting the auth.users row, which
   CASCADEs to public.users and all dependent rows.
 """
+import logging
 import os
-import random
 import sys
 from pathlib import Path
 
@@ -18,9 +18,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
+TESTS_DIR = Path(__file__).resolve().parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
 
 from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
 from models import Community, CommunityMember, User
@@ -30,11 +35,8 @@ from services.neighborhood import (
     set_user_neighborhood,
 )
 
-_TEST_PHONE_PREFIX = "+15556"  # FCC test range, distinct from conftest's +15555
-
-
-def _random_test_phone() -> str:
-    return f"{_TEST_PHONE_PREFIX}{random.randint(10000, 59999)}"
+# Shared collision-proof helper (lives in tests/test_helpers.py).
+from test_helpers import create_auth_user_with_retry
 
 
 # ---------- fixtures ----------
@@ -57,9 +59,7 @@ def user_factory(db_session, supabase_admin):
     def _make(display_name: str, neighborhood: str | None = None) -> User:
         from sqlalchemy import text as sa_text
 
-        resp = supabase_admin.auth.admin.create_user(
-            {"phone": _random_test_phone(), "phone_confirm": True}
-        )
+        resp = create_auth_user_with_retry(supabase_admin)
         auth_user = getattr(resp, "user", None) or resp
         user_id = auth_user.id
         created_ids.append(user_id)
@@ -88,8 +88,14 @@ def user_factory(db_session, supabase_admin):
         db_session.commit()
         try:
             supabase_admin.auth.admin.delete_user(uid)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "test_neighborhood_community: teardown failed to delete "
+                "auth.users row %s — user is now orphaned. "
+                "Run cleanup_test_users.py to purge. Error: %s",
+                uid,
+                exc,
+            )
 
 
 @pytest.fixture
@@ -99,9 +105,7 @@ def auth_token_for_new_user(supabase_admin):
     Used by endpoint tests that need an Authorization header.
     Tears down the auth user at end of test.
     """
-    resp = supabase_admin.auth.admin.create_user(
-        {"phone": _random_test_phone(), "phone_confirm": True}
-    )
+    resp = create_auth_user_with_retry(supabase_admin)
     auth_user = getattr(resp, "user", None) or resp
     user_id = auth_user.id
 
@@ -123,8 +127,14 @@ def auth_token_for_new_user(supabase_admin):
 
     try:
         supabase_admin.auth.admin.delete_user(user_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "test_neighborhood_community: teardown failed to delete "
+            "auth.users row %s — user is now orphaned. "
+            "Run cleanup_test_users.py to purge. Error: %s",
+            user_id,
+            exc,
+        )
 
 
 @pytest.fixture
@@ -139,9 +149,7 @@ def authed_user_factory(db_session, supabase_admin, override_auth_user, client):
     def _make(display_name: str, neighborhood: str | None = None):
         from sqlalchemy import text as sa_text
 
-        resp = supabase_admin.auth.admin.create_user(
-            {"phone": _random_test_phone(), "phone_confirm": True}
-        )
+        resp = create_auth_user_with_retry(supabase_admin)
         auth_user = getattr(resp, "user", None) or resp
         user_id = auth_user.id
         created_ids.append(user_id)
@@ -180,8 +188,14 @@ def authed_user_factory(db_session, supabase_admin, override_auth_user, client):
         db_session.commit()
         try:
             supabase_admin.auth.admin.delete_user(uid)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "test_neighborhood_community: teardown failed to delete "
+                "auth.users row %s — user is now orphaned. "
+                "Run cleanup_test_users.py to purge. Error: %s",
+                uid,
+                exc,
+            )
 
 
 # ---------- helper tests ----------
@@ -352,10 +366,7 @@ def test_register_endpoint_auto_joins_neighborhood_community(
     """POST /api/auth/register with a valid neighborhood auto-creates membership."""
     from sqlalchemy import text as sa_text
 
-    phone = _random_test_phone()
-    resp = supabase_admin.auth.admin.create_user(
-        {"phone": phone, "phone_confirm": True}
-    )
+    resp = create_auth_user_with_retry(supabase_admin)
     auth_user = getattr(resp, "user", None) or resp
     user_id = auth_user.id
 
@@ -407,10 +418,7 @@ def test_register_endpoint_rejects_off_list_neighborhood(
     """POST /api/auth/register with off-list neighborhood returns 400."""
     from sqlalchemy import text as sa_text
 
-    phone = _random_test_phone()
-    resp = supabase_admin.auth.admin.create_user(
-        {"phone": phone, "phone_confirm": True}
-    )
+    resp = create_auth_user_with_retry(supabase_admin)
     auth_user = getattr(resp, "user", None) or resp
     user_id = auth_user.id
 
