@@ -27,7 +27,7 @@ export interface MutualCommunity {
 }
 
 export interface ListingCircles {
-  building: { shared: boolean; label: string };
+  neighborhood: { shared: boolean; label: string };
   school: { shared: boolean; label: string };
   mutualFriends: { count: number; directFriend: boolean };
 }

@@ -1,5 +1,5 @@
 // frontend/src/components/CircleByline.tsx
-import { Building2, GraduationCap, Users } from "lucide-react";
+import { MapPin, GraduationCap, Users } from "lucide-react";
 import type { ListingCircles } from "../lib/types";
 
 interface CircleBylineProps {
@@ -38,11 +38,11 @@ function Slot({ lit, label, count, tooltips, children }: SlotProps) {
   );
 }
 
-/** Fixed three positions (building · school · mutual friends), evenly
+/** Fixed three positions (neighborhood · school · mutual friends), evenly
  *  distributed. Lit when the viewer shares a revealed circle with the seller;
  *  faded otherwise. Faded slots are uniform and carry no tooltip. */
 export function CircleByline({ circles, tooltips = true, showFriendCount = true }: CircleBylineProps) {
-  const building = circles?.building.shared ?? false;
+  const neighborhood = circles?.neighborhood.shared ?? false;
   const school = circles?.school.shared ?? false;
   const friendCount = circles?.mutualFriends.count ?? 0;
   const directFriend = circles?.mutualFriends.directFriend ?? false;
@@ -57,8 +57,8 @@ export function CircleByline({ circles, tooltips = true, showFriendCount = true 
 
   return (
     <div className="flex items-center justify-evenly h-6 mb-1.5">
-      <Slot lit={building} label={circles?.building.label ?? "Same building"} tooltips={tooltips}>
-        <Building2 className="size-[17px]" />
+      <Slot lit={neighborhood} label={circles?.neighborhood.label ?? "Neighborhood"} tooltips={tooltips}>
+        <MapPin className="size-[17px]" />
       </Slot>
       <Slot lit={school} label={circles?.school.label || "School"} tooltips={tooltips}>
         <GraduationCap className="size-[17px]" />

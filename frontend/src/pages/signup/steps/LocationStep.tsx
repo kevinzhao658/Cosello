@@ -67,13 +67,13 @@ export function LocationStep({
         </div>
       )}
 
-      {/* Building disclosure — always shown */}
+      {/* Neighborhood disclosure — always shown */}
       <div className="flex gap-[9px] items-start mt-4 px-[13px] py-[11px] border border-hairline bg-surface-soft rounded-lg">
         <ShieldCheck className="w-[15px] h-[15px] text-primary-text flex-none mt-[1px]" />
         <p className="m-0 text-[11.5px] text-muted leading-[1.5]">
-          Your exact address stays private. We&apos;ll let others{" "}
-          <strong className="text-body font-semibold">in your building</strong> know
-          you&apos;re neighbors, so it&apos;s easier to sell to people you trust. You can
+          We&apos;ll let others{" "}
+          <strong className="text-body font-semibold">in your neighborhood</strong> know
+          you&apos;re nearby, so it&apos;s easier to sell to people you trust. You can
           change this in Settings.
         </p>
       </div>
