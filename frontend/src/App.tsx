@@ -13,6 +13,9 @@ const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
 const UserProfileOverlay = lazy(() => import("./pages/UserProfilePage"));
+const SellWizard = lazy(() =>
+  import("./features/sell-wizard/SellWizard").then((m) => ({ default: m.SellWizard })),
+);
 import { EditListingModal } from "./components/EditListingModal";
 import { ListingImage } from "./components/ui/ListingImage";
 import { ListingCardSkeleton } from "./components/ListingCardSkeleton";
@@ -24,7 +27,7 @@ import { MarketplaceSidebar } from "./components/MarketplaceSidebar";
 import { NotificationsPanel } from "./features/notifications/NotificationsPanel";
 import { BuyModal } from "./features/orders/BuyModal";
 import { ListingDetailModal } from "./features/listings/ListingDetailModal";
-import { SellWizard, type SellWizardHandle } from "./features/sell-wizard/SellWizard";
+import type { SellWizardHandle } from "./features/sell-wizard/SellWizard";
 import type { ProductDetails, BulkPreview } from "./features/sell-wizard/useSellWizard";
 import { TopSearches } from "./components/TopSearches";
 import { ConfirmZipBanner } from "./components/ConfirmZipBanner";
@@ -947,6 +950,7 @@ export default function App() {
                   {/* SellWizard photo composer renders below via the app-shell
                       mount. In Manual mode it stays as the composer only; in
                       AI mode it expands into the full wizard flow. */}
+                  <Suspense fallback={null}>
                   <SellWizard
                     ref={sellWizardRef}
                     categorySchemas={categorySchemas}
@@ -987,6 +991,7 @@ export default function App() {
                     onBulkPreviewChange={newListing.setBulkPreview}
                     onChecklistSignalsChange={newListing.setChecklistSignals}
                   />
+                  </Suspense>
                 </section>
 
                 {/* AI / Manual toggle — only on the upload step (step 1). Hidden
