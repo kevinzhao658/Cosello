@@ -325,6 +325,31 @@ def count_mutual_friends(db: Session, a_id: str, b_id: str) -> int:
     return len(friend_ids(a_id) & friend_ids(b_id))
 
 
+def _connection_degree_from_sets(
+    *,
+    seller_id: str,
+    viewer_friends: set[str],
+    seller_friends: set[str],
+    edges_from_viewer_friends: dict[str, set[str]],
+    viewer_id: str,
+) -> int | None:
+    """Pure degree computation from pre-loaded graph slices (lowest wins).
+
+    edges_from_viewer_friends: {friend_id: that friend's accepted-friend set},
+    used only for the 3rd-degree check.
+    """
+    if seller_id == viewer_id:
+        return None
+    if seller_id in viewer_friends:
+        return 1
+    if viewer_friends & seller_friends:
+        return 2
+    for a in viewer_friends:
+        if edges_from_viewer_friends.get(a, set()) & seller_friends:
+            return 3
+    return None
+
+
 def are_direct_friends(db: Session, a_id: str, b_id: str) -> bool:
     """True if an accepted Friendship exists between a and b in either direction."""
     return (
