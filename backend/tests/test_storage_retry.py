@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import errno
 import sys
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -310,3 +312,91 @@ class TestUploadImage:
             storage.upload_image("listings", "user-1", b"bytes", "jpg")
         assert exc_info.value.status_code == 502
         assert bucket_mock.upload.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Semaphore concurrency-cap tests
+# ---------------------------------------------------------------------------
+
+class TestMintSemaphoreCap:
+    """Assert that _mint_semaphore bounds observed in-flight concurrency to
+    _MINT_CONCURRENCY even when more threads call mint_signed_upload_url
+    simultaneously.
+
+    Strategy: monkeypatch create_signed_upload_url to record the peak
+    concurrent count (incrementing before a short real sleep, decrementing
+    after). Spin up THREAD_COUNT > _MINT_CONCURRENCY threads all calling
+    mint_signed_upload_url at once, then assert peak <= _MINT_CONCURRENCY.
+
+    We use a real threading.Event for a starting-gun so threads are as
+    simultaneous as possible. The sleep inside the mock is intentionally
+    small (10 ms) to keep the test fast while still giving concurrent
+    threads time to overlap.
+    """
+
+    THREAD_COUNT = storage._MINT_CONCURRENCY * 3  # e.g. 15 threads vs cap of 5
+
+    def test_mint_peak_concurrency_bounded(self, monkeypatch):
+        from services.storage import _MINT_CONCURRENCY as CAP
+
+        monkeypatch.setattr(storage.time, "sleep", lambda _: None)
+        monkeypatch.setenv("SUPABASE_URL", "https://supabase.fake")
+
+        # Shared counters (GIL-safe int reads/writes are atomic enough here;
+        # we use a Lock for correctness on the peak check).
+        counter_lock = threading.Lock()
+        in_flight = 0
+        peak = 0
+
+        def _fake_create_signed_upload_url(_path):
+            nonlocal in_flight, peak
+            with counter_lock:
+                in_flight += 1
+                if in_flight > peak:
+                    peak = in_flight
+            time.sleep(0.01)  # real sleep so threads actually overlap
+            with counter_lock:
+                in_flight -= 1
+            return {"signed_url": "https://supabase.fake/signed/fake"}
+
+        # Build a client mock whose create_signed_upload_url uses our counter.
+        bucket_mock = MagicMock()
+        bucket_mock.create_signed_upload_url.side_effect = _fake_create_signed_upload_url
+        storage_mock = MagicMock()
+        storage_mock.from_.return_value = bucket_mock
+        client_mock = MagicMock()
+        client_mock.storage = storage_mock
+        monkeypatch.setattr(storage, "_get_client", lambda: client_mock)
+
+        # Reset the module-level semaphore to a fresh instance so any
+        # leftover state from other tests doesn't influence this one.
+        monkeypatch.setattr(
+            storage,
+            "_mint_semaphore",
+            threading.BoundedSemaphore(CAP),
+        )
+
+        errors: list[Exception] = []
+        start_gun = threading.Event()
+
+        def _worker():
+            start_gun.wait()  # block until all threads are ready
+            try:
+                storage.mint_signed_upload_url("listings", "user-1", "jpg")
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(self.THREAD_COUNT)]
+        for t in threads:
+            t.start()
+        start_gun.set()  # release all threads simultaneously
+        for t in threads:
+            t.join(timeout=10)
+
+        assert not errors, f"Worker threads raised exceptions: {errors}"
+        assert peak <= CAP, (
+            f"Peak concurrent in-flight ({peak}) exceeded semaphore cap ({CAP})"
+        )
+        # Sanity: we actually had more threads than the cap — otherwise the
+        # test wouldn't exercise the bounding logic at all.
+        assert self.THREAD_COUNT > CAP

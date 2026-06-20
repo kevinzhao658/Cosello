@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import errno
 import os
+import threading
 import time
 import uuid
 from typing import Callable, Optional, TypeVar
@@ -74,6 +75,12 @@ _EXT_TO_CONTENT_TYPE = {
     "gif": "image/gif",
 }
 
+# Semaphore capping concurrent Supabase storage mints/uploads across threadpool
+# threads. Burst traffic during bulk upload hammers the shared httpx connection
+# pool; this cap prevents EAGAIN saturation before the retry layer even fires.
+_MINT_CONCURRENCY = 5
+_mint_semaphore = threading.BoundedSemaphore(_MINT_CONCURRENCY)
+
 _client: Optional[Client] = None
 
 
@@ -109,13 +116,14 @@ def upload_image(category: str, owner_id: str, raw_bytes: bytes, ext: str) -> st
     object_path = f"{category}/{owner_id}/{filename}"
 
     try:
-        _with_transient_retry(
-            lambda: _get_client().storage.from_(BUCKET_NAME).upload(
-                path=object_path,
-                file=raw_bytes,
-                file_options={"content-type": content_type},
+        with _mint_semaphore:
+            _with_transient_retry(
+                lambda: _get_client().storage.from_(BUCKET_NAME).upload(
+                    path=object_path,
+                    file=raw_bytes,
+                    file_options={"content-type": content_type},
+                )
             )
-        )
     except Exception as e:
         raise HTTPException(
             status_code=502,
@@ -139,9 +147,10 @@ def mint_signed_upload_url(category: str, owner_id: str, ext: str) -> dict:
     object_path = f"{category}/{owner_id}/{uuid.uuid4().hex}.{ext_normalized}"
 
     try:
-        result = _with_transient_retry(
-            lambda: _get_client().storage.from_(BUCKET_NAME).create_signed_upload_url(object_path)
-        )
+        with _mint_semaphore:
+            result = _with_transient_retry(
+                lambda: _get_client().storage.from_(BUCKET_NAME).create_signed_upload_url(object_path)
+            )
     except Exception as e:
         raise HTTPException(
             status_code=502,
