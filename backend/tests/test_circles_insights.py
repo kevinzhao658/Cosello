@@ -52,3 +52,14 @@ def test_empty_circles_new_shape():
 def test_empty_circles_is_not_mutated_accidentally():
     # canonical constant must keep both keys
     assert set(EMPTY_CIRCLES.keys()) == {"connection", "school"}
+
+
+def test_batch_returns_new_shape_for_each_seller(db_session, make_user, test_user):
+    seller = make_user(display_name="Seller")
+    from services.circles import seller_circles_for_viewer_batch
+    out = seller_circles_for_viewer_batch(
+        db_session, [seller.id], test_user, viewer_circle_ids=set(),
+    )
+    assert set(out[seller.id].keys()) == {"connection", "school"}
+    assert out[seller.id]["connection"]["degree"] is None  # strangers, no graph
+    assert out[seller.id]["school"] is None                 # seller has no school
