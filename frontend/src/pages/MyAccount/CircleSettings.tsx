@@ -1,10 +1,10 @@
 // frontend/src/pages/MyAccount/CircleSettings.tsx
 // My Account → Settings → Circles panel.
-// Rows: Neighborhood · Schools · Mutual friends, each with a toggle switch.
+// Rows: Schools + Connections (mutual friends), each with a toggle switch.
 // Schools row: chip list with remove (X icon) + autocomplete to add, capped at 2.
 // Live CirclePreview at the bottom reflects toggle state.
 import { useEffect, useState } from "react";
-import { MapPin, GraduationCap, Users } from "lucide-react";
+import { GraduationCap, Users } from "lucide-react";
 import { apiFetch } from "../../lib/api";
 import { type School } from "../../lib/useSchoolSearch";
 import { CirclePreview } from "../signup/CirclePreview";
@@ -19,7 +19,6 @@ interface CircleSchool {
 }
 
 interface CircleSummary {
-  neighborhood: { community_id: number; label: string; share: boolean } | null;
   schools: CircleSchool[];
   mutualFriends: { share: boolean };
 }
@@ -59,15 +58,9 @@ export function CircleSettings() {
   }
 
   const patchConsent = (community_id: number, share: boolean) => {
-    // Optimistic update: flip the relevant toggle immediately.
+    // Optimistic update: flip the relevant school toggle immediately.
     setSummary((prev) => {
       if (!prev) return prev;
-      if (prev.neighborhood?.community_id === community_id) {
-        return {
-          ...prev,
-          neighborhood: { ...prev.neighborhood, share },
-        };
-      }
       return {
         ...prev,
         schools: prev.schools.map((s) =>
@@ -131,7 +124,6 @@ export function CircleSettings() {
     load();
   };
 
-  const schoolFull = summary.schools.length >= 2;
   // One toggle controls all school memberships: on if any school has share=true
   const schoolShareOn = summary.schools.some((s) => s.share);
 
@@ -168,43 +160,17 @@ export function CircleSettings() {
     <div className="border border-hairline rounded-md p-5 space-y-1">
       <h3 className={`text-base ${PANEL_TITLE}`}>Circles</h3>
       <p className="text-xs text-muted">
-        Opting in will activate your circle when mutuals view your listings. Opting out will leave your circle permanently faded, even if a mutual views your listings.
+        Opting in shares your circle info on your listings. Opting out keeps your circle hidden from other users.
       </p>
 
-      {/* Neighborhood row */}
-      <div className="flex items-start gap-3 py-4 border-t border-hairline mt-3">
-        <span className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center shrink-0">
-          <MapPin className="size-5" />
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-ink">Neighborhood</div>
-          <div className="text-xs text-muted">
-            {summary.neighborhood?.label
-              ? `Shown as "${summary.neighborhood.label}".`
-              : "Shown to others in your neighborhood."}
-          </div>
-        </div>
-        {summary.neighborhood ? (
-          <ToggleSwitch
-            checked={summary.neighborhood.share}
-            label="Toggle neighborhood visibility"
-            onChange={(v) =>
-              patchConsent(summary.neighborhood!.community_id, v)
-            }
-          />
-        ) : (
-          <span className="text-xs text-muted-soft">No address set</span>
-        )}
-      </div>
-
       {/* Schools row */}
-      <div className="flex items-start gap-3 py-4 border-t border-hairline">
+      <div className="flex items-start gap-3 py-4 border-t border-hairline mt-3">
         <span className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center shrink-0">
           <GraduationCap className="size-5" />
         </span>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-ink">Schools</div>
-          <div className="text-xs text-muted">Up to 2. Shown to anyone from the same school.</div>
+          <div className="text-xs text-muted">Up to 2. Shown to anyone who views your listings.</div>
           <div className="mt-3 max-w-xs">
             <SchoolPicker
               selected={summary.schools.map((s) => ({ id: s.community_id, name: s.name }))}
@@ -224,31 +190,30 @@ export function CircleSettings() {
         />
       </div>
 
-      {/* Mutual friends row */}
+      {/* Connections (mutual friends) row */}
       <div className="flex items-start gap-3 py-4 border-t border-hairline">
         <span className="size-9 rounded-md bg-primary-soft text-primary-text flex items-center justify-center shrink-0">
           <Users className="size-5" />
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold text-ink">Mutual friends</div>
+          <div className="text-sm font-bold text-ink">Connections</div>
           <div className="text-xs text-muted">
-            Show people you both know on your listings.
+            Show your connection degree to people viewing your listings.
           </div>
         </div>
         <ToggleSwitch
           checked={summary.mutualFriends.share}
-          label="Toggle mutual friends visibility"
+          label="Toggle connections visibility"
           onChange={(v) => patchMutual(v)}
         />
       </div>
 
       {/* Live preview */}
       <div className="border-t border-hairline pt-4">
-        <p className="text-xs font-semibold text-muted mb-2">How mutuals will see your listings:</p>
+        <p className="text-xs font-semibold text-muted mb-2">How others will see your listings:</p>
         <CirclePreview
-          neighborhood={!!summary.neighborhood?.share}
+          connection={summary.mutualFriends.share}
           school={schoolShareOn}
-          mutualFriends={summary.mutualFriends.share}
         />
       </div>
     </div>
