@@ -8,6 +8,7 @@ interface SignedUploadEntry {
 }
 
 const MAX_FILES = 20;
+const UPLOAD_CONCURRENCY = 4;
 
 const extFromFile = (file: File): AllowedExt => {
   const raw = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -66,12 +67,18 @@ export const uploadToStorage = async (
     throw new Error("Sign in to upload");
   }
 
-  const uploads = files.map(async (file) => {
-    const ext = extFromFile(file);
-    const { upload_url, public_url } = await requestSignedUrl(ext, token);
-    await putFile(upload_url, file);
-    return public_url;
-  });
-
-  return Promise.all(uploads);
+  const results: string[] = [];
+  for (let i = 0; i < files.length; i += UPLOAD_CONCURRENCY) {
+    const chunk = files.slice(i, i + UPLOAD_CONCURRENCY);
+    const chunkResults = await Promise.all(
+      chunk.map(async (file) => {
+        const ext = extFromFile(file);
+        const { upload_url, public_url } = await requestSignedUrl(ext, token);
+        await putFile(upload_url, file);
+        return public_url;
+      }),
+    );
+    results.push(...chunkResults);
+  }
+  return results;
 };
