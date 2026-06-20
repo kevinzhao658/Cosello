@@ -235,6 +235,56 @@ def add_user_school(db: Session, user: User, seed_id: int) -> Community:
     return community
 
 
+def remove_user_school(db: Session, user: User, community_id: int) -> None:
+    """Drop the user's membership in a school circle.
+
+    Leaves the Community row (other users may still be members).
+    """
+    db.query(CommunityMember).filter(
+        CommunityMember.user_id == user.id,
+        CommunityMember.community_id == community_id,
+    ).delete()
+    db.commit()
+
+
+def get_user_circles_summary(db: Session, user: User) -> dict:
+    """Return the circles summary shape for My Account (GET /api/circles/me).
+
+    Returns a neighborhood row (community_id, label=neighborhood name, share)
+    instead of building — building is no longer a displayed circle
+    (spec rev 2026-06-19).
+    """
+    rows = (
+        db.query(Community, CommunityMember)
+        .join(CommunityMember, CommunityMember.community_id == Community.id)
+        .filter(
+            CommunityMember.user_id == user.id,
+            Community.kind.in_(("neighborhood", "school")),
+        )
+        .all()
+    )
+    neighborhood = None
+    schools: list[dict] = []
+    for community, membership in rows:
+        if community.kind == "neighborhood" and neighborhood is None:
+            neighborhood = {
+                "community_id": community.id,
+                "label": community.name,
+                "share": bool(membership.share_with_mutuals),
+            }
+        elif community.kind == "school":
+            schools.append({
+                "community_id": community.id,
+                "name": community.name,
+                "share": bool(membership.share_with_mutuals),
+            })
+    return {
+        "neighborhood": neighborhood,
+        "schools": schools,
+        "mutualFriends": {"share": bool(user.share_mutual_friends)},
+    }
+
+
 def set_circle_consent(db: Session, user_id: str, community_id: int, share: bool) -> None:
     """Set the per-membership share_with_mutuals flag. No-op if not a member."""
     m = (
