@@ -17,10 +17,18 @@ def test_feed_listing_exposes_circles_for_mutual_viewer(
 ):
     """Feed circles key is 'neighborhood' (not 'building') per spec rev 2026-06-19.
     Seller and viewer share the Chelsea neighborhood circle with consent on."""
+    from services.neighborhood import set_user_neighborhood as _set_nbr
     seller = make_user(display_name="Seller", neighborhood="Chelsea")
     viewer = make_user(display_name="Viewer", neighborhood="Chelsea")
-    # Both users are already members of the Chelsea neighborhood community via
-    # make_user(neighborhood="Chelsea"). Consent defaults to False — set it on.
+    # make_user sets user.neighborhood via raw SQL but doesn't create a
+    # CommunityMember row. Clear the cached neighborhood string first so
+    # set_user_neighborhood doesn't short-circuit on old==new, then
+    # enroll both users properly.
+    seller.neighborhood = None
+    viewer.neighborhood = None
+    db_session.commit()
+    _set_nbr(db_session, seller, "Chelsea")
+    _set_nbr(db_session, viewer, "Chelsea")
     nbr = get_neighborhood_community(db_session, "Chelsea")
     assert nbr is not None, "Chelsea neighborhood community must be seeded"
     set_circle_consent(db_session, seller.id, nbr.id, True)
@@ -63,7 +71,14 @@ def test_mine_listing_exposes_circles_for_seller(
 ):
     """GET /api/listings/mine enriches each listing with a circles object whose
     consented neighborhood circle is shared=True (spec rev 2026-06-19)."""
+    from services.neighborhood import set_user_neighborhood as _set_nbr
     seller = make_user(display_name="MineSeller", neighborhood="Chelsea")
+    # make_user sets user.neighborhood via raw SQL but doesn't create a
+    # CommunityMember row. Clear neighborhood first so set_user_neighborhood
+    # doesn't short-circuit on old==new, then enroll explicitly.
+    seller.neighborhood = None
+    db_session.commit()
+    _set_nbr(db_session, seller, "Chelsea")
     nbr = get_neighborhood_community(db_session, "Chelsea")
     assert nbr is not None, "Chelsea neighborhood community must be seeded"
     set_circle_consent(db_session, seller.id, nbr.id, True)
