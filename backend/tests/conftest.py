@@ -14,19 +14,28 @@ User seeding goes through Supabase's Admin API to satisfy the
 when an `auth.users` row is created; the fixture then patches profile fields.
 Teardown deletes the `auth.users` row, which CASCADEs to `public.users`.
 """
+import logging
 import os
-import random
 import sys
 from pathlib import Path
 
 # Backend is the parent of this tests directory.
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
+TESTS_DIR = Path(__file__).resolve().parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+# Ensure the tests directory itself is importable so test_helpers can be
+# resolved as a bare module name.
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
 
 # Anthropic SDK refuses to construct without an API key. Set a dummy one for tests
 # (the client itself is monkeypatched per-test).
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test-fake")
+
+logger = logging.getLogger(__name__)
+
+from test_helpers import create_auth_user_with_retry  # noqa: E402 — after sys.path patch
 
 
 import pytest
@@ -50,17 +59,6 @@ from models import (
 # system user (services/neighborhood.py SYSTEM_USER_ID = ...0001). If a future
 # test accidentally persists mock_user, this guarantees no system-data overwrite.
 _MOCK_USER_UUID = "00000000-0000-0000-0000-000000000002"
-
-# FCC test-phone range. Pick from 60000-99999 so we don't collide with the
-# production-seeded test users (+15555550101-103 from seed_test_users.py).
-_TEST_PHONE_PREFIX = "+15555"
-
-
-def _random_test_phone() -> str:
-    # Wider range (90k values instead of 40k) reduces birthday-paradox phone
-    # collisions in concurrent / large test runs without leaving the FCC test
-    # block (+1-555-5xx-xxxx).
-    return f"{_TEST_PHONE_PREFIX}{random.randint(10000, 99999)}"
 
 
 @pytest.fixture(scope="session")
@@ -96,8 +94,14 @@ def _delete_user_and_deps(db_session, user_id: str, supabase_admin) -> None:
     db_session.commit()
     try:
         supabase_admin.auth.admin.delete_user(user_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "conftest: teardown failed to delete auth.users row %s — user is now "
+            "orphaned and will consume a slot in the test-phone pool. "
+            "Run cleanup_test_users.py to purge. Error: %s",
+            user_id,
+            exc,
+        )
 
 
 def _create_test_user(
@@ -114,9 +118,7 @@ def _create_test_user(
     via `_delete_user_and_deps` (the `test_user` fixture handles this; ad-hoc
     callers can use `make_user` which tracks created users for teardown).
     """
-    resp = supabase_admin.auth.admin.create_user(
-        {"phone": _random_test_phone(), "phone_confirm": True}
-    )
+    resp = create_auth_user_with_retry(supabase_admin)
     auth_user = getattr(resp, "user", None) or resp
     user_id = auth_user.id
 
