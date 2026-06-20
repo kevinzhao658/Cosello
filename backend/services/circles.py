@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 
 from models import Community, CommunityMember, Friendship, SchoolSeed, User
 
+# Circle kinds that are surfaced to users (both in My Account and on listing
+# cards).  Building circles are created at registration but are invisible/
+# unconsented since the 2026-06-19 pivot, so they are intentionally absent.
+DISPLAYED_CIRCLE_KINDS: tuple[str, ...] = ("neighborhood", "school")
+
 # Stopwords to drop when computing institution acronyms.
 _ACRONYM_STOPWORDS = frozenset({"of", "and", "the", "at", "for", "in", "a", "an"})
 # Matches a word-boundary token of one or more alphabetic characters.
@@ -259,7 +264,7 @@ def get_user_circles_summary(db: Session, user: User) -> dict:
         .join(CommunityMember, CommunityMember.community_id == Community.id)
         .filter(
             CommunityMember.user_id == user.id,
-            Community.kind.in_(("neighborhood", "school")),
+            Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
         )
         .all()
     )
@@ -453,8 +458,9 @@ def seller_circles_for_viewer(
         .filter(
             CommunityMember.user_id == seller_id,
             CommunityMember.share_with_mutuals.is_(True),
-            Community.kind.in_(("neighborhood", "school")),
+            Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
         )
+        .order_by(Community.id)
         .all()
     )
 
@@ -523,8 +529,9 @@ def seller_circles_for_viewer_batch(
         .filter(
             CommunityMember.user_id.in_(seller_ids),
             CommunityMember.share_with_mutuals.is_(True),
-            Community.kind.in_(("neighborhood", "school")),
+            Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
         )
+        .order_by(Community.id)
         .all()
     )
     revealed_by_seller: dict[str, list[Community]] = {sid: [] for sid in seller_ids}

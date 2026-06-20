@@ -1747,11 +1747,7 @@ def get_public_listings(
                     all_comms.append({**pub_info[cid], "is_mutual": False})
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
-        listing_copy["circles"] = {
-            "neighborhood": {"shared": False, "label": ""},
-            "school": {"shared": False, "label": ""},
-            "mutualFriends": {"count": 0, "directFriend": False},
-        }
+        listing_copy["circles"] = EMPTY_CIRCLES
         enriched_pub.append(listing_copy)
     return enriched_pub
 
