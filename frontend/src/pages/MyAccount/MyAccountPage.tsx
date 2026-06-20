@@ -28,7 +28,9 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
+  Camera,
 } from "lucide-react";
+import { useProfilePictureUpload } from "../../hooks/useProfilePictureUpload";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
@@ -55,6 +57,7 @@ import { ShareCommunityModal } from "./modals/ShareCommunityModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
 import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
+import { CircleSettings } from "./CircleSettings";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { ListingRowSkeleton } from "../../components/ListingRowSkeleton";
 import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
@@ -155,6 +158,19 @@ interface MyAccountPageProps {
 export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting, resetSettings } = useSettings();
+
+  // ── Profile picture upload ─────────────────────────────
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const { isUploading: isUploadingAvatar, uploadError: avatarUploadError, upload: uploadAvatar, clearError: clearAvatarError } = useProfilePictureUpload({
+    onSuccess: (updated) => updateUser(updated),
+  });
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so the same file can be re-selected after an error
+    e.target.value = "";
+    if (file) void uploadAvatar(file);
+  };
 
   const { list: neighborhoodsList, isLoading: isLoadingNeighborhoodsList, error: neighborhoodsListError } = useNeighborhoods();
   const neighborhoods = neighborhoodsList ?? [];
@@ -1524,13 +1540,41 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* ── Profile Header ───────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-5 mb-10">
-          <div className="size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-            {user?.profile_picture ? (
-              <img src={user.profile_picture} alt={user.display_name || "Profile"} className="size-full object-cover" />
-            ) : (
-              <span className="text-2xl font-extrabold text-ink tracking-display">
-                {(user?.display_name?.[0] || "?").toUpperCase()}
+          {/* Clickable avatar — triggers hidden file input */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="relative group">
+              <button
+                type="button"
+                aria-label="Change profile photo"
+                disabled={isUploadingAvatar}
+                onClick={() => { clearAvatarError(); avatarInputRef.current?.click(); }}
+                className={`size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${isUploadingAvatar ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
+              >
+                {user?.profile_picture ? (
+                  <img src={user.profile_picture} alt={user.display_name || "Profile"} className="size-full object-cover" />
+                ) : (
+                  <span className="text-2xl font-extrabold text-ink tracking-display">
+                    {(user?.display_name?.[0] || "?").toUpperCase()}
+                  </span>
+                )}
+              </button>
+              {/* Hover overlay */}
+              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-safe:duration-150 pointer-events-none">
+                {isUploadingAvatar
+                  ? <Loader2 className="size-5 text-white animate-spin" />
+                  : <Camera className="size-5 text-white" />}
               </span>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={handleAvatarFileChange}
+              />
+            </div>
+            {avatarUploadError && (
+              <p className="text-[11px] text-error text-center max-w-[88px] leading-tight">{avatarUploadError}</p>
             )}
           </div>
           <div className="flex-1 min-w-0">
@@ -1564,16 +1608,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 <span className="font-semibold text-ink">{stats.friends_count}</span>{" "}
                 <span className="text-muted group-hover:text-primary motion-safe:transition-colors">
                   {stats.friends_count === 1 ? "Friend" : "Friends"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setAccountTab("overview")}
-                className={`group rounded-sm motion-safe:transition-colors ${FOCUS_RING}`}
-              >
-                <span className="font-semibold text-ink">{communities.length}</span>{" "}
-                <span className="text-muted group-hover:text-primary motion-safe:transition-colors">
-                  {communities.length === 1 ? "Community" : "Communities"}
                 </span>
               </button>
               <button
@@ -1643,12 +1677,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         {/* ── Tab panels ────────────────────────────────── */}
         {accountTab === "overview" && (
           <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
-            <OverviewCommunitiesRow
-              communities={communities}
-              communitiesLoaded={communitiesLoaded}
-              openCommunityDetail={openCommunityDetail}
-              openJoinModal={() => setShowJoinModal(true)}
-            />
             <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
               <OverviewListingsPanel
                 listingsTab={listingsTab}
@@ -1764,10 +1792,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               openAddFriendsModal={openAddFriendsModal}
               openFriendsModal={openFriendsModal}
               friendsCount={stats.friends_count}
-              communities={communities}
-              communitiesLoaded={communitiesLoaded}
-              openCommunityDetail={openCommunityDetail}
-              openJoinModal={() => setShowJoinModal(true)}
               logout={async () => {
                 await logout();
                 onNavigate("home");
@@ -1844,6 +1868,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
       <EditProfileModal
         open={showEditProfileModal}
+        avatarUrl={user?.profile_picture ?? null}
+        isUploadingAvatar={isUploadingAvatar}
+        avatarUploadError={avatarUploadError}
+        onAvatarChange={(file) => void uploadAvatar(file)}
+        onAvatarErrorClear={clearAvatarError}
         editFirstName={editFirstName}
         editLastName={editLastName}
         editPickupAddress={editPickupAddress}
@@ -3887,10 +3916,6 @@ function SettingsTabContent({
   openAddFriendsModal,
   openFriendsModal,
   friendsCount,
-  communities,
-  communitiesLoaded,
-  openCommunityDetail,
-  openJoinModal,
   logout,
 }: {
   settings: Settings;
@@ -3900,10 +3925,6 @@ function SettingsTabContent({
   openAddFriendsModal: () => void;
   openFriendsModal: () => void;
   friendsCount: number;
-  communities: CommunityData[];
-  communitiesLoaded: boolean;
-  openCommunityDetail: (c: CommunityData) => void;
-  openJoinModal: () => void;
   logout: () => Promise<void>;
 }) {
   const fontSizes: [Settings["fontSize"], string][] = [
@@ -4058,8 +4079,8 @@ function SettingsTabContent({
       </section>
 
       <section>
-        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Communities &amp; friends</h3>
-        <p className="text-sm text-muted mb-4">Manage your trust signals.</p>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Friends</h3>
+        <p className="text-sm text-muted mb-4">Manage your friend connections.</p>
         <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
           <SettingRow
             title="Friends"
@@ -4081,46 +4102,13 @@ function SettingsTabContent({
               </div>
             }
           />
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-ink">Communities</p>
-              <button
-                onClick={openJoinModal}
-                className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-              >
-                <Plus className="size-3.5 mr-1" />
-                Join or create
-              </button>
-            </div>
-            {!communitiesLoaded ? (
-              <ul className="space-y-1">
-                {Array.from({ length: 6 }).map((_, i) => <PunchlistRowSkeleton key={i} />)}
-              </ul>
-            ) : communities.length === 0 ? (
-              <p className="text-xs text-muted">You haven't joined any communities yet.</p>
-            ) : (
-              <ul className="space-y-1">
-                {communities.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => openCommunityDetail(c)}
-                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
-                    >
-                      <div className="size-8 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-                        {c.image ? <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-ink truncate">{c.name}</p>
-                        <p className="text-[11px] text-muted truncate">{c.neighborhood ?? "—"} · {c.member_count} {c.member_count === 1 ? "member" : "members"}</p>
-                      </div>
-                      <ChevronRight className="size-4 text-muted" aria-hidden="true" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
+      </section>
+
+      <section>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Circles</h3>
+        <p className="text-sm text-muted mb-4">Control which trust signals appear on your listings.</p>
+        <CircleSettings />
       </section>
 
       <section>

@@ -25,6 +25,7 @@ from database import get_db
 from models import User, Community, CommunityMember, WishlistItem, WishlistFolder, PurchaseOrder, Notification, Listing
 from auth import get_current_user, get_optional_user
 from routers.auth import router as auth_router
+from routers.circles import router as circles_router
 from routers.communities import router as communities_router
 from routers.events import router as events_router
 from routers.friends import router as friends_router
@@ -38,6 +39,7 @@ from services.evidence import build_evidence_block, _format_single_image_evidenc
 from services.ranking import score_listings, _apply_exclusions as _fyp_apply_exclusions
 from services import storage
 from services.neighborhood import get_neighborhood_community
+from services.circles import seller_circles_for_viewer
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,7 @@ app.add_middleware(
 
 # Include routes
 app.include_router(auth_router)
+app.include_router(circles_router)
 app.include_router(communities_router)
 app.include_router(events_router)
 app.include_router(friends_router)
@@ -1101,7 +1104,6 @@ async def generate_listings(
 async def create_listing(
     images: list[UploadFile] = File(default_factory=list),
     data: str = Form(...),
-    communities: str = Form(""),
     visibility: str = Form("public"),
     pickup_location: str = Form(""),
     pickup_zip: str = Form(""),
@@ -1140,61 +1142,6 @@ async def create_listing(
 
     if len(parsed_draft_urls) + len(images) > 20:
         raise HTTPException(status_code=400, detail="At most 20 images allowed per listing")
-
-    # Parse community IDs the listing is posted to.
-    # Post-PR-3: only integer IDs are recognized. Legacy "neighborhood" strings
-    # from older clients are silently dropped (they map to no community).
-    community_ids: list[int] = []
-    if communities:
-        for part in communities.split(","):
-            part = part.strip()
-            if not part:
-                continue
-            try:
-                community_ids.append(int(part))
-            except ValueError:
-                pass  # silently drop non-int values (incl. legacy "neighborhood")
-
-    # Hard cap of 3 — enforced for both public and private listings.
-    if len(community_ids) > 3:
-        raise HTTPException(
-            status_code=400,
-            detail="At most 3 communities per listing",
-        )
-
-    # Validate each id: exists + user is a member.
-    for cid in community_ids:
-        comm = db.query(Community).filter(Community.id == cid).first()
-        if not comm:
-            raise HTTPException(status_code=400, detail=f"Community {cid} not found")
-        is_member = (
-            db.query(CommunityMember)
-            .filter(
-                CommunityMember.community_id == cid,
-                CommunityMember.user_id == current_user.id,
-            )
-            .first()
-        )
-        if not is_member:
-            raise HTTPException(
-                status_code=400,
-                detail=f"You are not a member of community {cid}",
-            )
-
-    # Private-listing extra rules: must have ≥1 community and all must be private.
-    if visibility != "public":
-        if len(community_ids) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Private listing must have at least one community",
-            )
-        for cid in community_ids:
-            comm = db.query(Community).filter(Community.id == cid).first()
-            if comm.is_public:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Community {cid} is not private",
-                )
 
     # Validate category slug
     category_slug = details.get("category", "other")
@@ -1419,7 +1366,7 @@ async def create_listing(
         identifier_confidence=identifier_confidence_in,
         location=current_user.neighborhood or details.get("location", ""),
         tags=json.dumps(details.get("tags", [])),
-        communities=json.dumps(community_ids),
+        communities=None,  # communities retired (Phase 2): circles derive from the seller, not the listing
         visibility=visibility,
         image_url=image_urls[0],
         image_urls=json.dumps(image_urls),
@@ -1665,6 +1612,17 @@ def get_listings(
         listing_copy["mutualCommunityNames"] = [m["name"] for m in mutual]
         listing_copy["mutualCommunities"] = mutual
         listing_copy["allCommunities"] = all_comms
+        seller_id = l.get("userId")
+        if seller_id:
+            listing_copy["circles"] = seller_circles_for_viewer(
+                db, seller_id, current_user, viewer_circle_ids=my_community_ids
+            )
+        else:
+            listing_copy["circles"] = {
+                "neighborhood": {"shared": False, "label": ""},
+                "school": {"shared": False, "label": ""},
+                "mutualFriends": {"count": 0, "directFriend": False},
+            }
         enriched.append(listing_copy)
     return enriched
 
@@ -1783,6 +1741,11 @@ def get_public_listings(
                     all_comms.append({**pub_info[cid], "is_mutual": False})
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
+        listing_copy["circles"] = {
+            "neighborhood": {"shared": False, "label": ""},
+            "school": {"shared": False, "label": ""},
+            "mutualFriends": {"count": 0, "directFriend": False},
+        }
         enriched_pub.append(listing_copy)
     return enriched_pub
 
@@ -1851,6 +1814,12 @@ def get_my_listings(
                 all_comms.append({**info, "is_mutual": is_mutual})
         all_comms.sort(key=lambda c: (not c["is_mutual"], c["name"]))
         listing_copy["allCommunities"] = all_comms
+
+        # Attach circles — viewer is the seller themselves (self-preview of
+        # how mutuals will see their listing).
+        listing_copy["circles"] = seller_circles_for_viewer(
+            db, current_user.id, current_user, viewer_circle_ids=my_community_ids
+        )
 
         enriched.append(listing_copy)
     return enriched

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Friendship, CommunityMember, Community, PurchaseOrder, Review, Listing
 from auth import get_current_user
+from services.circles import list_user_schools
 
 router = APIRouter(prefix="/api/friends", tags=["friends"])
 
@@ -398,6 +399,7 @@ def get_user_profile(
         "neighborhood": target.neighborhood,
         "profile_picture": target.profile_picture,
         "is_friend": user_id in my_friend_ids,
+        "schools": [{"name": c.name} for c in list_user_schools(db, user_id)],
         "communities": communities,
         "mutual_friends": mutual_friends,
         "active_listings": active_listings,

@@ -72,18 +72,6 @@ def _is_real_brand(brand: str | None) -> bool:
     return bool(b) and b != "unknown"
 
 
-def _listing_communities(listing: Listing) -> list[int]:
-    """Decode Listing.communities JSON, returning only the integer community ids."""
-    raw = listing.communities
-    if not raw:
-        return []
-    try:
-        decoded = json.loads(raw)
-    except (TypeError, ValueError):
-        return []
-    return [c for c in decoded if isinstance(c, int)]
-
-
 def _listing_tags(listing: Listing) -> list[str]:
     raw = listing.tags
     if not raw:
@@ -359,21 +347,26 @@ def _taste_from_sales(user: User, listing: Listing, db: Session) -> float:
 
 
 def _community_overlap(user: User, listing: Listing, db: Session) -> float:
-    """Count of communities the user shares with this listing, normalized."""
-    listing_cids = _listing_communities(listing)
-    if not listing_cids:
-        return 0.0
+    """Normalized count of circles the viewer shares with the listing's seller.
 
+    Relevance is invisible to users, so this is NOT consent-gated — it uses raw
+    membership overlap between viewer and seller across all circle kinds.
+    """
+    seller_cids: set[int] = {
+        row.community_id
+        for row in db.query(CommunityMember.community_id)
+        .filter(CommunityMember.user_id == listing.user_id)
+        .all()
+    }
+    if not seller_cids:
+        return 0.0
     my_cids: set[int] = {
         row.community_id
         for row in db.query(CommunityMember.community_id)
         .filter(CommunityMember.user_id == user.id)
         .all()
     }
-    if not my_cids:
-        return 0.0
-
-    overlap = sum(1 for cid in listing_cids if cid in my_cids)
+    overlap = len(seller_cids & my_cids)
     if overlap == 0:
         return 0.0
     return min(1.0, overlap / COMMUNITY_OVERLAP_NORM)

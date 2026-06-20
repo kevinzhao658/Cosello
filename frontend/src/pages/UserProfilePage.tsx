@@ -10,6 +10,7 @@ import {
   UserPlus,
   UserCheck,
   Users,
+  GraduationCap,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { formatTitle } from "../lib/format";
@@ -42,6 +43,7 @@ interface ProfileData {
     avg_buyer_rating: number;
     buyer_review_count: number;
   };
+  schools?: { name: string }[];
   member_since: string | null;
 }
 
@@ -152,6 +154,12 @@ export default function UserProfileOverlay({ userId, onClose, onViewUser, openLi
                     <p className="text-sm text-muted flex items-center gap-1.5">
                       <MapPin className="size-3.5" />
                       {data.neighborhood}
+                    </p>
+                  )}
+                  {data.schools && data.schools.length > 0 && (
+                    <p className="text-sm text-muted flex items-center gap-1.5 mt-0.5">
+                      <GraduationCap className="size-3.5 text-primary-text" aria-hidden="true" />
+                      {data.schools.map((s) => s.name).join(" · ")}
                     </p>
                   )}
                   {data.member_since && (

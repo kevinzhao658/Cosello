@@ -26,6 +26,12 @@ export interface MutualCommunity {
   is_public: boolean;
 }
 
+export interface ListingCircles {
+  neighborhood: { shared: boolean; label: string };
+  school: { shared: boolean; label: string };
+  mutualFriends: { count: number; directFriend: boolean };
+}
+
 export interface Listing {
   id: string;
   userId?: string;
@@ -42,6 +48,7 @@ export interface Listing {
   mutualCommunityNames?: string[];
   mutualCommunities?: MutualCommunity[];
   allCommunities?: ListingCommunity[];
+  circles?: ListingCircles;
   visibility?: "public" | "private";
   tier?: number;
   status?: string;

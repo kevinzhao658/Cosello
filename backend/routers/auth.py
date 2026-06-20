@@ -9,7 +9,8 @@ from database import get_db
 from models import User
 from auth import get_current_user
 from services import storage
-from services.neighborhood import set_user_neighborhood
+from services.neighborhood import set_user_neighborhood, get_neighborhood_community
+from services.circles import set_user_building, add_user_school, set_circle_consent, TooManySchools
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -45,6 +46,8 @@ class RegisterRequest(BaseModel):
     neighborhood: str = Field(..., min_length=1, max_length=100)
     pickup_address: Optional[str] = Field(None, max_length=255)
     zip_code: Optional[str] = Field(None, max_length=10)
+    pronouns: Optional[str] = Field(None, max_length=40)
+    school_seed_ids: list[int] = []
 
 
 class UpdateProfileRequest(BaseModel):
@@ -128,6 +131,27 @@ def register(
         set_user_neighborhood(db, existing, req.neighborhood)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    existing.pronouns = req.pronouns
+    existing.share_mutual_friends = True  # default-on (see spec section 3)
+
+    # Set neighborhood consent default-on (neighborhood replaces building as
+    # the displayed local-trust circle per spec revision 2026-06-19).
+    neighborhood_community = get_neighborhood_community(db, req.neighborhood)
+    if neighborhood_community is not None:
+        set_circle_consent(db, existing.id, neighborhood_community.id, True)
+
+    # Building data is still derived and stored (for future use) but its consent
+    # is no longer set — building is not a displayed circle (spec rev 2026-06-19).
+    if req.pickup_address:
+        set_user_building(db, existing, req.pickup_address)
+    for seed_id in (req.school_seed_ids or [])[:2]:
+        try:
+            school = add_user_school(db, existing, seed_id)
+        except (TooManySchools, ValueError):
+            continue
+        set_circle_consent(db, existing.id, school.id, True)
+    db.commit()
 
     db.refresh(existing)
     return _user_to_out(db, existing)

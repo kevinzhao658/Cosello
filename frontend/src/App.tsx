@@ -406,19 +406,23 @@ export default function App() {
     }
   }, [isAuthenticated, page, pendingSignupToken]);
 
-  // If a live session still needs registration, backfill pendingSignupToken
-  // from the session token (lost on reload since it only lives in App state)
-  // and force the signup page. This prevents a half-registered user from
-  // browsing the app as if they were fully signed in.
+  // While a session still needs registration, keep the user in the wizard ONLY
+  // while they are on the signup page. If they navigate anywhere else (press a
+  // nav item, or restore a stale incomplete session), abandon registration:
+  // sign out fully so no profile is created and they browse as a signed-out
+  // visitor. We never treat the user as signed in until the wizard completes.
   useEffect(() => {
     if (!needsRegistration) return;
-    if (!pendingSignupToken && token) {
-      setPendingSignupToken(token);
+    if (page === "signup") {
+      // Active in the wizard: backfill the token it needs (lost on reload).
+      if (!pendingSignupToken && token) setPendingSignupToken(token);
+      return;
     }
-    if (page !== "signup") {
-      setPage("signup");
-    }
-  }, [needsRegistration, pendingSignupToken, token, page]);
+    // Navigated away mid-registration → abandon + sign out (same as onCancel).
+    setPendingSignupToken(null);
+    setPendingSignupUser(null);
+    void logout();
+  }, [needsRegistration, page, pendingSignupToken, token, logout]);
 
   const userInitials = (() => {
     const name = user?.display_name?.trim();
@@ -635,7 +639,7 @@ export default function App() {
                 col is removed from grid auto-placement and would otherwise
                 let the right cluster fall back into the 1fr middle cell. */}
             <div className="flex items-center gap-2 justify-self-end">
-              {isAuthenticated ? (
+              {isAuthenticated && !needsRegistration ? (
                 <>
                 {/* Message (placeholder — no route) */}
                 <button
@@ -825,15 +829,11 @@ export default function App() {
           <SignUpPage
             pendingToken={pendingSignupToken}
             onComplete={(completedUser) => {
+              // Finalize the session so the user is authenticated, but do NOT
+              // navigate away here. The wizard renders the Welcome step next
+              // (setDone(true)), and navigation happens only when the user
+              // taps "Start selling" or "Browse for now" in that step.
               login(pendingSignupToken, completedUser);
-              setPendingSignupToken(null);
-              setPendingSignupUser(null);
-              if (pendingSellPublish) {
-                setPendingSellPublish(false);
-                setPage("newlisting");
-              } else {
-                setPage("account");
-              }
             }}
             onCancel={() => {
               // Sign out the Supabase session so the half-registered user
@@ -844,6 +844,28 @@ export default function App() {
                 setPendingSellPublish(false);
                 setPage("home");
               });
+            }}
+            onSessionExpired={() => {
+              // The register call returned 401 (expired Supabase token).
+              // Clear local session state and return the user to sign-in for a fresh OTP.
+              void logout().then(() => {
+                setPendingSignupToken(null);
+                setPendingSignupUser(null);
+                setPendingSellPublish(false);
+                setPage("signin");
+              });
+            }}
+            onStartSelling={() => {
+              setPendingSignupToken(null);
+              setPendingSignupUser(null);
+              setPendingSellPublish(false);
+              setPage("newlisting");
+            }}
+            onBrowse={() => {
+              setPendingSignupToken(null);
+              setPendingSignupUser(null);
+              setPendingSellPublish(false);
+              setPage("market");
             }}
           />
         </Suspense>
@@ -1573,15 +1595,10 @@ export default function App() {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
-                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => {
-                    const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
-                      ?? listing.allCommunities?.[0]
-                      ?? PLACEHOLDER_COMMUNITY;
-                    return (
+                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => (
                       <ListingCard
                         key={listing.id}
                         listing={listing}
-                        heroCommunity={heroCommunity}
                         isOwn={isAuthenticated && listing.userId === user?.id}
                         isAuthenticated={isAuthenticated}
                         isWishlisted={wishlist.ids.has(listing.id)}
@@ -1592,8 +1609,7 @@ export default function App() {
                         onToggleWishlist={() => wishlist.toggle(listing.id)}
                         onPulseEnd={() => wishlist.clearPulse(listing.id)}
                       />
-                    );
-                  })}
+                  ))}
                 </div>
 
                 {/* End sentinel — also drives the IntersectionObserver. */}

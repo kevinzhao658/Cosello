@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useRef } from "react";
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
-import { X, User, Loader2 } from "lucide-react";
+import { X, User, Loader2, Camera } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
 import { NYC_ZIPS, NYC_ZIP_SET } from "../../../lib/nycZips";
 
@@ -11,6 +11,13 @@ const LABEL_CLASS =
 
 export interface EditProfileModalProps {
   open: boolean;
+  // Avatar upload
+  avatarUrl: string | null;
+  isUploadingAvatar: boolean;
+  avatarUploadError: string | null;
+  onAvatarChange: (file: File) => void;
+  onAvatarErrorClear: () => void;
+  // Profile fields
   editFirstName: string;
   editLastName: string;
   editPickupAddress: string;
@@ -36,13 +43,23 @@ export interface EditProfileModalProps {
 }
 
 export function EditProfileModal({
-  open, editFirstName, editLastName, editPickupAddress, editNeighborhood, editZipCode,
+  open, avatarUrl, isUploadingAvatar, avatarUploadError, onAvatarChange, onAvatarErrorClear,
+  editFirstName, editLastName, editPickupAddress, editNeighborhood, editZipCode,
   editShowSuggestions, editFilteredNeighborhoods, editIsValidNeighborhood,
   editProfileError, isUpdatingProfile, isLoadingNeighborhoods, neighborhoodsError,
   editNeighborhoodRef, editSuggestionsRef,
   setEditFirstName, setEditLastName, setEditPickupAddress, setEditNeighborhood,
   setEditZipCode, setEditShowSuggestions, onClose, onSubmit,
 }: EditProfileModalProps) {
+  const modalAvatarInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so the same file can be re-selected after an error
+    e.target.value = "";
+    if (file) onAvatarChange(file);
+  };
+
   if (!open) return null;
   return (
     <ModalShell open onClose={onClose} z={50}>
@@ -57,11 +74,41 @@ export function EditProfileModal({
 
         <div className="px-6 pt-6 pb-2">
           <div className="flex items-center gap-3">
-            <div className="size-10 bg-primary-soft rounded-full flex items-center justify-center">
-              <User className="size-5 text-primary" />
+            {/* Clickable avatar thumbnail */}
+            <div className="relative group shrink-0">
+              <button
+                type="button"
+                aria-label="Change profile photo"
+                disabled={isUploadingAvatar}
+                onClick={() => { onAvatarErrorClear(); modalAvatarInputRef.current?.click(); }}
+                className={`size-10 rounded-full bg-primary-soft flex items-center justify-center overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${isUploadingAvatar ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Profile" className="size-full object-cover" />
+                ) : (
+                  <User className="size-5 text-primary" />
+                )}
+              </button>
+              {/* Hover overlay */}
+              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-safe:duration-150 pointer-events-none">
+                {isUploadingAvatar
+                  ? <Loader2 className="size-3 text-white animate-spin" />
+                  : <Camera className="size-3 text-white" />}
+              </span>
+              <input
+                ref={modalAvatarInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={handleAvatarFileChange}
+              />
             </div>
             <h3 className={`text-xl ${MODAL_TITLE}`}>Edit Profile</h3>
           </div>
+          {avatarUploadError && (
+            <p className="text-[11px] text-error mt-2">{avatarUploadError}</p>
+          )}
         </div>
 
         <div className="px-6 pb-6 space-y-4 overflow-y-auto">
@@ -104,7 +151,7 @@ export function EditProfileModal({
             {isLoadingNeighborhoods ? (
               <div className="text-sm text-muted py-2 flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
-                Loading neighborhoods…
+                Loading neighborhoods...
               </div>
             ) : neighborhoodsError ? (
               <div className="text-sm text-error py-2">

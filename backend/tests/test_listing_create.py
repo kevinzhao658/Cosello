@@ -1,16 +1,25 @@
-"""Tests for listing-creation community validation after PR 3 cutover.
+"""Tests for listing-creation behaviour under the circles model (Phase 2).
 
-The PR 3 spec replaces the public-listing auto-attach with seller-picked
-community IDs. These tests assert the new validation surface:
-  - Public listings honor exactly what the seller submits (no override)
-  - >3 communities rejected with 400
-  - Non-member community ID rejected with 400
-  - Non-int community values silently dropped (legacy "neighborhood" → no-op)
-  - Private listings still require ≥1 private community + all member
+Phase 2 retires the seller-picks `communities` form field on create-listing.
+The field is now silently ignored if sent (backward-compatible with old clients),
+and new listings always store communities=NULL. The seller's circles derive from
+their own memberships, not from per-listing tags.
+
+Removed tests (intentionally):
+  - test_public_listing_honors_exact_seller_picks: asserted communities=[id] after
+    posting with a communities value. Under circles the field is ignored, so the
+    stored value is always NULL. Replaced by test_communities_field_ignored_on_create.
+  - test_more_than_three_communities_rejected: asserted 400 for >3 community IDs.
+    The 3-cap no longer exists. Replaced by test_more_than_three_communities_ignored.
+  - test_non_member_community_rejected: asserted 400 when posting a community the
+    user isn't a member of. The membership check no longer exists. Replaced by
+    test_non_member_community_ignored.
+  - test_legacy_neighborhood_string_silently_dropped: asserted communities==[] for
+    a legacy "neighborhood" string. Updated to assert communities is NULL/empty.
+  - test_public_listing_zero_communities_allowed: asserted communities==[] for an
+    empty communities string. Updated to assert communities is NULL/empty.
 """
-import io
 import json
-import pytest
 from sqlalchemy import text
 
 from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
@@ -44,11 +53,31 @@ def _make_listing_form(*, communities: str = "", visibility: str = "public",
     }
 
 
-def test_public_listing_honors_exact_seller_picks(authed_client, test_user, db_session, mock_storage):
-    """Public listing's communities array == seller-submitted IDs (no auto-attach)."""
-    # Clear then re-set neighborhood to guarantee the CommunityMember row exists.
-    # (conftest creates test_user with neighborhood="Chelsea" via raw SQL, which
-    # bypasses set_user_neighborhood's membership creation step.)
+def _communities_value(db_session, listing_id: str):
+    """Return the raw communities column value for a listing (may be None or str)."""
+    row = db_session.execute(
+        text("SELECT communities FROM listings WHERE id = :id"),
+        {"id": listing_id},
+    ).first()
+    return row[0] if row else None
+
+
+def _is_empty_communities(val) -> bool:
+    """True when communities is NULL, empty string, or '[]'."""
+    if val is None or val == "":
+        return True
+    try:
+        return json.loads(val) == []
+    except (TypeError, ValueError):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# New circles-model tests: communities field is silently ignored
+# ---------------------------------------------------------------------------
+
+def test_communities_field_ignored_on_create(authed_client, test_user, db_session, mock_storage):
+    """Sending a valid community ID is silently ignored. communities stored as NULL."""
     test_user.neighborhood = None
     db_session.commit()
     set_user_neighborhood(db_session, test_user, "Chelsea")
@@ -61,26 +90,20 @@ def test_public_listing_honors_exact_seller_picks(authed_client, test_user, db_s
     )
     assert resp.status_code == 201, resp.text
     listing_id = resp.json()["id"]
-
-    row = db_session.execute(
-        text("SELECT communities FROM listings WHERE id = :id"),
-        {"id": listing_id},
-    ).first()
-    assert json.loads(row[0]) == [chelsea.id]
+    assert _is_empty_communities(_communities_value(db_session, listing_id))
 
 
-def test_more_than_three_communities_rejected(authed_client, test_user, db_session, mock_storage):
+def test_more_than_three_communities_ignored(authed_client, test_user, db_session, mock_storage):
+    """Sending 4 community IDs no longer triggers a 400 — field is ignored, listing posts cleanly."""
     test_user.neighborhood = None
     db_session.commit()
     set_user_neighborhood(db_session, test_user, "Chelsea")
     db_session.commit()
-    # Build 4 community IDs the user IS a member of (system neighborhood + 3 more).
-    # Pick from MANHATTAN_NEIGHBORHOODS via get_neighborhood_community.
+
     names = ["Chelsea", "SoHo", "Tribeca", "Chinatown"]
     ids: list[int] = []
     for nm in names:
         c = get_neighborhood_community(db_session, nm)
-        # Join them so the membership check passes — we want to isolate the cap-of-3 error.
         from models import CommunityMember
         if not db_session.query(CommunityMember).filter_by(user_id=test_user.id, community_id=c.id).first():
             db_session.add(CommunityMember(user_id=test_user.id, community_id=c.id, role="member"))
@@ -91,14 +114,12 @@ def test_more_than_three_communities_rejected(authed_client, test_user, db_sessi
         "/api/listings",
         files=_make_listing_form(communities=",".join(str(i) for i in ids), visibility="public"),
     )
-    assert resp.status_code == 400
-    assert "At most 3 communities" in resp.json()["detail"]
+    assert resp.status_code == 201, resp.text
+    assert _is_empty_communities(_communities_value(db_session, resp.json()["id"]))
 
 
-def test_non_member_community_rejected(authed_client, test_user, db_session, mock_storage):
-    """Even if community id is valid, user must be a member."""
-    # User is in Chelsea (set after clearing so membership row is created).
-    # SoHo exists but user is NOT a member.
+def test_non_member_community_ignored(authed_client, test_user, db_session, mock_storage):
+    """Sending a community the user isn't a member of is silently ignored (no 400)."""
     test_user.neighborhood = None
     db_session.commit()
     set_user_neighborhood(db_session, test_user, "Chelsea")
@@ -109,13 +130,13 @@ def test_non_member_community_rejected(authed_client, test_user, db_session, moc
         "/api/listings",
         files=_make_listing_form(communities=str(soho.id), visibility="public"),
     )
-    assert resp.status_code == 400
-    assert "not a member" in resp.json()["detail"]
+    assert resp.status_code == 201, resp.text
+    assert _is_empty_communities(_communities_value(db_session, resp.json()["id"]))
 
 
 def test_legacy_neighborhood_string_silently_dropped(authed_client, test_user, db_session, mock_storage):
     """An old client sending 'neighborhood' as a value gets no community attached
-    (no error, no crash). Listing posts cleanly with empty communities."""
+    (no error, no crash). Listing posts cleanly with empty/null communities."""
     test_user.neighborhood = None
     db_session.commit()
     set_user_neighborhood(db_session, test_user, "Chelsea")
@@ -126,15 +147,11 @@ def test_legacy_neighborhood_string_silently_dropped(authed_client, test_user, d
         files=_make_listing_form(communities="neighborhood", visibility="public"),
     )
     assert resp.status_code == 201
-    listing_id = resp.json()["id"]
-    row = db_session.execute(
-        text("SELECT communities FROM listings WHERE id = :id"),
-        {"id": listing_id},
-    ).first()
-    assert json.loads(row[0]) == []
+    assert _is_empty_communities(_communities_value(db_session, resp.json()["id"]))
 
 
 def test_public_listing_zero_communities_allowed(authed_client, test_user, db_session, mock_storage):
+    """Empty communities string results in a clean public listing with null communities."""
     test_user.neighborhood = None
     db_session.commit()
     set_user_neighborhood(db_session, test_user, "Chelsea")
@@ -145,9 +162,4 @@ def test_public_listing_zero_communities_allowed(authed_client, test_user, db_se
         files=_make_listing_form(communities="", visibility="public"),
     )
     assert resp.status_code == 201
-    listing_id = resp.json()["id"]
-    row = db_session.execute(
-        text("SELECT communities FROM listings WHERE id = :id"),
-        {"id": listing_id},
-    ).first()
-    assert json.loads(row[0]) == []
+    assert _is_empty_communities(_communities_value(db_session, resp.json()["id"]))

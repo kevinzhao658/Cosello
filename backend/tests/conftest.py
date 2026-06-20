@@ -57,7 +57,10 @@ _TEST_PHONE_PREFIX = "+15555"
 
 
 def _random_test_phone() -> str:
-    return f"{_TEST_PHONE_PREFIX}{random.randint(60000, 99999)}"
+    # Wider range (90k values instead of 40k) reduces birthday-paradox phone
+    # collisions in concurrent / large test runs without leaving the FCC test
+    # block (+1-555-5xx-xxxx).
+    return f"{_TEST_PHONE_PREFIX}{random.randint(10000, 99999)}"
 
 
 @pytest.fixture(scope="session")
