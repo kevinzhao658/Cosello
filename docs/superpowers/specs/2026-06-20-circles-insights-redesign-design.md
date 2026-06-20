@@ -22,7 +22,7 @@ This redesign reframes circles as **insights, not pass/fail lights**:
 |---|---|---|
 | **Connection** | Medal ribbon, **left edge** of the byline | Degree to the seller: **1st / 2nd / 3rd**. Blank when there's no path within 3 degrees. |
 | **School** | **Right edge** of the byline, with graduation-cap icon | The seller's school **short name**, shown to everyone. Bold when it's the viewer's own school. |
-| **Proximity** | **Location line** (under the title), right of the neighborhood | Distance in **miles**; becomes **"Your building"** (bold) on an exact building match. |
+| **Proximity** | **Location line** (under the title), right of the neighborhood | Distance in **miles** (coarse — from ZIP centroids against already-coarsened listing coords). |
 
 There is no separate "neighborhood" circle anymore — neighborhood is conveyed by the location-line name (it already is), and proximity is the distance/building tag beside it.
 
@@ -44,12 +44,12 @@ There is no separate "neighborhood" circle anymore — neighborhood is conveyed 
 
 ### 3c. Proximity — location line
 - Location line reads `Neighborhood · <proximity>`.
-- `<proximity>` = `N.N mi` (one decimal, miles only — **no walk-time**). 
-- On an exact building match it becomes **`Your building`** in the **same color**, just **bold**. (Not a separate colored tag.)
+- `<proximity>` = `N.N mi` (one decimal, miles only — **no walk-time**).
 - When the viewer's location is unknown (signed-out, or no address on file), the proximity segment is omitted and the line shows the neighborhood alone.
+- **No "same building" indicator.** A binary same-building signal is an exploitable location oracle (§5d) and is deliberately excluded.
 
 ### 3d. Color discipline
-The **medal ribbon is the only color** on the card. School, distance, and "Your building" are monochrome; their only emphasis is **bold**. This keeps the connection (the strongest trust signal) as the single eye-catch.
+The **medal ribbon is the only color** on the card. School and distance are monochrome; emphasis is **bold** only (e.g. a same-school match). This keeps the connection (the strongest trust signal) as the single eye-catch.
 
 ## 4. School short names
 
@@ -72,8 +72,7 @@ circles: {
   "school":     { "shortName": "MIT",
                   "fullName": "Massachusetts Institute of Technology",
                   "isMine": false } | null,          // null = no school or hidden
-  "proximity":  { "sameBuilding": false,
-                  "distanceMiles": 0.4 | null }       // null = viewer location unknown
+  "proximity":  { "distanceMiles": 0.4 | null }       // null = viewer location unknown
 }
 ```
 
@@ -94,7 +93,7 @@ This shape is produced by `seller_circles_for_viewer` and `seller_circles_for_vi
 
 ### 5d. Proximity
 - `distanceMiles`: **already computed** today (`main.py` uses `haversine_miles` + the buyer's ZIP centroid → `distance_miles`). Surface it into the `circles.proximity` shape per listing; round to 1 decimal. Null when the viewer has no resolvable location.
-- `sameBuilding`: viewer and seller are members of the **same building community** (building memberships already derived at registration via `set_user_building`). Gated by a **building-visibility** flag (default **on**); only ever visible to a same-building viewer, so there's no broad address leak.
+- **No `sameBuilding` field — by design (safety).** A binary same-building indicator is a cheap **location oracle**: with no address verification yet (Twilio/Google are backlog) and free address edits, an attacker can change their own address across candidate buildings and watch the indicator flip on to confirm a target's home building. That harm (stalking) outweighs the trust value. Distance stays because it's coarse — computed from ZIP centroids against already-coarsened listing coordinates (`services/geo.py`), so it reveals only ~neighborhood-level proximity (which the neighborhood name already conveys) and cannot pinpoint a building. Building circles remain **dormant** (still derived at registration, displayed nowhere) — no re-enable, no backfill.
 
 ### 5e. Consent / visibility flags — storage decision
 All three opt-outs reuse the existing per-membership `community_members.share_with_mutuals` column on the relevant circle membership (consistent with how consent already works today), **except** connection, which reuses the existing user-level `users.share_mutual_friends`. Concretely:
@@ -103,25 +102,24 @@ All three opt-outs reuse the existing per-membership `community_members.share_wi
 |---|---|---|---|
 | Connection | `users.share_mutual_friends` (user-level) | on | none (only degree, no names) |
 | School | `share_with_mutuals` on the **school** membership | on (shown) | reveals school broadly — **intended** |
-| Building | `share_with_mutuals` on the **building** membership | on | none (only same-building viewer sees it) |
 | Distance | none (logistics) | always | none (coarser than the neighborhood already shown) |
 
-Note the semantic shift: for school/building, `share_with_mutuals` now means "show this on my listings" (a visibility toggle), not "reveal only to people who share it." Registration must set it **True** for both school and building memberships (Phase 5 set it for school but **not** building), and we backfill existing memberships to True (§7.2).
+Building is intentionally **absent** from this table — it has no display path (§5d), so no consent flag is needed.
+
+Note the semantic shift: for school, `share_with_mutuals` now means "show this on my listings" (a visibility toggle), not "reveal only to people who share it." Registration already sets it True for school memberships (Phase 5); we backfill existing school memberships to True so current users render (§7.2).
 
 ## 6. Surfaces affected
 
 - **Marketplace feed cards** (`CircleByline.tsx`, `ListingCard.tsx`) — the new ribbon + school byline; distance/building moves to the location line.
 - **Listing detail** — same grammar.
 - **Sell-wizard preview card** — renders all-neutral (no viewer to compare against): no ribbon, school shown plain, neighborhood + (own) distance suppressed or "—".
-- **My Account → Settings → Circles** (`CircleSettings.tsx`) — rows become **Connections (mutual friends)**, **School(s)** (+ manage, cap 2), **Building**. The **neighborhood row is removed** (no longer a displayed circle). Update the section copy and the live preview to the new byline.
+- **My Account → Settings → Circles** (`CircleSettings.tsx`) — rows become **Connections (mutual friends)** and **School(s)** (+ manage, cap 2). The **neighborhood row is removed** (no longer a displayed circle) and there is **no building row** (building has no display path). Update the section copy and the live preview to the new byline.
 - **Profile** — schools shown by full name (unchanged); profile is where the full name always lives.
 
 ## 7. Data model & migration
 
 1. **`school_seed.short_name`** — new nullable column; backfill `= acronym ?? name`; curated overrides for in-use schools.
-2. **Per-user visibility flags** — reuse the existing per-membership `community_members.share_with_mutuals` for school and building circles (already exists), OR add `users.show_school` / `users.show_building` booleans if a per-user flag is cleaner for the Settings UX. **Decision for the plan:** use the existing per-membership `share_with_mutuals` on the school/building memberships (consistent with how consent already works), set **default-on at registration** for both. This means:
-   - Registration must set `share_with_mutuals=True` on the **building** membership (Phase 5 stopped doing this — re-enable it).
-   - Backfill existing **building** and **school** memberships to `share_with_mutuals=True` so current users light up.
+2. **School visibility** — reuse the existing per-membership `community_members.share_with_mutuals` on the **school** membership as the "show my school on listings" toggle (consistent with how consent already works). Registration already sets it True (Phase 5); **backfill** existing school memberships to `share_with_mutuals=True` so current users render. No new columns. (No building changes — building stays dormant per §5d.)
 3. **Neighborhood circle** — no longer a *displayed* circle. Leave the membership rows and the ranking overlap signal intact (ranking still uses neighborhood+school overlap, §8); just stop rendering a neighborhood slot. The earlier `update_profile`-doesn't-set-neighborhood-consent bug becomes **moot for display** and can be dropped from scope (note it in the PR so it isn't re-investigated).
 
 ## 8. Ranking
@@ -136,6 +134,7 @@ Note the semantic shift: for school/building, `share_with_mutuals` now means "sh
 - **Multiple schools** (cap 2) → byline shows one (the matching one if `isMine`, else the primary/first); both appear on the profile.
 - **Long short_name** → width cap + ellipsis; full name on hover.
 - **Self-view** (viewer is the seller) → neutral, no ribbon, own school plain.
+- **Same building** → no special indicator (removed for safety, §5d); these listings simply show their normal distance.
 
 ## 10. Out of scope / backlog
 
@@ -143,6 +142,7 @@ Note the semantic shift: for school/building, `share_with_mutuals` now means "sh
 - Walk-time on the card (miles only now; the existing Mapbox walk estimate stays on the detail/geotag surfaces it already serves).
 - Curating `short_name` for all ~6k seeds (only in-use schools).
 - Folding connection degree into ranking.
+- **"Same building" as a trust signal — deferred** until address verification (Google/Twilio backlog) and address-change rate-limiting exist to close the location-oracle attack (§5d). Revisit then; possibly gated behind an existing connection so a stranger can't probe it.
 - Any Stripe/Twilio/Photoroom/Google dependency.
 
 ## 11. QA handoff criteria
@@ -151,13 +151,13 @@ Note the semantic shift: for school/building, `share_with_mutuals` now means "sh
 - Connection respects `share_mutual_friends`: seller opts out → no ribbon for anyone.
 - School name shows on **every** listing whose seller has a (visible) school, regardless of viewer overlap; it is **bold** only when it's the viewer's school.
 - Long school names render as the curated `short_name` and never overflow the byline; full name appears on hover and on the profile.
-- Location line shows `Neighborhood · N.N mi`, switching to `Neighborhood · Your building` (bold) when viewer and seller share a building.
+- Location line shows `Neighborhood · N.N mi`; there is **no** "Your building" indicator anywhere (verify it never appears, even for same-building accounts).
 - Signed-out feed: schools still render, ribbons and distance do not; no crash.
-- Settings → Circles shows Connections / Schools / Building rows (no Neighborhood row); toggles round-trip and the live preview matches the card.
+- Settings → Circles shows Connections / Schools rows only (no Neighborhood row, no Building row); toggles round-trip and the live preview matches the card.
 - No regression in feed/listing endpoints for users with no circles; batch enrichment still issues a small constant number of queries.
 
 ## 12. References
 
-- Locked visual mockups (light mode, illustrative): `.superpowers/brainstorm/<session>/content/circles-ribbon-fold.html` (final ribbon) and `circles-school-names.html` (short-name comparison). `.superpowers/` is gitignored — copy a snapshot into the plan if a durable reference is needed.
+- Locked visual mockups (light mode, illustrative): `.superpowers/brainstorm/<session>/content/circles-ribbon-fold.html` (final ribbon) and `circles-school-names.html` (short-name comparison). **Note:** those mockups still show a "Your building" label on the location line — that has since been **cut** (§5d); treat the location line as `Neighborhood · N.N mi` only. `.superpowers/` is gitignored — copy a snapshot into the plan if a durable reference is needed.
 - Prior spec: `docs/superpowers/specs/2026-06-15-circles-design.md`.
 - Related memory: `project_communities_as_tags_reversion`, `project_school_naming_decision`, `project_geotag_phase2_mapbox`.
