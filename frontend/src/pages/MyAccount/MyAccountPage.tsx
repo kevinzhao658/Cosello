@@ -28,7 +28,6 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
-  Camera,
 } from "lucide-react";
 import { useProfilePictureUpload } from "../../hooks/useProfilePictureUpload";
 import { useAuth } from "../../contexts/AuthContext";
@@ -51,13 +50,12 @@ import {
 } from "../../lib/orderStatus";
 import { useOrderModals } from "../../contexts/OrderModalsContext";
 import { FriendsListModal } from "./modals/FriendsListModal";
-import { JoinCommunityModal } from "./modals/JoinCommunityModal";
-import { CreateCommunityModal } from "./modals/CreateCommunityModal";
-import { ShareCommunityModal } from "./modals/ShareCommunityModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
 import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
 import { CircleSettings } from "./CircleSettings";
+import { ToggleSwitch } from "../../components/ui/ToggleSwitch";
+import { AvatarUploadButton } from "../../components/ui/AvatarUploadButton";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { ListingRowSkeleton } from "../../components/ListingRowSkeleton";
 import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
@@ -160,17 +158,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const { settings, updateSetting, resetSettings } = useSettings();
 
   // ── Profile picture upload ─────────────────────────────
-  const avatarInputRef = useRef<HTMLInputElement>(null);
   const { isUploading: isUploadingAvatar, uploadError: avatarUploadError, upload: uploadAvatar, clearError: clearAvatarError } = useProfilePictureUpload({
     onSuccess: (updated) => updateUser(updated),
   });
-
-  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset so the same file can be re-selected after an error
-    e.target.value = "";
-    if (file) void uploadAvatar(file);
-  };
 
   const { list: neighborhoodsList, isLoading: isLoadingNeighborhoodsList, error: neighborhoodsListError } = useNeighborhoods();
   const neighborhoods = neighborhoodsList ?? [];
@@ -202,40 +192,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     onClearRequestedAccountTab?.();
   }, [requestedAccountTab, onClearRequestedAccountTab]);
 
-  // ── Community / friend modals ──────────────────────────
-  const [showJoinModal, setShowJoinModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [joinCode, setJoinCode] = useState("");
-  const [joinError, setJoinError] = useState("");
-  const [isJoining, setIsJoining] = useState(false);
-  const [showInviteCode, setShowInviteCode] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  // ── Community data ─────────────────────────────────────
   const [communities, setCommunities] = useState<CommunityData[]>([]);
   const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
-  const [copiedConfirm, setCopiedConfirm] = useState(false);
-
-  const [createName, setCreateName] = useState("");
-  const [createDescription, setCreateDescription] = useState("");
-  const [createNeighborhood, setCreateNeighborhood] = useState("");
-  const [createPickupAddress, setCreatePickupAddress] = useState("");
-  const [createZipCode, setCreateZipCode] = useState("");
-  const [createShowLocationSuggestions, setCreateShowLocationSuggestions] = useState(false);
-  const [createIsPublic, setCreateIsPublic] = useState(true);
-  const [createImage, setCreateImage] = useState<File | null>(null);
-  const [createImagePreview, setCreateImagePreview] = useState<string | null>(null);
-  const createImageRef = useRef<HTMLInputElement>(null);
-  const createLocationRef = useRef<HTMLInputElement>(null);
-  const createLocationSuggestionsRef = useRef<HTMLDivElement>(null);
-
-  const [createdCommunity, setCreatedCommunity] = useState<CommunityData | null>(null);
-
-  const [friendSearch, setFriendSearch] = useState("");
-  const [friendResults, setFriendResults] = useState<SearchUser[]>([]);
-  const [selectedFriends, setSelectedFriends] = useState<SearchUser[]>([]);
-  const [isSearching] = useState(false);
-  const [isInviting, setIsInviting] = useState(false);
 
   // Edit Profile modal
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
@@ -261,25 +220,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [isLoadingRecommended, setIsLoadingRecommended] = useState(false);
   const [addingFriendId, setAddingFriendId] = useState<string | null>(null);
   const addFriendsSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Community search state
-  const [communitySearch, setCommunitySearch] = useState("");
-  const [communitySearchResults, setCommunitySearchResults] = useState<{
-    id: number;
-    name: string;
-    description: string | null;
-    neighborhood: string | null;
-    image: string | null;
-    invite_code: string;
-    member_count: number;
-    is_member: boolean;
-    is_public: boolean;
-    has_requested: boolean;
-  }[]>([]);
-  const [requestingCommunityId, setRequestingCommunityId] = useState<number | null>(null);
-  const [isSearchingCommunities, setIsSearchingCommunities] = useState(false);
-  const [joiningCommunityId, setJoiningCommunityId] = useState<number | null>(null);
-  const communitySearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [friendsList, setFriendsList] = useState<FriendSearchUser[]>([]);
@@ -910,185 +850,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     onClearPendingListing?.();
   }, [pendingListingId, myListings, myPurchases, mySellerOrders, ordersLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Community handlers (preserved verbatim from prior file) ──
-  const handleJoinCommunity = async () => {
-    if (!joinCode.trim() || !token) return;
-    setIsJoining(true);
-    setJoinError("");
-    try {
-      const res = await apiFetch("/api/communities/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invite_code: joinCode.trim() }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        setJoinError(err.detail || "Failed to join community");
-        return;
-      }
-      setJoinCode("");
-      setShowJoinModal(false);
-      fetchCommunities();
-      onCommunitiesChanged?.();
-    } catch {
-      setJoinError("Network error. Please try again.");
-    } finally {
-      setIsJoining(false);
-    }
-  };
-
-  const handleCommunitySearch = (query: string) => {
-    setCommunitySearch(query);
-    if (communitySearchTimeoutRef.current) clearTimeout(communitySearchTimeoutRef.current);
-    if (!query.trim()) {
-      setCommunitySearchResults([]);
-      return;
-    }
-    communitySearchTimeoutRef.current = setTimeout(async () => {
-      if (!token) return;
-      setIsSearchingCommunities(true);
-      try {
-        const res = await apiFetch(`/api/communities/search?q=${encodeURIComponent(query.trim())}`);
-        if (res.ok) setCommunitySearchResults(await res.json());
-      } catch {
-        // ignore
-      } finally {
-        setIsSearchingCommunities(false);
-      }
-    }, 300);
-  };
-
-  const handleJoinBySearch = async (inviteCode: string, communityId: number) => {
-    if (!token) return;
-    setJoiningCommunityId(communityId);
-    try {
-      const res = await apiFetch("/api/communities/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invite_code: inviteCode }),
-      });
-      if (res.ok) {
-        setCommunitySearchResults((prev) => prev.map((c) => (c.id === communityId ? { ...c, is_member: true } : c)));
-        fetchCommunities();
-        onCommunitiesChanged?.();
-        fetchStats();
-      }
-    } catch {
-      // ignore
-    } finally {
-      setJoiningCommunityId(null);
-    }
-  };
-
-  const handleRequestToJoin = async (communityId: number) => {
-    if (!token) return;
-    setRequestingCommunityId(communityId);
-    try {
-      const res = await apiFetch("/api/communities/request-join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ community_id: communityId }),
-      });
-      if (res.ok) {
-        setCommunitySearchResults((prev) => prev.map((c) => (c.id === communityId ? { ...c, has_requested: true } : c)));
-      }
-    } catch {
-      // ignore
-    } finally {
-      setRequestingCommunityId(null);
-    }
-  };
-
-  const handleCancelRequest = async (communityId: number) => {
-    if (!token) return;
-    setRequestingCommunityId(communityId);
-    try {
-      const res = await apiFetch("/api/communities/cancel-request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ community_id: communityId }),
-      });
-      if (res.ok) {
-        setCommunitySearchResults((prev) => prev.map((c) => (c.id === communityId ? { ...c, has_requested: false } : c)));
-      }
-    } catch {
-      // ignore
-    } finally {
-      setRequestingCommunityId(null);
-    }
-  };
-
-  const closeJoinModal = () => {
-    setShowJoinModal(false);
-    setJoinError("");
-    setJoinCode("");
-    setShowInviteCode(false);
-    setCommunitySearch("");
-    setCommunitySearchResults([]);
-  };
-
-  const handleCreateCommunity = async () => {
-    setCreateError(null);
-    if (!createName.trim() || !createDescription.trim() || !createNeighborhood.trim()) {
-      setCreateError("Name, description, and neighborhood are required");
-      return;
-    }
-    if (!token) {
-      setCreateError("Sign in to create a community");
-      return;
-    }
-    setIsCreating(true);
-    try {
-      const formData = new FormData();
-      formData.append("name", createName.trim());
-      formData.append("description", createDescription.trim());
-      formData.append("neighborhood", createNeighborhood.trim());
-      if (createPickupAddress.trim()) formData.append("pickup_address", createPickupAddress.trim());
-      if (createZipCode.trim()) formData.append("zip_code", createZipCode.trim());
-      formData.append("is_public", String(createIsPublic));
-      if (createImage) formData.append("image", createImage);
-      const res = await apiFetch("/api/communities", { method: "POST", body: formData });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ detail: `Server returned ${res.status}` }));
-        throw new Error(data.detail || `Create failed (${res.status})`);
-      }
-      const community = await res.json();
-      setCreatedCommunity(community);
-      setShowCreateModal(false);
-      setShowConfirmModal(true);
-      fetchFriendsForInvite();
-      resetCreateForm();
-      fetchCommunities();
-      onCommunitiesChanged?.();
-    } catch (err) {
-      console.error("Create community failed:", err);
-      setCreateError(err instanceof Error ? err.message : "Create failed");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const resetCreateForm = () => {
-    setCreateName("");
-    setCreateDescription("");
-    setCreateNeighborhood("");
-    setCreatePickupAddress("");
-    setCreateZipCode("");
-    setCreateShowLocationSuggestions(false);
-    setCreateIsPublic(true);
-    setCreateImage(null);
-    setCreateImagePreview(null);
-  };
-
-  const handleCreateImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setCreateImage(file);
-    const reader = new FileReader();
-    reader.onload = () => setCreateImagePreview(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
   const shareCommunity = async (community: CommunityData) => {
     const shareText = `Join ${community.name} on Cosello! Use invite code: ${community.invite_code}`;
     if (navigator.share) {
@@ -1100,12 +861,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     } else {
       navigator.clipboard.writeText(shareText);
     }
-  };
-
-  const copyConfirmCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedConfirm(true);
-    setTimeout(() => setCopiedConfirm(false), 2000);
   };
 
   const openCommunityDetail = async (community: CommunityData) => {
@@ -1302,83 +1057,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  const [allFriends, setAllFriends] = useState<SearchUser[]>([]);
-  const fetchFriendsForInvite = useCallback(async () => {
-    if (!token) return;
-    try {
-      const res = await apiFetch("/api/friends");
-      if (res.ok) {
-        const data = await res.json();
-        setAllFriends(data);
-        setFriendResults(data);
-      }
-    } catch {
-      // ignore
-    }
-  }, [token]);
-
-  const handleFriendSearch = (query: string) => {
-    setFriendSearch(query);
-    const available = allFriends.filter((f) => !selectedFriends.some((s) => s.id === f.id));
-    if (!query.trim()) {
-      setFriendResults(available);
-      return;
-    }
-    const q = query.trim().toLowerCase();
-    setFriendResults(available.filter((f) => f.display_name?.toLowerCase().includes(q)));
-  };
-
-  const addFriend = (friend: SearchUser) => {
-    setSelectedFriends([...selectedFriends, friend]);
-    setFriendResults(friendResults.filter((f) => f.id !== friend.id));
-    setFriendSearch("");
-  };
-
-  const removeFriend = (id: string) => {
-    setSelectedFriends(selectedFriends.filter((f) => f.id !== id));
-  };
-
-  const handleInviteFriends = async () => {
-    if (!createdCommunity || selectedFriends.length === 0 || !token) return;
-    setIsInviting(true);
-    try {
-      await apiFetch("/api/communities/invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ community_id: createdCommunity.id, user_ids: selectedFriends.map((f) => f.id) }),
-      });
-      setSelectedFriends([]);
-      setShowConfirmModal(false);
-      fetchCommunities();
-    } catch {
-      // ignore
-    } finally {
-      setIsInviting(false);
-    }
-  };
-
-  const shareViaSMS = () => {
-    if (!createdCommunity) return;
-    const msg = `Join my community "${createdCommunity.name}" on Cosello! Use invite code: ${createdCommunity.invite_code}`;
-    window.open(`sms:?&body=${encodeURIComponent(msg)}`, "_blank");
-  };
-
-  const shareViaInstagram = () => {
-    if (!createdCommunity) return;
-    const text = `Join my community "${createdCommunity.name}" on Cosello! Invite code: ${createdCommunity.invite_code}`;
-    navigator.clipboard.writeText(text);
-    setCopiedConfirm(true);
-    setTimeout(() => setCopiedConfirm(false), 2000);
-    window.open("https://www.instagram.com/direct/new/", "_blank");
-  };
-
-  const closeShareModal = () => {
-    setShowConfirmModal(false);
-    setFriendSearch("");
-    setFriendResults([]);
-    setSelectedFriends([]);
-  };
-
   const handleAddFriendsSearch = (query: string) => {
     setAddFriendsSearch(query);
     if (addFriendsSearchRef.current) clearTimeout(addFriendsSearchRef.current);
@@ -1514,7 +1192,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowEditProfileModal(true);
   };
 
-  useClickOutside([createLocationRef, createLocationSuggestionsRef], () => setCreateShowLocationSuggestions(false), createShowLocationSuggestions);
   useClickOutside([editNeighborhoodRef, editSuggestionsRef], () => setEditShowSuggestions(false), editShowSuggestions);
   useClickOutside([editCommunityNeighborhoodRef, editCommunitySuggestionsRef], () => setEditCommunityShowSuggestions(false), editCommunityShowSuggestions);
 
@@ -1540,42 +1217,23 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* ── Profile Header ───────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-5 mb-10">
-          {/* Clickable avatar — triggers hidden file input */}
           <div className="flex flex-col items-center gap-1 shrink-0">
-            <div className="relative group">
-              <button
-                type="button"
-                aria-label="Change profile photo"
-                disabled={isUploadingAvatar}
-                onClick={() => { clearAvatarError(); avatarInputRef.current?.click(); }}
-                className={`size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${isUploadingAvatar ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
-              >
-                {user?.profile_picture ? (
-                  <img src={user.profile_picture} alt={user.display_name || "Profile"} className="size-full object-cover" />
-                ) : (
-                  <span className="text-2xl font-extrabold text-ink tracking-display">
-                    {(user?.display_name?.[0] || "?").toUpperCase()}
-                  </span>
-                )}
-              </button>
-              {/* Hover overlay */}
-              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-safe:duration-150 pointer-events-none">
-                {isUploadingAvatar
-                  ? <Loader2 className="size-5 text-white animate-spin" />
-                  : <Camera className="size-5 text-white" />}
-              </span>
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                tabIndex={-1}
-                onChange={handleAvatarFileChange}
-              />
-            </div>
-            {avatarUploadError && (
-              <p className="text-[11px] text-error text-center max-w-[88px] leading-tight">{avatarUploadError}</p>
-            )}
+            <AvatarUploadButton
+              currentUrl={user?.profile_picture}
+              fallback={
+                <span className="text-2xl font-extrabold text-ink tracking-display">
+                  {(user?.display_name?.[0] || "?").toUpperCase()}
+                </span>
+              }
+              size="size-20"
+              isUploading={isUploadingAvatar}
+              uploadError={avatarUploadError}
+              onFileChange={(file) => void uploadAvatar(file)}
+              onErrorClear={clearAvatarError}
+              iconSize="size-5"
+              errorClassName="text-[11px] text-error text-center max-w-[88px] leading-tight"
+              alt={user?.display_name || "Profile"}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-extrabold text-ink tracking-display leading-tight">
@@ -1801,71 +1459,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         )}
       </div>
 
-      {/* ── Modals (preserved) ───────────────────────────── */}
-      <JoinCommunityModal
-        open={showJoinModal}
-        communitySearch={communitySearch}
-        communitySearchResults={communitySearchResults}
-        isSearchingCommunities={isSearchingCommunities}
-        requestingCommunityId={requestingCommunityId}
-        joiningCommunityId={joiningCommunityId}
-        showInviteCode={showInviteCode}
-        joinCode={joinCode}
-        joinError={joinError}
-        isJoining={isJoining}
-        onClose={closeJoinModal}
-        onSearchChange={handleCommunitySearch}
-        onToggleInviteCode={() => setShowInviteCode((prev) => !prev)}
-        onJoinCodeChange={(s) => { setJoinCode(s); setJoinError(""); }}
-        onJoinByCode={handleJoinCommunity}
-        onJoinBySearch={handleJoinBySearch}
-        onRequestToJoin={handleRequestToJoin}
-        onCancelRequest={handleCancelRequest}
-        onCreateClick={() => { closeJoinModal(); setShowCreateModal(true); }}
-      />
-
-      <CreateCommunityModal
-        open={showCreateModal}
-        createName={createName}
-        createDescription={createDescription}
-        createPickupAddress={createPickupAddress}
-        createNeighborhood={createNeighborhood}
-        createZipCode={createZipCode}
-        createIsPublic={createIsPublic}
-        createImagePreview={createImagePreview}
-        createError={createError}
-        isCreating={isCreating}
-        createImageRef={createImageRef}
-        setCreateName={setCreateName}
-        setCreateDescription={setCreateDescription}
-        setCreatePickupAddress={setCreatePickupAddress}
-        setCreateNeighborhood={setCreateNeighborhood}
-        setCreateZipCode={setCreateZipCode}
-        setCreateIsPublic={setCreateIsPublic}
-        onImageSelect={handleCreateImageSelect}
-        onClose={() => { setShowCreateModal(false); resetCreateForm(); }}
-        onCreate={handleCreateCommunity}
-      />
-
-      <ShareCommunityModal
-        open={showConfirmModal}
-        createdCommunity={createdCommunity}
-        friendSearch={friendSearch}
-        friendResults={friendResults}
-        selectedFriends={selectedFriends}
-        isSearching={isSearching}
-        isInviting={isInviting}
-        copiedConfirm={copiedConfirm}
-        onClose={closeShareModal}
-        onCopyCode={copyConfirmCode}
-        onSearchChange={handleFriendSearch}
-        onAddFriend={addFriend}
-        onRemoveFriend={removeFriend}
-        onInvite={handleInviteFriends}
-        onShareSMS={shareViaSMS}
-        onShareInstagram={shareViaInstagram}
-      />
-
+      {/* ── Modals ───────────────────────────────────────── */}
       <EditProfileModal
         open={showEditProfileModal}
         avatarUrl={user?.profile_picture ?? null}
@@ -2346,180 +1940,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           OrderModalsProvider so notification clicks open them in place
           without routing to /account. See contexts/OrderModalsContext.tsx. */}
 
-    </section>
-  );
-}
-
-// ── Reusable: Toggle switch ─────────────────────────────────
-function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors motion-safe:duration-150 ${FOCUS_RING} ${checked ? "bg-primary" : "bg-surface-strong"}`}
-    >
-      <span
-        className={`inline-block size-5 transform rounded-full bg-canvas shadow-card transition-transform motion-safe:duration-150 ${checked ? "translate-x-5" : "translate-x-0.5"}`}
-      />
-    </button>
-  );
-}
-
-// ── Overview: Communities row (circular tiles) ─────────────
-function communityInitials(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return "··";
-  const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) return trimmed.slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-const COMM_TILE_BTN =
-  `flex flex-col items-center gap-1.5 w-[72px] rounded-md ${FOCUS_RING}`;
-const COMM_TILE_LABEL =
-  "text-[11px] leading-tight text-center truncate w-full text-ink";
-
-function OverviewCommunitiesRow({
-  communities,
-  communitiesLoaded,
-  openCommunityDetail,
-  openJoinModal,
-}: {
-  communities: CommunityData[];
-  communitiesLoaded: boolean;
-  openCommunityDetail: (c: CommunityData) => void;
-  openJoinModal: () => void;
-}) {
-  const VISIBLE = 6;
-  const visible = communities.slice(0, VISIBLE);
-  const extra = communities.slice(VISIBLE);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  useClickOutside(popoverRef, () => setMoreOpen(false), moreOpen);
-
-  const isEmpty = communities.length === 0;
-
-  return (
-    <section
-      aria-label="Your communities"
-      className="bg-canvas border border-hairline rounded-md p-4"
-    >
-      <div className="flex items-baseline justify-between gap-2 mb-3">
-        <h3 className={`text-base ${PANEL_TITLE}`}>
-          Communities
-          {!isEmpty && communitiesLoaded && (
-            <span className="text-muted font-normal text-sm ml-1.5">({communities.length})</span>
-          )}
-        </h3>
-      </div>
-
-      {!communitiesLoaded ? (
-        <div className="flex flex-wrap gap-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="size-14 rounded-full" />
-          ))}
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap gap-3">
-            {visible.map((c) => (
-              <Tooltip key={c.id} content={c.name}>
-                <button
-                  type="button"
-                  onClick={() => openCommunityDetail(c)}
-                  aria-label={c.name}
-                  className={COMM_TILE_BTN}
-                >
-                  <span className="size-14 rounded-full bg-surface-card border border-hairline hover:border-border-strong flex items-center justify-center overflow-hidden text-sm font-medium text-ink transition-colors">
-                    {c.image ? (
-                      <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
-                    ) : (
-                      communityInitials(c.name)
-                    )}
-                  </span>
-                  <span className={COMM_TILE_LABEL}>
-                    {c.name.split(" ").slice(0, 2).join(" ")}
-                  </span>
-                </button>
-              </Tooltip>
-            ))}
-
-            {extra.length > 0 && (
-              <div ref={popoverRef} className="relative inline-block">
-                <button
-                  type="button"
-                  aria-haspopup="true"
-                  aria-expanded={moreOpen}
-                  onClick={() => setMoreOpen((v) => !v)}
-                  className={COMM_TILE_BTN}
-                >
-                  <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-hairline bg-surface-soft text-muted text-lg">
-                    …
-                  </span>
-                  <span className={COMM_TILE_LABEL}>More</span>
-                </button>
-                {moreOpen && (
-                  <div
-                    role="menu"
-                    className="absolute top-full left-0 mt-2 z-30 min-w-[240px] bg-surface-card border border-hairline rounded-md p-1.5 shadow-overlay"
-                  >
-                    <div className="text-[11px] font-semibold text-muted px-2.5 pt-1.5 pb-1">
-                      More communities
-                    </div>
-                    {extra.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setMoreOpen(false);
-                          openCommunityDetail(c);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-sm text-sm text-ink hover:bg-surface-soft text-left ${FOCUS_RING}`}
-                      >
-                        <span className="size-7 rounded-full bg-surface-strong border border-hairline flex items-center justify-center overflow-hidden text-[11px] font-medium text-ink shrink-0">
-                          {c.image ? (
-                            <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" />
-                          ) : (
-                            communityInitials(c.name)
-                          )}
-                        </span>
-                        <span className="truncate">{c.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <Tooltip content="Join or create a community">
-              <button
-                type="button"
-                onClick={openJoinModal}
-                aria-label="Join or create a community"
-                className={COMM_TILE_BTN}
-              >
-                <span className="size-14 rounded-full flex items-center justify-center border border-dashed border-border-strong bg-canvas text-muted hover:text-primary hover:border-primary transition-colors">
-                  <Plus className="size-5" aria-hidden="true" />
-                </span>
-                {/* Wrap onto two lines when the tile is narrow — single-line
-                    "Join Community" was truncating with the COMM_TILE_LABEL
-                    72px tile width. */}
-                <span className="text-[11px] leading-tight text-center whitespace-normal w-full text-ink">
-                  Join Community
-                </span>
-              </button>
-            </Tooltip>
-          </div>
-
-          {isEmpty && (
-            <p className="text-xs text-muted mt-2">
-              Join a community to surface trust signals on your listings.
-            </p>
-          )}
-        </>
-      )}
     </section>
   );
 }
