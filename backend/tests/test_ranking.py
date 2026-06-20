@@ -479,6 +479,71 @@ def test_community_overlap_zero_when_no_shared(db_session, cleanup):
     assert _community_overlap(user, candidate, db_session) == 0.0
 
 
+def test_community_overlap_building_only_is_zero(db_session, cleanup):
+    """Building circles (kind='building') must NOT contribute to ranking overlap.
+
+    Two users who share only a building circle were silently boosted in ranking
+    before the 2026-06-19 pivot that hid building from the displayed kinds.
+    DISPLAYED_CIRCLE_KINDS restricts overlap to neighborhood/school only.
+    """
+    user = _mk_user(db_session)
+    seller = _mk_user(db_session)
+    cleanup["user_ids"].update({user.id, seller.id})
+
+    building = Community(
+        name="123 main st new york ny 10001",
+        kind="building",
+        invite_code=f"inv-bld-{int(time.time()*1000)%1_000_000}",
+        created_by=user.id,
+        is_public=False,
+    )
+    db_session.add(building)
+    db_session.commit()
+    db_session.refresh(building)
+    cleanup["community_ids"].add(building.id)
+
+    # Both viewer and seller are members of the same building circle.
+    db_session.add(CommunityMember(community_id=building.id, user_id=user.id))
+    db_session.add(CommunityMember(community_id=building.id, user_id=seller.id))
+    db_session.commit()
+
+    candidate = _mk_listing(db_session, user_id=seller.id, brand="B")
+    cleanup["listing_ids"].add(candidate.id)
+
+    # Building kind is not in DISPLAYED_CIRCLE_KINDS — overlap must be zero.
+    assert _community_overlap(user, candidate, db_session) == 0.0
+
+
+def test_community_overlap_neighborhood_still_scores(db_session, cleanup):
+    """Neighborhood circles (a displayed kind) must still produce a non-zero score
+    after the building-exclusion fix, to guard against over-filtering."""
+    user = _mk_user(db_session)
+    seller = _mk_user(db_session)
+    cleanup["user_ids"].update({user.id, seller.id})
+
+    hood = Community(
+        name="Test Neighborhood Circle",
+        kind="neighborhood",
+        invite_code=f"inv-hood-{int(time.time()*1000)%1_000_000}",
+        created_by=user.id,
+        is_public=True,
+    )
+    db_session.add(hood)
+    db_session.commit()
+    db_session.refresh(hood)
+    cleanup["community_ids"].add(hood.id)
+
+    db_session.add(CommunityMember(community_id=hood.id, user_id=user.id))
+    db_session.add(CommunityMember(community_id=hood.id, user_id=seller.id))
+    db_session.commit()
+
+    candidate = _mk_listing(db_session, user_id=seller.id, brand="C")
+    cleanup["listing_ids"].add(candidate.id)
+
+    score = _community_overlap(user, candidate, db_session)
+    assert score == pytest.approx(1.0 / 3.0)
+
+
 # --------------------------------------------------------------------------- #
 # Per-signal: proximity                                                       #
 # --------------------------------------------------------------------------- #
