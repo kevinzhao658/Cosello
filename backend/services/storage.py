@@ -7,13 +7,60 @@ adapter that needs raw bytes for the Vision/Claude calls.
 """
 from __future__ import annotations
 
+import errno
 import os
+import time
 import uuid
-from typing import Optional
+from typing import Callable, Optional, TypeVar
 
 import httpx
 from fastapi import HTTPException
 from supabase import create_client, Client
+
+_T = TypeVar("_T")
+
+# Transient errors that warrant a retry with backoff.
+# OSError errno 35 (EAGAIN / EWOULDBLOCK) fires when the shared httpx
+# connection pool momentarily can't make progress under concurrent load.
+# The httpx network errors cover TCP-level transients on the same socket.
+_TRANSIENT_HTTPX = (
+    httpx.ConnectError,
+    httpx.ReadError,
+    httpx.PoolTimeout,
+    httpx.ConnectTimeout,
+)
+_RETRY_DELAYS = (0.1, 0.2, 0.4)  # seconds; 4 total attempts (3 sleeps)
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """True when the exception represents a transient, retryable condition."""
+    if isinstance(exc, _TRANSIENT_HTTPX):
+        return True
+    if isinstance(exc, (OSError, BlockingIOError)) and exc.args and exc.args[0] == errno.EAGAIN:
+        return True
+    return False
+
+
+def _with_transient_retry(fn: Callable[[], _T]) -> _T:
+    """Call fn(); on transient errors sleep and retry up to len(_RETRY_DELAYS) times.
+
+    Non-transient exceptions propagate immediately without retry.
+    Uses time.sleep (blocking) intentionally — these callers run on FastAPI's
+    threadpool, so blocking sleep is safe and won't stall the event loop.
+    """
+    last_exc: BaseException | None = None
+    for attempt, delay in enumerate((_RETRY_DELAYS + (None,)), start=1):  # 4 slots
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_transient(exc):
+                raise
+            last_exc = exc
+            if delay is None:
+                break  # retries exhausted
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 
 
 BUCKET_NAME = "cosello-images"
@@ -62,10 +109,12 @@ def upload_image(category: str, owner_id: str, raw_bytes: bytes, ext: str) -> st
     object_path = f"{category}/{owner_id}/{filename}"
 
     try:
-        _get_client().storage.from_(BUCKET_NAME).upload(
-            path=object_path,
-            file=raw_bytes,
-            file_options={"content-type": content_type},
+        _with_transient_retry(
+            lambda: _get_client().storage.from_(BUCKET_NAME).upload(
+                path=object_path,
+                file=raw_bytes,
+                file_options={"content-type": content_type},
+            )
         )
     except Exception as e:
         raise HTTPException(
@@ -90,7 +139,9 @@ def mint_signed_upload_url(category: str, owner_id: str, ext: str) -> dict:
     object_path = f"{category}/{owner_id}/{uuid.uuid4().hex}.{ext_normalized}"
 
     try:
-        result = _get_client().storage.from_(BUCKET_NAME).create_signed_upload_url(object_path)
+        result = _with_transient_retry(
+            lambda: _get_client().storage.from_(BUCKET_NAME).create_signed_upload_url(object_path)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=502,
