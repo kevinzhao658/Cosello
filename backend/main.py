@@ -1742,7 +1742,7 @@ def get_public_listings(
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
         listing_copy["circles"] = {
-            "building": {"shared": False, "label": "Same building"},
+            "neighborhood": {"shared": False, "label": ""},
             "school": {"shared": False, "label": ""},
             "mutualFriends": {"count": 0, "directFriend": False},
         }

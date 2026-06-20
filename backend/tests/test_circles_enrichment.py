@@ -110,6 +110,54 @@ def test_mine_listing_exposes_circles_for_seller(
     db_session.commit()
 
 
+def test_public_feed_circles_use_neighborhood_key(db_session, make_user, client, mock_storage, override_auth_user):
+    """GET /api/listings/public must return circles with a 'neighborhood' key (not
+    'building') so unsigned-out callers and CircleByline don't crash with TypeError.
+    Regression guard for the building->neighborhood pivot (spec rev 2026-06-19)."""
+    import json as _json
+    seller = make_user(display_name="PubSeller", neighborhood="SoHo")
+    override_auth_user(seller)
+    # Create a listing so we have something in the public feed.
+    resp = client.post("/api/listings", files={
+        "data": (None, _json.dumps({
+            "brand": "Unknown", "name": "PubTestLamp",
+            "description": "ceramic", "priceCents": 1500,
+            "condition": "Good", "tags": [],
+            "category": "other", "categoryAttributes": {},
+        })),
+        "communities": (None, ""),
+        "visibility": (None, "public"),
+        "pickup_location": (None, "SoHo, NYC"),
+        "pickup_zip": (None, "10012"),
+        "images": ("test.png", _img_bytes(), "image/png"),
+    })
+    assert resp.status_code in (200, 201)
+
+    # Fetch the public (unauthenticated) feed.
+    pub_resp = client.get("/api/listings/public")
+    assert pub_resp.status_code == 200
+    items = pub_resp.json()
+    # Find our listing (may not exist if in-memory store was cleared, but at
+    # minimum the endpoint must return 200 and every item must use "neighborhood").
+    for item in items:
+        circles = item.get("circles", {})
+        assert "neighborhood" in circles, (
+            f"listing {item.get('id')!r} circles dict missing 'neighborhood' key: {circles}"
+        )
+        assert "building" not in circles, (
+            f"listing {item.get('id')!r} circles dict still has legacy 'building' key: {circles}"
+        )
+        assert "school" in circles
+        assert "mutualFriends" in circles
+
+    # cleanup
+    from models import Listing as _Listing
+    db_session.query(_Listing).filter(
+        _Listing.user_id == seller.id, _Listing.name == "PubTestLamp"
+    ).delete()
+    db_session.commit()
+
+
 def test_created_listing_has_no_communities(db_session, make_user, client, override_auth_user, mock_storage):
     import json as _json
     seller = make_user(display_name="Creator", neighborhood="SoHo")
