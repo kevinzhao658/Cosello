@@ -1,10 +1,11 @@
-import React, { useRef } from "react";
+import React from "react";
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
-import { X, User, Loader2, Camera } from "lucide-react";
+import { X, User, Loader2 } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
 import { NYC_ZIPS, NYC_ZIP_SET } from "../../../lib/nycZips";
+import { AvatarUploadButton } from "../../../components/ui/AvatarUploadButton";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold text-muted mb-1.5";
@@ -51,15 +52,6 @@ export function EditProfileModal({
   setEditFirstName, setEditLastName, setEditPickupAddress, setEditNeighborhood,
   setEditZipCode, setEditShowSuggestions, onClose, onSubmit,
 }: EditProfileModalProps) {
-  const modalAvatarInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset so the same file can be re-selected after an error
-    e.target.value = "";
-    if (file) onAvatarChange(file);
-  };
-
   if (!open) return null;
   return (
     <ModalShell open onClose={onClose} z={50}>
@@ -74,34 +66,16 @@ export function EditProfileModal({
 
         <div className="px-6 pt-6 pb-2">
           <div className="flex items-center gap-3">
-            {/* Clickable avatar thumbnail */}
-            <div className="relative group shrink-0">
-              <button
-                type="button"
-                aria-label="Change profile photo"
-                disabled={isUploadingAvatar}
-                onClick={() => { onAvatarErrorClear(); modalAvatarInputRef.current?.click(); }}
-                className={`size-10 rounded-full bg-primary-soft flex items-center justify-center overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${isUploadingAvatar ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
-              >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Profile" className="size-full object-cover" />
-                ) : (
-                  <User className="size-5 text-primary" />
-                )}
-              </button>
-              {/* Hover overlay */}
-              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-safe:duration-150 pointer-events-none">
-                {isUploadingAvatar
-                  ? <Loader2 className="size-3 text-white animate-spin" />
-                  : <Camera className="size-3 text-white" />}
-              </span>
-              <input
-                ref={modalAvatarInputRef}
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                tabIndex={-1}
-                onChange={handleAvatarFileChange}
+            <div className="shrink-0">
+              <AvatarUploadButton
+                currentUrl={avatarUrl}
+                fallback={<User className="size-5 text-primary" />}
+                size="size-10"
+                isUploading={isUploadingAvatar}
+                uploadError={null}
+                onFileChange={onAvatarChange}
+                onErrorClear={onAvatarErrorClear}
+                iconSize="size-3"
               />
             </div>
             <h3 className={`text-xl ${MODAL_TITLE}`}>Edit Profile</h3>

@@ -339,7 +339,13 @@ import time as _time
 import uuid as _uuid
 
 
-def test_ranking_overlap_uses_seller_memberships(db_session, make_user):
+def test_ranking_overlap_building_kind_excluded(db_session, make_user):
+    """Building circles (kind='building') must not contribute to ranking overlap.
+
+    Since the 2026-06-19 pivot, building is no longer a DISPLAYED_CIRCLE_KIND.
+    Two users who share only a building circle must get zero overlap so dormant
+    building memberships do not silently boost feed ranking.
+    """
     seller = make_user(display_name="RankSeller")
     viewer = make_user(display_name="RankViewer")
     b = set_user_building(db_session, seller, "9 Bank St")
@@ -351,8 +357,8 @@ def test_ranking_overlap_uses_seller_memberships(db_session, make_user):
         posted_at=_time.time(),
     )
     db_session.add(listing); db_session.commit(); db_session.refresh(listing)
-    # 1 shared circle / COMMUNITY_OVERLAP_NORM(3) ≈ 0.333
-    assert _community_overlap(viewer, listing, db_session) > 0.0
+    # Building kind is excluded from DISPLAYED_CIRCLE_KINDS — overlap must be zero.
+    assert _community_overlap(viewer, listing, db_session) == 0.0
     db_session.query(RankingListing).filter(RankingListing.id == listing.id).delete()
     db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
     db_session.query(Community).filter(Community.id == b.id).delete()

@@ -19,6 +19,7 @@ from typing import Iterable
 from sqlalchemy.orm import Session
 
 from models import (
+    Community,
     CommunityMember,
     Listing,
     ListingInteraction,
@@ -28,6 +29,7 @@ from models import (
     User,
     WishlistItem,
 )
+from services.circles import DISPLAYED_CIRCLE_KINDS
 
 
 # --------------------------------------------------------------------------- #
@@ -347,24 +349,39 @@ def _taste_from_sales(user: User, listing: Listing, db: Session) -> float:
 
 
 def _community_overlap(user: User, listing: Listing, db: Session) -> float:
-    """Normalized count of circles the viewer shares with the listing's seller.
+    """Normalized count of displayed circles the viewer shares with the listing's seller.
 
     Relevance is invisible to users, so this is NOT consent-gated — it uses raw
-    membership overlap between viewer and seller across all circle kinds.
+    membership overlap between viewer and seller. Restricted to DISPLAYED_CIRCLE_KINDS
+    (neighborhood, school) so that dormant building circles (created at registration
+    but invisible/unconsented since the 2026-06-19 pivot) do not silently boost
+    feed ranking for same-building users.
     """
     seller_cids: set[int] = {
         row.community_id
-        for row in db.query(CommunityMember.community_id)
-        .filter(CommunityMember.user_id == listing.user_id)
-        .all()
+        for row in (
+            db.query(CommunityMember.community_id)
+            .join(Community, Community.id == CommunityMember.community_id)
+            .filter(
+                CommunityMember.user_id == listing.user_id,
+                Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
+            )
+            .all()
+        )
     }
     if not seller_cids:
         return 0.0
     my_cids: set[int] = {
         row.community_id
-        for row in db.query(CommunityMember.community_id)
-        .filter(CommunityMember.user_id == user.id)
-        .all()
+        for row in (
+            db.query(CommunityMember.community_id)
+            .join(Community, Community.id == CommunityMember.community_id)
+            .filter(
+                CommunityMember.user_id == user.id,
+                Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
+            )
+            .all()
+        )
     }
     overlap = len(seller_cids & my_cids)
     if overlap == 0:
