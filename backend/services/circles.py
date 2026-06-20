@@ -307,7 +307,7 @@ def seller_circles_for_viewer(
             .all()
         }
 
-    building = {"shared": False, "label": "Same building"}
+    neighborhood = {"shared": False, "label": ""}
     school = {"shared": False, "label": ""}
 
     revealed = (
@@ -316,15 +316,16 @@ def seller_circles_for_viewer(
         .filter(
             CommunityMember.user_id == seller_id,
             CommunityMember.share_with_mutuals.is_(True),
-            Community.kind.in_(("building", "school")),
+            Community.kind.in_(("neighborhood", "school")),
         )
         .all()
     )
     for community in revealed:
         if community.id not in viewer_circle_ids:
             continue
-        if community.kind == "building":
-            building["shared"] = True
+        if community.kind == "neighborhood" and not neighborhood["shared"]:
+            neighborhood["shared"] = True
+            neighborhood["label"] = community.name
         elif community.kind == "school" and not school["shared"]:
             school["shared"] = True
             school["label"] = community.name
@@ -336,4 +337,4 @@ def seller_circles_for_viewer(
         mf = count_mutual_friends(db, seller_id, viewer.id)
         direct = are_direct_friends(db, seller_id, viewer.id)
 
-    return {"building": building, "school": school, "mutualFriends": {"count": mf, "directFriend": direct}}
+    return {"neighborhood": neighborhood, "school": school, "mutualFriends": {"count": mf, "directFriend": direct}}
