@@ -85,22 +85,63 @@ export function CircleSettings() {
     return <p className="text-sm text-muted">Loading circles...</p>;
   }
 
-  const patchConsent = async (community_id: number, share: boolean) => {
-    await apiFetch("/api/circles/consent", {
+  const patchConsent = (community_id: number, share: boolean) => {
+    // Optimistic update: flip the relevant toggle immediately.
+    setSummary((prev) => {
+      if (!prev) return prev;
+      if (prev.neighborhood?.community_id === community_id) {
+        return {
+          ...prev,
+          neighborhood: { ...prev.neighborhood, share },
+        };
+      }
+      return {
+        ...prev,
+        schools: prev.schools.map((s) =>
+          s.community_id === community_id ? { ...s, share } : s,
+        ),
+      };
+    });
+    // Fire PATCH in the background; reconcile only on failure.
+    apiFetch("/api/circles/consent", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ community_id, share }),
-    });
-    load();
+    })
+      .then((res) => {
+        if (!res.ok) {
+          console.error("[CircleSettings] PATCH /api/circles/consent failed", res.status);
+          load();
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("[CircleSettings] PATCH /api/circles/consent network error:", err);
+        load();
+      });
   };
 
-  const patchMutual = async (share: boolean) => {
-    await apiFetch("/api/circles/mutual-friends", {
+  const patchMutual = (share: boolean) => {
+    // Optimistic update: flip mutual-friends toggle immediately.
+    setSummary((prev) => {
+      if (!prev) return prev;
+      return { ...prev, mutualFriends: { share } };
+    });
+    // Fire PATCH in the background; reconcile only on failure.
+    apiFetch("/api/circles/mutual-friends", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ share }),
-    });
-    load();
+    })
+      .then((res) => {
+        if (!res.ok) {
+          console.error("[CircleSettings] PATCH /api/circles/mutual-friends failed", res.status);
+          load();
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("[CircleSettings] PATCH /api/circles/mutual-friends network error:", err);
+        load();
+      });
   };
 
   const addSchool = async (s: School) => {
@@ -126,8 +167,31 @@ export function CircleSettings() {
 
   const handleSchoolToggle = () => {
     const nextShare = !schoolShareOn;
-    summary.schools.forEach((s) => {
-      patchConsent(s.community_id, nextShare);
+    // Optimistic update: flip ALL schools at once.
+    setSummary((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        schools: prev.schools.map((s) => ({ ...s, share: nextShare })),
+      };
+    });
+    // Fire all PATCHes in parallel; reconcile once only if any fail.
+    const patches = summary.schools.map((s) =>
+      apiFetch("/api/circles/consent", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ community_id: s.community_id, share: nextShare }),
+      })
+        .then((res) => res.ok)
+        .catch((err: unknown) => {
+          console.error("[CircleSettings] PATCH school toggle error:", err);
+          return false;
+        }),
+    );
+    Promise.all(patches).then((results) => {
+      if (results.some((ok) => !ok)) {
+        load();
+      }
     });
   };
 
