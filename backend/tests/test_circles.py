@@ -200,6 +200,7 @@ def test_seller_circles_for_viewer_marks_direct_friend(db_session, make_user):
 from services.ranking import _community_overlap
 from models import Friendship, Listing as RankingListing
 from services.circles import count_mutual_friends, seller_circles_for_viewer, set_circle_consent, set_user_building
+from services.neighborhood import set_user_neighborhood, get_neighborhood_community
 
 
 def _friend(db, a_id, b_id):
@@ -219,22 +220,30 @@ def test_count_mutual_friends_counts_accepted_overlap(db_session, make_user):
 
 
 def test_seller_circles_for_viewer_respects_consent_and_match(db_session, make_user):
-    seller = make_user(display_name="Seller")
-    viewer = make_user(display_name="Viewer")
-    # both in the same building, but seller has NOT opted in yet
-    b = set_user_building(db_session, seller, "500 W 30th St")
-    set_user_building(db_session, viewer, "500 W 30th St")
+    """seller_circles_for_viewer now uses neighborhood (not building) as the
+    local-trust circle (spec rev 2026-06-19). Test verifies consent gate and
+    shared=True when both seller and viewer share the same neighborhood circle."""
+    seller = make_user(display_name="SellerNbr")
+    viewer = make_user(display_name="ViewerNbr")
+    # Put both users in Chelsea; seller has NOT opted in yet.
+    set_user_neighborhood(db_session, seller, "Chelsea")
+    set_user_neighborhood(db_session, viewer, "Chelsea")
+    nbr_community = get_neighborhood_community(db_session, "Chelsea")
+    assert nbr_community is not None, "Chelsea neighborhood community not seeded"
+
     res = seller_circles_for_viewer(db_session, seller.id, viewer)
-    assert res["building"]["shared"] is False         # consent off
-    set_circle_consent(db_session, seller.id, b.id, True)
+    assert res["neighborhood"]["shared"] is False         # consent off by default
+    set_circle_consent(db_session, seller.id, nbr_community.id, True)
     res = seller_circles_for_viewer(db_session, seller.id, viewer)
-    assert res["building"]["shared"] is True           # consent on + same building
-    assert res["building"]["label"] == "Same building"
+    assert res["neighborhood"]["shared"] is True           # consent on + same neighborhood
+    assert res["neighborhood"]["label"] == "Chelsea"
     assert res["mutualFriends"]["count"] == 0
     assert res["mutualFriends"]["directFriend"] is False
-    # cleanup
-    db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
-    db_session.query(Community).filter(Community.id == b.id).delete()
+    # cleanup memberships (neighborhood Communities are system-owned; don't delete them)
+    db_session.query(CommunityMember).filter(
+        CommunityMember.community_id == nbr_community.id,
+        CommunityMember.user_id.in_([seller.id, viewer.id]),
+    ).delete(synchronize_session=False)
     db_session.commit()
 
 

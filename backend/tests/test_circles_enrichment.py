@@ -9,16 +9,21 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from models import Community, CommunityMember, Listing
 from services.circles import set_user_building, set_circle_consent
+from services.neighborhood import get_neighborhood_community
 
 
 def test_feed_listing_exposes_circles_for_mutual_viewer(
     db_session, make_user, client, override_auth_user
 ):
+    """Feed circles key is 'neighborhood' (not 'building') per spec rev 2026-06-19.
+    Seller and viewer share the Chelsea neighborhood circle with consent on."""
     seller = make_user(display_name="Seller", neighborhood="Chelsea")
     viewer = make_user(display_name="Viewer", neighborhood="Chelsea")
-    b = set_user_building(db_session, seller, "12 Jane St")
-    set_user_building(db_session, viewer, "12 Jane St")
-    set_circle_consent(db_session, seller.id, b.id, True)
+    # Both users are already members of the Chelsea neighborhood community via
+    # make_user(neighborhood="Chelsea"). Consent defaults to False — set it on.
+    nbr = get_neighborhood_community(db_session, "Chelsea")
+    assert nbr is not None, "Chelsea neighborhood community must be seeded"
+    set_circle_consent(db_session, seller.id, nbr.id, True)
     listing = Listing(
         id=uuid.uuid4().hex[:12],
         user_id=seller.id, description="nice", price_cents=2000,
@@ -31,14 +36,16 @@ def test_feed_listing_exposes_circles_for_mutual_viewer(
     resp = client.get("/api/listings")
     assert resp.status_code == 200
     mine = next(l for l in resp.json() if l["id"] == listing.id)
-    assert mine["circles"]["building"]["shared"] is True
+    assert mine["circles"]["neighborhood"]["shared"] is True
     assert mine["circles"]["school"]["shared"] is False
     assert mine["circles"]["mutualFriends"]["count"] == 0
 
-    # cleanup
+    # cleanup listing and memberships for seller/viewer (not the system-owned Community)
     db_session.query(Listing).filter(Listing.id == listing.id).delete()
-    db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
-    db_session.query(Community).filter(Community.id == b.id).delete()
+    db_session.query(CommunityMember).filter(
+        CommunityMember.community_id == nbr.id,
+        CommunityMember.user_id.in_([seller.id, viewer.id]),
+    ).delete(synchronize_session=False)
     db_session.commit()
 
 
@@ -55,10 +62,11 @@ def test_mine_listing_exposes_circles_for_seller(
     db_session, make_user, client, override_auth_user
 ):
     """GET /api/listings/mine enriches each listing with a circles object whose
-    consented building circle is shared=True when the seller is in it."""
+    consented neighborhood circle is shared=True (spec rev 2026-06-19)."""
     seller = make_user(display_name="MineSeller", neighborhood="Chelsea")
-    b = set_user_building(db_session, seller, "42 W 10th St")
-    set_circle_consent(db_session, seller.id, b.id, True)
+    nbr = get_neighborhood_community(db_session, "Chelsea")
+    assert nbr is not None, "Chelsea neighborhood community must be seeded"
+    set_circle_consent(db_session, seller.id, nbr.id, True)
     listing = Listing(
         id=uuid.uuid4().hex[:12],
         user_id=seller.id, description="shelf", price_cents=3000,
@@ -73,15 +81,17 @@ def test_mine_listing_exposes_circles_for_seller(
     mine = next((l for l in resp.json() if l["id"] == listing.id), None)
     assert mine is not None, "listing not found in /api/listings/mine response"
     assert "circles" in mine, "/api/listings/mine listing missing 'circles' key"
-    assert mine["circles"]["building"]["shared"] is True
+    assert mine["circles"]["neighborhood"]["shared"] is True
     assert mine["circles"]["school"]["shared"] is False
     assert mine["circles"]["mutualFriends"]["count"] == 0
     assert "directFriend" in mine["circles"]["mutualFriends"]
 
-    # cleanup
+    # cleanup listing + seller's neighborhood membership
     db_session.query(Listing).filter(Listing.id == listing.id).delete()
-    db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
-    db_session.query(Community).filter(Community.id == b.id).delete()
+    db_session.query(CommunityMember).filter(
+        CommunityMember.community_id == nbr.id,
+        CommunityMember.user_id == seller.id,
+    ).delete(synchronize_session=False)
     db_session.commit()
 
 

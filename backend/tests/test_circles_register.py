@@ -7,6 +7,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from models import Community, CommunityMember, SchoolSeed, User
 from services.circles import list_user_schools
+from services.neighborhood import get_neighborhood_community
 
 
 def _get_or_create_school(db_session, name: str, state: str) -> tuple[SchoolSeed, bool]:
@@ -45,15 +46,27 @@ def test_register_defaults_consent_on_and_captures_pronouns(db_session, make_use
     u = db_session.query(User).filter(User.id == user.id).first()
     assert u.pronouns == "she/her"
     assert u.share_mutual_friends is True                       # default-on
+    # Neighborhood consent must be default-on (spec rev 2026-06-19).
+    nbr = get_neighborhood_community(db_session, "Chelsea")
+    assert nbr is not None, "Chelsea neighborhood community must be seeded"
+    nm = db_session.query(CommunityMember).filter(
+        CommunityMember.user_id == user.id,
+        CommunityMember.community_id == nbr.id,
+    ).first()
+    assert nm is not None, "user must be a member of their neighborhood community"
+    assert nm.share_with_mutuals is True                        # neighborhood default-on
+    # Building circle is still created but consent is no longer set (not displayed).
     b = db_session.query(Community).join(CommunityMember, CommunityMember.community_id==Community.id)\
         .filter(CommunityMember.user_id==user.id, Community.kind=="building").first()
-    bm = db_session.query(CommunityMember).filter(CommunityMember.user_id==user.id, CommunityMember.community_id==b.id).first()
-    assert bm.share_with_mutuals is True                        # default-on
+    # School consent default-on still holds.
     schools = list_user_schools(db_session, user.id)
     sm = db_session.query(CommunityMember).filter(CommunityMember.user_id==user.id, CommunityMember.community_id==schools[0].id).first()
     assert sm.share_with_mutuals is True                        # default-on
+    # Cleanup: remove memberships for the user (neighborhood community is system-owned — don't delete it).
     db_session.query(CommunityMember).filter(CommunityMember.user_id==user.id).delete()
-    db_session.query(Community).filter(Community.id.in_([b.id, schools[0].id])).delete(synchronize_session=False)
+    if b is not None:
+        db_session.query(Community).filter(Community.id == b.id).delete(synchronize_session=False)
+    db_session.query(Community).filter(Community.id == schools[0].id).delete(synchronize_session=False)
     # Only delete the seed row if this test created it — reused rows from the
     # seeded school_seed table must not be removed.
     if seed_created:
