@@ -49,21 +49,37 @@ function Toggle({
 
 export function CircleSettings() {
   const [summary, setSummary] = useState<CircleSummary | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const results = useSchoolSearch(query).filter(
     (r) => !summary?.schools.some((s) => s.name === r.name),
   );
 
   const load = () => {
+    setLoadError(null);
     apiFetch("/api/circles/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: CircleSummary | null) => {
+      .then((r) => {
+        if (!r.ok) {
+          console.error("[CircleSettings] /api/circles/me returned", r.status);
+          setLoadError(`Couldn't load your circles (HTTP ${r.status}). Try refreshing.`);
+          return null;
+        }
+        return r.json() as Promise<CircleSummary>;
+      })
+      .then((d) => {
         if (d) setSummary(d);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        console.error("[CircleSettings] /api/circles/me network error:", err);
+        setLoadError("Couldn't load your circles. Try refreshing.");
+      });
   };
 
   useEffect(load, []);
+
+  if (loadError) {
+    return <p className="text-sm text-error">{loadError}</p>;
+  }
 
   if (!summary) {
     return <p className="text-sm text-muted">Loading circles...</p>;
