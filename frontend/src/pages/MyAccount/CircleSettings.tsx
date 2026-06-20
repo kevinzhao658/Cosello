@@ -4,11 +4,13 @@
 // Schools row: chip list with remove (X icon) + autocomplete to add, capped at 2.
 // Live CirclePreview at the bottom reflects toggle state.
 import { useEffect, useState } from "react";
-import { MapPin, GraduationCap, Users, X } from "lucide-react";
+import { MapPin, GraduationCap, Users } from "lucide-react";
 import { apiFetch } from "../../lib/api";
-import { useSchoolSearch, type School } from "../../lib/useSchoolSearch";
+import { type School } from "../../lib/useSchoolSearch";
 import { CirclePreview } from "../signup/CirclePreview";
-import { FOCUS_RING, PANEL_TITLE } from "./constants";
+import { PANEL_TITLE } from "./constants";
+import { ToggleSwitch } from "../../components/ui/ToggleSwitch";
+import { SchoolPicker } from "../../components/ui/SchoolPicker";
 
 interface CircleSchool {
   community_id: number;
@@ -22,38 +24,9 @@ interface CircleSummary {
   mutualFriends: { share: boolean };
 }
 
-function Toggle({
-  on,
-  onClick,
-  label,
-}: {
-  on: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={onClick}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors motion-safe:duration-150 ${FOCUS_RING} ${on ? "bg-primary" : "bg-surface-strong"}`}
-    >
-      <span
-        className={`inline-block size-5 transform rounded-full bg-canvas shadow-card transition-transform motion-safe:duration-150 ${on ? "translate-x-5" : "translate-x-0.5"}`}
-      />
-    </button>
-  );
-}
-
 export function CircleSettings() {
   const [summary, setSummary] = useState<CircleSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const results = useSchoolSearch(query).filter(
-    (r) => !summary?.schools.some((s) => s.name === r.name),
-  );
 
   const load = () => {
     setLoadError(null);
@@ -150,10 +123,7 @@ export function CircleSettings() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ seed_id: s.id }),
     });
-    if (res.ok) {
-      setQuery("");
-      load();
-    }
+    if (res.ok) load();
   };
 
   const removeSchool = async (community_id: number) => {
@@ -165,8 +135,7 @@ export function CircleSettings() {
   // One toggle controls all school memberships: on if any school has share=true
   const schoolShareOn = summary.schools.some((s) => s.share);
 
-  const handleSchoolToggle = () => {
-    const nextShare = !schoolShareOn;
+  const handleSchoolToggle = (nextShare: boolean) => {
     // Optimistic update: flip ALL schools at once.
     setSummary((prev) => {
       if (!prev) return prev;
@@ -216,14 +185,11 @@ export function CircleSettings() {
           </div>
         </div>
         {summary.neighborhood ? (
-          <Toggle
-            on={summary.neighborhood.share}
+          <ToggleSwitch
+            checked={summary.neighborhood.share}
             label="Toggle neighborhood visibility"
-            onClick={() =>
-              patchConsent(
-                summary.neighborhood!.community_id,
-                !summary.neighborhood!.share,
-              )
+            onChange={(v) =>
+              patchConsent(summary.neighborhood!.community_id, v)
             }
           />
         ) : (
@@ -239,67 +205,22 @@ export function CircleSettings() {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-ink">Schools</div>
           <div className="text-xs text-muted">Up to 2. Shown to anyone from the same school.</div>
-
-          {/* School chips */}
-          {summary.schools.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {summary.schools.map((s) => (
-                <span
-                  key={s.community_id}
-                  className="inline-flex items-center gap-2 text-xs font-semibold text-ink bg-surface-soft border border-hairline rounded-full pl-3 pr-1.5 py-1"
-                >
-                  {s.name}
-                  <button
-                    type="button"
-                    onClick={() => removeSchool(s.community_id)}
-                    aria-label={`Remove ${s.name}`}
-                    className={`size-[18px] rounded-full bg-surface-strong text-muted hover:text-ink flex items-center justify-center ${FOCUS_RING}`}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Add school autocomplete */}
-          {!schoolFull && (
-            <div className="relative mt-3 max-w-xs">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Add a school"
-                className={`w-full text-sm text-ink px-3 py-2 border border-border-strong rounded-sm bg-canvas focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 transition-[color,box-shadow] ${FOCUS_RING}`}
-              />
-              {results.length > 0 && (
-                <div className="absolute z-50 mt-1 w-full max-h-44 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-overlay">
-                  {results.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => addSchool(r)}
-                      className={`w-full text-left px-3 py-2 text-sm text-ink hover:bg-surface-soft ${FOCUS_RING}`}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {schoolFull && (
-            <p className="text-[11px] text-muted-soft mt-2">
-              Maximum of 2 schools. Remove one to add another.
-            </p>
-          )}
+          <div className="mt-3 max-w-xs">
+            <SchoolPicker
+              selected={summary.schools.map((s) => ({ id: s.community_id, name: s.name }))}
+              onAdd={addSchool}
+              onRemove={removeSchool}
+              max={2}
+              placeholder="Add a school"
+            />
+          </div>
         </div>
 
         {/* Single toggle controls all school memberships */}
-        <Toggle
-          on={schoolShareOn}
+        <ToggleSwitch
+          checked={schoolShareOn}
           label="Toggle school visibility"
-          onClick={handleSchoolToggle}
+          onChange={handleSchoolToggle}
         />
       </div>
 
@@ -314,10 +235,10 @@ export function CircleSettings() {
             Show people you both know on your listings.
           </div>
         </div>
-        <Toggle
-          on={summary.mutualFriends.share}
+        <ToggleSwitch
+          checked={summary.mutualFriends.share}
           label="Toggle mutual friends visibility"
-          onClick={() => patchMutual(!summary.mutualFriends.share)}
+          onChange={(v) => patchMutual(v)}
         />
       </div>
 
