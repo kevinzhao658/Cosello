@@ -4,6 +4,8 @@
 **Status:** Approved design, pending implementation plan
 **Supersedes:** the legacy "communities" seller-picks model and the backlogged "communities-as-tags reversion"
 
+> **Revision 2026-06-19 (Phase 5):** The displayed circle set is now **neighborhood · school · mutual friends** — the **building** tag is retired from display (exact-building overlap is too rare in Manhattan to ever light up; neighborhood is the useful local-trust signal). Neighborhood becomes a first-class, opt-out circle (reuses the existing per-user neighborhood community + `community_members.share_with_mutuals`, default-on, hideable in Settings → Circles). This reverses §2's "Neighborhood is not a circle." The legacy seller-picked **Communities tiles** in My Account are removed. Building circle data may remain dormant but appears in no display path.
+
 ---
 
 ## 1. Overview
