@@ -1,76 +1,50 @@
 // frontend/src/components/CircleByline.tsx
-import { MapPin, GraduationCap, Users } from "lucide-react";
+import { GraduationCap } from "lucide-react";
 import type { ListingCircles } from "../lib/types";
 
 interface CircleBylineProps {
   circles?: ListingCircles;
-  /** Show hover tooltips on lit slots (feed/profile). Off for the consent preview. */
-  tooltips?: boolean;
-  /** Render the numeric mutual-friends count beside the icon. Default true. */
-  showFriendCount?: boolean;
 }
 
-interface SlotProps {
-  lit: boolean;
-  label: string;
-  count?: number;
-  tooltips: boolean;
-  children: React.ReactNode; // the icon
-}
+const MEDAL: Record<1 | 2 | 3, { label: string; cls: string }> = {
+  1: { label: "1st", cls: "bg-medal-gold text-medal-gold-ink" },
+  2: { label: "2nd", cls: "bg-medal-silver text-medal-silver-ink" },
+  3: { label: "3rd", cls: "bg-medal-bronze text-medal-bronze-ink" },
+};
 
-function Slot({ lit, label, count, tooltips, children }: SlotProps) {
+/** Insight byline: connection medal ribbon (left) + always-on school (right).
+ *  Connection blank past 3rd; school bold when it's the viewer's own. */
+export function CircleByline({ circles }: CircleBylineProps) {
+  const degree = circles?.connection.degree ?? null;
+  const school = circles?.school ?? null;
+  const medal = degree ? MEDAL[degree] : null;
+
   return (
-    <span
-      className={`relative group inline-flex items-center gap-1 transition-[color,opacity] ${
-        lit ? "text-primary opacity-100" : "text-muted-soft opacity-30"
-      }`}
-    >
-      {children}
-      {lit && typeof count === "number" && count > 0 && (
-        <span className="text-[11px] font-bold text-primary-text">{count}</span>
-      )}
-      {lit && tooltips && (
-        <span className="pointer-events-none absolute bottom-[140%] left-1/2 -translate-x-1/2 z-10 whitespace-nowrap rounded-sm bg-ink px-2 py-1 text-[10px] font-semibold text-on-primary opacity-0 transition-opacity group-hover:opacity-100">
-          {label}
+    <div className="flex items-center justify-between gap-2 min-h-[2.25rem] mb-1">
+      {medal ? (
+        <span
+          className={`inline-flex items-center pl-2 pr-3 py-1 text-[11px] font-extrabold leading-none ${medal.cls}`}
+          style={{ clipPath: "polygon(0 0,100% 0,calc(100% - 7px) 50%,100% 100%,0 100%)" }}
+        >
+          {medal.label}
         </span>
+      ) : (
+        <span aria-hidden="true" />
       )}
-    </span>
-  );
-}
 
-/** Fixed three positions (neighborhood · school · mutual friends), evenly
- *  distributed. Lit when the viewer shares a revealed circle with the seller;
- *  faded otherwise. Faded slots are uniform and carry no tooltip. */
-export function CircleByline({ circles, tooltips = true, showFriendCount = true }: CircleBylineProps) {
-  const neighborhood = circles?.neighborhood.shared ?? false;
-  const school = circles?.school.shared ?? false;
-  const friendCount = circles?.mutualFriends.count ?? 0;
-  const directFriend = circles?.mutualFriends.directFriend ?? false;
-
-  const friendLit = friendCount > 0 || directFriend;
-  const friendTooltip =
-    directFriend && friendCount > 0
-      ? `Friend · ${friendCount} mutual`
-      : directFriend
-        ? "Friend"
-        : `${friendCount} mutual friends`;
-
-  return (
-    <div className="flex items-center justify-evenly h-6 mb-1.5">
-      <Slot lit={neighborhood} label={circles?.neighborhood.label ?? "Neighborhood"} tooltips={tooltips}>
-        <MapPin className="size-[17px]" />
-      </Slot>
-      <Slot lit={school} label={circles?.school.label || "School"} tooltips={tooltips}>
-        <GraduationCap className="size-[17px]" />
-      </Slot>
-      <Slot
-        lit={friendLit}
-        label={friendTooltip}
-        count={showFriendCount ? friendCount : undefined}
-        tooltips={tooltips}
-      >
-        <Users className="size-[17px]" />
-      </Slot>
+      {school ? (
+        <span
+          title={school.fullName}
+          className={`inline-flex items-center gap-1 min-w-0 text-xs text-ink ${
+            school.isMine ? "font-extrabold" : "font-medium"
+          }`}
+        >
+          <GraduationCap className="size-[15px] shrink-0" />
+          <span className="truncate">{school.shortName}</span>
+        </span>
+      ) : (
+        <span aria-hidden="true" />
+      )}
     </div>
   );
 }
