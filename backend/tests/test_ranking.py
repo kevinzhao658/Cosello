@@ -436,11 +436,18 @@ def test_community_overlap_one_shared(db_session, cleanup):
     # Phase 2 (circles): overlap is computed from CommunityMember rows for both
     # the viewer and the seller — the listing's `communities` JSON is no longer
     # consulted.  Both parties must be members of the same circle for overlap > 0.
+    # The circle must be a DISPLAYED_CIRCLE_KIND (neighborhood or school); other
+    # kinds (building, interest) are excluded from the overlap calculation.
     user = _mk_user(db_session)
     seller = _mk_user(db_session)
     cleanup["user_ids"].update({user.id, seller.id})
 
-    community = Community(name="C1", invite_code=f"inv-{int(time.time()*1000)%1_000_000}", created_by=user.id)
+    community = Community(
+        name="C1",
+        kind="school",  # must be a DISPLAYED_CIRCLE_KIND for overlap to register
+        invite_code=f"inv-{int(time.time()*1000)%1_000_000}",
+        created_by=user.id,
+    )
     db_session.add(community)
     db_session.commit()
     db_session.refresh(community)
