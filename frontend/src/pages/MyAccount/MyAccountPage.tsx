@@ -55,6 +55,7 @@ import { ShareCommunityModal } from "./modals/ShareCommunityModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
 import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
+import { CircleSettings } from "./CircleSettings";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { ListingRowSkeleton } from "../../components/ListingRowSkeleton";
 import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
@@ -1568,16 +1569,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               </button>
               <button
                 type="button"
-                onClick={() => setAccountTab("overview")}
-                className={`group rounded-sm motion-safe:transition-colors ${FOCUS_RING}`}
-              >
-                <span className="font-semibold text-ink">{communities.length}</span>{" "}
-                <span className="text-muted group-hover:text-primary motion-safe:transition-colors">
-                  {communities.length === 1 ? "Community" : "Communities"}
-                </span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setAccountTab("listings")}
                 className={`group rounded-sm motion-safe:transition-colors ${FOCUS_RING}`}
               >
@@ -1643,12 +1634,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         {/* ── Tab panels ────────────────────────────────── */}
         {accountTab === "overview" && (
           <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
-            <OverviewCommunitiesRow
-              communities={communities}
-              communitiesLoaded={communitiesLoaded}
-              openCommunityDetail={openCommunityDetail}
-              openJoinModal={() => setShowJoinModal(true)}
-            />
             <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
               <OverviewListingsPanel
                 listingsTab={listingsTab}
@@ -1764,10 +1749,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               openAddFriendsModal={openAddFriendsModal}
               openFriendsModal={openFriendsModal}
               friendsCount={stats.friends_count}
-              communities={communities}
-              communitiesLoaded={communitiesLoaded}
-              openCommunityDetail={openCommunityDetail}
-              openJoinModal={() => setShowJoinModal(true)}
               logout={async () => {
                 await logout();
                 onNavigate("home");
@@ -3887,10 +3868,6 @@ function SettingsTabContent({
   openAddFriendsModal,
   openFriendsModal,
   friendsCount,
-  communities,
-  communitiesLoaded,
-  openCommunityDetail,
-  openJoinModal,
   logout,
 }: {
   settings: Settings;
@@ -3900,10 +3877,6 @@ function SettingsTabContent({
   openAddFriendsModal: () => void;
   openFriendsModal: () => void;
   friendsCount: number;
-  communities: CommunityData[];
-  communitiesLoaded: boolean;
-  openCommunityDetail: (c: CommunityData) => void;
-  openJoinModal: () => void;
   logout: () => Promise<void>;
 }) {
   const fontSizes: [Settings["fontSize"], string][] = [
@@ -4058,8 +4031,8 @@ function SettingsTabContent({
       </section>
 
       <section>
-        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Communities &amp; friends</h3>
-        <p className="text-sm text-muted mb-4">Manage your trust signals.</p>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Friends</h3>
+        <p className="text-sm text-muted mb-4">Manage your friend connections.</p>
         <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
           <SettingRow
             title="Friends"
@@ -4081,46 +4054,13 @@ function SettingsTabContent({
               </div>
             }
           />
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-ink">Communities</p>
-              <button
-                onClick={openJoinModal}
-                className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-              >
-                <Plus className="size-3.5 mr-1" />
-                Join or create
-              </button>
-            </div>
-            {!communitiesLoaded ? (
-              <ul className="space-y-1">
-                {Array.from({ length: 6 }).map((_, i) => <PunchlistRowSkeleton key={i} />)}
-              </ul>
-            ) : communities.length === 0 ? (
-              <p className="text-xs text-muted">You haven't joined any communities yet.</p>
-            ) : (
-              <ul className="space-y-1">
-                {communities.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => openCommunityDetail(c)}
-                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
-                    >
-                      <div className="size-8 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-                        {c.image ? <ListingImage src={c.image} alt="" size="small" className="size-full object-cover" /> : <Globe className="size-3.5 text-muted" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-ink truncate">{c.name}</p>
-                        <p className="text-[11px] text-muted truncate">{c.neighborhood ?? "—"} · {c.member_count} {c.member_count === 1 ? "member" : "members"}</p>
-                      </div>
-                      <ChevronRight className="size-4 text-muted" aria-hidden="true" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
+      </section>
+
+      <section>
+        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Circles</h3>
+        <p className="text-sm text-muted mb-4">Control which trust signals appear on your listings.</p>
+        <CircleSettings />
       </section>
 
       <section>
