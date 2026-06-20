@@ -28,7 +28,9 @@ import {
   Globe,
   ChevronRight,
   ImagePlus,
+  Camera,
 } from "lucide-react";
+import { useProfilePictureUpload } from "../../hooks/useProfilePictureUpload";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
@@ -156,6 +158,19 @@ interface MyAccountPageProps {
 export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting, resetSettings } = useSettings();
+
+  // ── Profile picture upload ─────────────────────────────
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const { isUploading: isUploadingAvatar, uploadError: avatarUploadError, upload: uploadAvatar, clearError: clearAvatarError } = useProfilePictureUpload({
+    onSuccess: (updated) => updateUser(updated),
+  });
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so the same file can be re-selected after an error
+    e.target.value = "";
+    if (file) void uploadAvatar(file);
+  };
 
   const { list: neighborhoodsList, isLoading: isLoadingNeighborhoodsList, error: neighborhoodsListError } = useNeighborhoods();
   const neighborhoods = neighborhoodsList ?? [];
@@ -1525,13 +1540,41 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* ── Profile Header ───────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-5 mb-10">
-          <div className="size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden shrink-0">
-            {user?.profile_picture ? (
-              <img src={user.profile_picture} alt={user.display_name || "Profile"} className="size-full object-cover" />
-            ) : (
-              <span className="text-2xl font-extrabold text-ink tracking-display">
-                {(user?.display_name?.[0] || "?").toUpperCase()}
+          {/* Clickable avatar — triggers hidden file input */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="relative group">
+              <button
+                type="button"
+                aria-label="Change profile photo"
+                disabled={isUploadingAvatar}
+                onClick={() => { clearAvatarError(); avatarInputRef.current?.click(); }}
+                className={`size-20 rounded-full bg-surface-soft border border-hairline flex items-center justify-center overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas ${isUploadingAvatar ? "opacity-60 cursor-wait" : "cursor-pointer"}`}
+              >
+                {user?.profile_picture ? (
+                  <img src={user.profile_picture} alt={user.display_name || "Profile"} className="size-full object-cover" />
+                ) : (
+                  <span className="text-2xl font-extrabold text-ink tracking-display">
+                    {(user?.display_name?.[0] || "?").toUpperCase()}
+                  </span>
+                )}
+              </button>
+              {/* Hover overlay */}
+              <span aria-hidden="true" className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity motion-safe:duration-150 pointer-events-none">
+                {isUploadingAvatar
+                  ? <Loader2 className="size-5 text-white animate-spin" />
+                  : <Camera className="size-5 text-white" />}
               </span>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={handleAvatarFileChange}
+              />
+            </div>
+            {avatarUploadError && (
+              <p className="text-[11px] text-error text-center max-w-[88px] leading-tight">{avatarUploadError}</p>
             )}
           </div>
           <div className="flex-1 min-w-0">
@@ -1825,6 +1868,11 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
       <EditProfileModal
         open={showEditProfileModal}
+        avatarUrl={user?.profile_picture ?? null}
+        isUploadingAvatar={isUploadingAvatar}
+        avatarUploadError={avatarUploadError}
+        onAvatarChange={(file) => void uploadAvatar(file)}
+        onAvatarErrorClear={clearAvatarError}
         editFirstName={editFirstName}
         editLastName={editLastName}
         editPickupAddress={editPickupAddress}
