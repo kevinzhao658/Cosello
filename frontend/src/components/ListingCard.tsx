@@ -93,7 +93,13 @@ export function ListingCard({
         <p className={`text-sm font-medium line-clamp-1 ${listing.status === "sold" ? "text-muted" : "text-ink"}`}>
           {formatTitle(listing.brand, listing.name)}
         </p>
-        <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
+        <p className="text-xs text-muted line-clamp-1">
+          {listing.location}
+          {listing.distance_miles != null && (
+            <span className="text-muted"> · </span>
+          )}
+          {listing.distance_miles != null && `${listing.distance_miles} mi`}
+        </p>
         <p className={`text-base font-semibold leading-none pt-0.5 ${listing.status === "sold" ? "text-muted" : "text-ink"}`}>
           ${listing.price}
         </p>
