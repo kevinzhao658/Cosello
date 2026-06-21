@@ -491,7 +491,7 @@ def test_community_overlap_building_only_is_zero(db_session, cleanup):
 
     Two users who share only a building circle were silently boosted in ranking
     before the 2026-06-19 pivot that hid building from the displayed kinds.
-    DISPLAYED_CIRCLE_KINDS restricts overlap to neighborhood/school only.
+    RANKING_OVERLAP_KINDS restricts overlap to neighborhood/school only.
     """
     user = _mk_user(db_session)
     seller = _mk_user(db_session)
@@ -517,7 +517,7 @@ def test_community_overlap_building_only_is_zero(db_session, cleanup):
     candidate = _mk_listing(db_session, user_id=seller.id, brand="B")
     cleanup["listing_ids"].add(candidate.id)
 
-    # Building kind is not in DISPLAYED_CIRCLE_KINDS — overlap must be zero.
+    # Building kind is not in RANKING_OVERLAP_KINDS — overlap must be zero.
     assert _community_overlap(user, candidate, db_session) == 0.0
 
 
