@@ -1,5 +1,10 @@
 import { useReducer, useMemo } from "react";
 import type { CategorySlug } from "../../lib/types";
+import {
+  uploadedImagesReducer,
+  segmentationReducer,
+  bulkItemsReducer,
+} from "./reducers";
 
 export interface ProductDetails {
   brand: string;
@@ -166,42 +171,34 @@ function arrayMove<T>(arr: T[], from: number, to: number): T[] {
 
 export function sellWizardReducer(state: SellWizardState, action: SellWizardAction): SellWizardState {
   switch (action.type) {
+    // ── Uploaded-images domain ──────────────────────────────────────────────
     case "APPEND_IMAGES":
-      return { ...state, uploadedImages: [...state.uploadedImages, ...action.images] };
     case "SET_IMAGES":
-      return { ...state, uploadedImages: action.images };
+      return {
+        ...state,
+        uploadedImages: uploadedImagesReducer(state.uploadedImages, action),
+      };
+
+    // ── Full-reset actions ─────────────────────────────────────────────────
     case "RESET_TO_UPLOAD":
     case "CLEAR_ALL":
     case "RESET_FROM_LOGOUT":
       return emptyWizardState();
+
+    // ── Segmentation domain ────────────────────────────────────────────────
     case "SEGMENTATION_START":
-      return { ...state, isGenerating: true, segmentationError: null, productDetails: null };
     case "SEGMENTATION_SUCCESS":
-      return {
-        ...state,
-        isGenerating: false,
-        segmentation: action.result,
-        brandHints: action.result.groupings.map(() => ""),
-        names: action.result.groupings.map(() => ""),
-        rationale: action.resetRationale ? "" : state.rationale,
-        rationaleOther: action.resetRationale ? "" : state.rationaleOther,
-        bulkItems: [],
-        currentCardIndex: 0,
-        bulkReviewPhase: "review",
-        groupingsModified: false,
-        modifiedGroupIndices: new Set<number>(),
-        postPickupLocation: action.postPickupLocation,
-      };
     case "SEGMENTATION_FAILURE":
-      return { ...state, isGenerating: false, segmentationError: action.error };
     case "RE_SEGMENT_SUCCESS":
-      return {
-        ...state,
-        isGenerating: false,
-        segmentation: action.result,
-        brandHints: action.result.groupings.map(() => ""),
-        names: action.result.groupings.map(() => ""),
-      };
+    case "SET_BRAND_HINT":
+    case "SET_NAME":
+    case "REVIEW_REASSIGN_IMAGE":
+    case "REVIEW_SPLIT_IMAGE":
+    case "REVIEW_MERGE_GROUPS":
+    case "BACK_FROM_REVIEW":
+      return segmentationReducer(state, action);
+
+    // ── Generate-single (cross-domain: productDetails + bulk clear) ────────
     case "GENERATE_START":
       return { ...state, isGenerating: true };
     case "GENERATE_END":
@@ -216,55 +213,23 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
         groupingsModified: false,
         modifiedGroupIndices: new Set<number>(),
       };
+
+    // ── Bulk-items domain ──────────────────────────────────────────────────
     case "GENERATE_BULK":
-      return {
-        ...state,
-        isGenerating: false,
-        bulkItems: action.items,
-        currentCardIndex: 0,
-        bulkReviewPhase: "cards",
-        groupingsModified: false,
-        modifiedGroupIndices: new Set<number>(),
-      };
-    case "INIT_BULK_MANUAL": {
-      if (!state.segmentation) return state;
-      const items: BulkItemDetails[] = state.segmentation.groupings.map((group, i) => ({
-        brand: state.brandHints[i] ?? "",
-        name: state.names[i] ?? "",
-        description: "",
-        price: "",
-        condition: "Good",
-        location: "",
-        tags: [],
-        imageIndices: group,
-      }));
-      return {
-        ...state,
-        isGenerating: false,
-        bulkItems: items,
-        currentCardIndex: 0,
-        bulkReviewPhase: "cards",
-        groupingsModified: false,
-        modifiedGroupIndices: new Set<number>(),
-      };
-    }
-    case "REGENERATE_BULK_ITEM": {
-      const updated = [...state.bulkItems];
-      if (updated[action.index]) updated[action.index] = action.item;
-      return { ...state, isGenerating: false, bulkItems: updated };
-    }
+    case "INIT_BULK_MANUAL":
+    case "REGENERATE_BULK_ITEM":
     case "SET_PHASE":
-      return { ...state, bulkReviewPhase: action.phase };
-    case "SET_BRAND_HINT": {
-      const next = [...state.brandHints];
-      next[action.index] = action.value;
-      return { ...state, brandHints: next };
-    }
-    case "SET_NAME": {
-      const next = [...state.names];
-      next[action.index] = action.value;
-      return { ...state, names: next };
-    }
+    case "SET_BULK_ITEMS":
+    case "UPDATE_BULK_ITEM_FIELD":
+    case "UPDATE_BULK_ITEM":
+    case "DELETE_BULK_ITEM":
+    case "SET_CURRENT_CARD_INDEX":
+    case "CARDS_REASSIGN_IMAGE":
+    case "CARDS_SPLIT_IMAGE":
+    case "REORDER_BULK_ITEM_PHOTOS":
+      return bulkItemsReducer(state, action);
+
+    // ── Simple scalar setters ──────────────────────────────────────────────
     case "SET_RATIONALE":
       return {
         ...state,
@@ -279,34 +244,14 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       return { ...state, postPickupLocation: action.value };
     case "SET_PRODUCT_DETAILS":
       return { ...state, productDetails: action.details };
-    case "SET_BULK_ITEMS":
-      return { ...state, bulkItems: action.items };
-    case "UPDATE_BULK_ITEM_FIELD": {
-      const updated = [...state.bulkItems];
-      updated[action.index] = { ...updated[action.index], [action.field]: action.value };
-      return { ...state, bulkItems: updated };
-    }
-    case "UPDATE_BULK_ITEM": {
-      const updated = [...state.bulkItems];
-      updated[action.index] = { ...updated[action.index], ...action.patch };
-      return { ...state, bulkItems: updated };
-    }
-    case "DELETE_BULK_ITEM": {
-      const updated = state.bulkItems.filter((_, i) => i !== action.index);
-      if (updated.length === 0) {
-        return { ...state, bulkItems: updated, bulkReviewPhase: null, currentCardIndex: 0 };
-      }
-      const nextIndex = state.currentCardIndex >= updated.length ? updated.length - 1 : state.currentCardIndex;
-      return { ...state, bulkItems: updated, currentCardIndex: nextIndex };
-    }
-    case "SET_CURRENT_CARD_INDEX":
-      return { ...state, currentCardIndex: action.index };
     case "SET_EDITING_TITLE":
       return { ...state, editingTitle: action.value };
     case "SET_NEW_TAG":
       return { ...state, newTag: action.value };
     case "SET_INSTRUCTION_EXITING":
       return { ...state, instructionExiting: action.value };
+
+    // ── Drag cursor state ──────────────────────────────────────────────────
     case "DRAG_START":
       return {
         ...state,
@@ -318,166 +263,8 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       return { ...state, dragOverGap: action.gapIndex };
     case "DRAG_END":
       return { ...state, dragImageState: null, dragOverGroup: null, dragOverGap: null };
-    case "REVIEW_REASSIGN_IMAGE": {
-      if (!state.segmentation || action.sourceGroup === action.targetGroup) return state;
-      const groupings = state.segmentation.groupings;
-      const isLastInSource = groupings[action.sourceGroup].length <= 1;
-      let next = groupings.map((g, idx) => {
-        if (idx === action.sourceGroup) return g.filter((i) => i !== action.imageIndex);
-        if (idx === action.targetGroup) return [...g, action.imageIndex];
-        return g;
-      });
-      let nextHints = state.brandHints;
-      let nextNames = state.names;
-      if (isLastInSource) {
-        next = next.filter((_, idx) => idx !== action.sourceGroup);
-        nextHints = state.brandHints.filter((_, idx) => idx !== action.sourceGroup);
-        nextNames = state.names.filter((_, idx) => idx !== action.sourceGroup);
-      }
-      return {
-        ...state,
-        segmentation: { ...state.segmentation, groupings: next },
-        brandHints: nextHints,
-        names: nextNames,
-        dragImageState: null,
-        dragOverGroup: null,
-      };
-    }
-    case "REVIEW_SPLIT_IMAGE": {
-      if (!state.segmentation) return state;
-      const groupings = state.segmentation.groupings;
-      if (groupings[action.sourceGroup].length <= 1) {
-        return { ...state, dragImageState: null, dragOverGroup: null, dragOverGap: null };
-      }
-      const next = groupings.map((g, idx) =>
-        idx === action.sourceGroup ? g.filter((i) => i !== action.imageIndex) : g,
-      );
-      next.splice(action.gapIndex, 0, [action.imageIndex]);
-      const nextHints = [...state.brandHints];
-      nextHints.splice(action.gapIndex, 0, "");
-      const nextNames = [...state.names];
-      nextNames.splice(action.gapIndex, 0, "");
-      return {
-        ...state,
-        segmentation: { ...state.segmentation, groupings: next },
-        brandHints: nextHints,
-        names: nextNames,
-        dragImageState: null,
-        dragOverGroup: null,
-        dragOverGap: null,
-      };
-    }
-    case "REVIEW_MERGE_GROUPS": {
-      if (!state.segmentation || action.sourceGroup === action.destGroup) return state;
-      const groupings = state.segmentation.groupings;
-      if (action.sourceGroup < 0 || action.sourceGroup >= groupings.length) return state;
-      if (action.destGroup < 0 || action.destGroup >= groupings.length) return state;
-      const merged = groupings.map((g, idx) => {
-        if (idx === action.destGroup) return [...g, ...groupings[action.sourceGroup]];
-        return g;
-      }).filter((_, idx) => idx !== action.sourceGroup);
-      const nextHints = state.brandHints.filter((_, idx) => idx !== action.sourceGroup);
-      const nextNames = state.names.filter((_, idx) => idx !== action.sourceGroup);
-      return {
-        ...state,
-        segmentation: { ...state.segmentation, groupings: merged },
-        brandHints: nextHints,
-        names: nextNames,
-      };
-    }
-    case "CARDS_REASSIGN_IMAGE": {
-      if (action.sourceGroup === action.targetGroup) {
-        return { ...state, dragImageState: null, dragOverGroup: null };
-      }
-      const isLastInSource = state.bulkItems[action.sourceGroup].imageIndices.length <= 1;
-      const updated = state.bulkItems.map((item, idx) => {
-        if (idx === action.sourceGroup) {
-          return { ...item, imageIndices: item.imageIndices.filter((i) => i !== action.imageIndex) };
-        }
-        if (idx === action.targetGroup) {
-          return { ...item, imageIndices: [...item.imageIndices, action.imageIndex] };
-        }
-        return item;
-      });
-      const nextBulk = isLastInSource ? updated.filter((_, idx) => idx !== action.sourceGroup) : updated;
-      let nextCardIndex = state.currentCardIndex;
-      if (isLastInSource && action.sourceGroup <= state.currentCardIndex) {
-        nextCardIndex = Math.max(0, state.currentCardIndex - 1);
-      }
-      const prevModified = state.modifiedGroupIndices;
-      let nextModified: Set<number>;
-      if (isLastInSource) {
-        nextModified = new Set<number>();
-        for (const idx of prevModified) {
-          if (idx === action.sourceGroup) continue;
-          nextModified.add(idx > action.sourceGroup ? idx - 1 : idx);
-        }
-        const adjustedTarget = action.targetGroup > action.sourceGroup ? action.targetGroup - 1 : action.targetGroup;
-        nextModified.add(adjustedTarget);
-        if (action.sourceGroup > 0) {
-          nextModified.add(Math.min(action.sourceGroup - 1, adjustedTarget));
-        } else {
-          nextModified.add(0);
-        }
-      } else {
-        nextModified = new Set(prevModified);
-        nextModified.add(action.sourceGroup);
-        nextModified.add(action.targetGroup);
-      }
-      return {
-        ...state,
-        bulkItems: nextBulk,
-        currentCardIndex: nextCardIndex,
-        groupingsModified: true,
-        modifiedGroupIndices: nextModified,
-        dragImageState: null,
-        dragOverGroup: null,
-      };
-    }
-    case "CARDS_SPLIT_IMAGE": {
-      if (state.bulkItems[action.sourceGroup].imageIndices.length <= 1) {
-        return { ...state, dragImageState: null, dragOverGroup: null, dragOverGap: null };
-      }
-      const updated = state.bulkItems.map((item, idx) => {
-        if (idx === action.sourceGroup) {
-          return { ...item, imageIndices: item.imageIndices.filter((i) => i !== action.imageIndex) };
-        }
-        return item;
-      });
-      const newItem: BulkItemDetails = {
-        brand: "",
-        name: "",
-        description: "",
-        price: "",
-        condition: "Good",
-        location: "",
-        tags: [],
-        imageIndices: [action.imageIndex],
-      };
-      updated.splice(action.gapIndex, 0, newItem);
-      let nextCardIndex = state.currentCardIndex;
-      if (action.gapIndex <= state.currentCardIndex) {
-        nextCardIndex = state.currentCardIndex + 1;
-      }
-      const prevModified = state.modifiedGroupIndices;
-      const adjustedSource = action.gapIndex <= action.sourceGroup ? action.sourceGroup + 1 : action.sourceGroup;
-      const nextModified = new Set<number>();
-      for (const idx of prevModified) {
-        nextModified.add(action.gapIndex <= idx ? idx + 1 : idx);
-      }
-      nextModified.add(adjustedSource);
-      nextModified.add(action.gapIndex);
-      return {
-        ...state,
-        bulkItems: updated,
-        currentCardIndex: nextCardIndex,
-        groupingsModified: true,
-        modifiedGroupIndices: nextModified,
-        dragImageState: null,
-        dragOverGroup: null,
-        dragOverGap: null,
-      };
-    }
+
+    // ── Cross-domain photo mutations ───────────────────────────────────────
     case "DELETE_PHOTO": {
       const originalIndex = action.index;
       const removed = state.uploadedImages[originalIndex];
@@ -564,6 +351,7 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
         currentCardIndex: nextCardIndex,
       };
     }
+
     case "ADD_PHOTOS_TO_BULK_ITEM": {
       const startIdx = state.uploadedImages.length;
       const nextImages = [...state.uploadedImages, ...action.images];
@@ -575,6 +363,8 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       };
       return { ...state, uploadedImages: nextImages, bulkItems: updated };
     }
+
+    // ── Status flags ───────────────────────────────────────────────────────
     case "POST_LISTING_RESET":
       return emptyWizardState();
     case "SET_POSTING_BULK":
@@ -583,16 +373,8 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       return { ...state, isGenerating: action.value };
     case "SET_SEGMENTATION_ERROR":
       return { ...state, segmentationError: action.value };
-    case "BACK_FROM_REVIEW":
-      return {
-        ...state,
-        bulkReviewPhase: null,
-        segmentation: null,
-        brandHints: [],
-        names: [],
-        rationale: "",
-        rationaleOther: "",
-      };
+
+    // ── Lifecycle resets ───────────────────────────────────────────────────
     case "PARTIAL_RESET_FROM_BUY_SWITCH":
       // Matches original effect: when user switches tradeMode → buy mid-flow,
       // bulkItems + phase + currentCardIndex are cleared, but uploadedImages,
@@ -608,13 +390,8 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       // Caller is responsible for filtering transient fields out before save
       // (draftStorage.ts) and defaulting them back in on load (SellWizard.tsx).
       return action.state;
-    case "REORDER_BULK_ITEM_PHOTOS": {
-      const item = state.bulkItems[action.index];
-      if (!item) return state;
-      const updated = [...state.bulkItems];
-      updated[action.index] = { ...item, imageIndices: arrayMove(item.imageIndices, action.from, action.to) };
-      return { ...state, bulkItems: updated };
-    }
+
+    // ── Single-photo reorder (uploadedImages + segmentation.image_urls) ───
     case "REORDER_SINGLE_PHOTOS": {
       const nextImages = arrayMove(state.uploadedImages, action.from, action.to);
       if (nextImages === state.uploadedImages) return state;
@@ -628,6 +405,7 @@ export function sellWizardReducer(state: SellWizardState, action: SellWizardActi
       }
       return { ...state, uploadedImages: nextImages, segmentation: nextSeg };
     }
+
     default:
       return state;
   }
