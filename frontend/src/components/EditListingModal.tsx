@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, Pencil, Plus, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { ModalCloseButton } from "./ui/ModalCloseButton";
 import { Input } from "./ui/input";
 import { PriceInput } from "./ui/price-input";
 import { ModalShell } from "./ui/ModalShell";
@@ -106,13 +107,7 @@ export function EditListingModal({
   return (
     <ModalShell open={open} onClose={onClose} z={z}>
       <div className="relative bg-canvas border border-hairline rounded-xl p-6 max-w-md w-full mx-4 shadow-overlay max-h-[85vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 size-8 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <X className="size-4" />
-        </button>
+        <ModalCloseButton onClick={onClose} size={8} />
 
         <div className="flex items-center gap-3 mb-5">
           <div className="size-10 rounded-full bg-primary-soft inline-flex items-center justify-center">

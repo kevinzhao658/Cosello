@@ -8,7 +8,8 @@ import { Tooltip } from "./components/ui/tooltip";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import { useOrderModals } from "./contexts/OrderModalsContext";
-import { FOCUS_RING } from "./pages/MyAccount/constants";
+import { FOCUS_RING } from "./lib/ui-constants";
+import { ModalCloseButton } from "./components/ui/ModalCloseButton";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
@@ -2095,14 +2096,7 @@ export default function App() {
       {changeLocation.open && (
         <ModalShell open onClose={changeLocation.close} z={210}>
           <div className="relative bg-canvas border border-hairline rounded-md w-full max-w-sm mx-4 p-6 shadow-overlay">
-            <button
-              type="button"
-              onClick={changeLocation.close}
-              aria-label="Close"
-              className="absolute top-3 right-3 size-8 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            >
-              <X className="size-4" />
-            </button>
+            <ModalCloseButton onClick={changeLocation.close} size={8} />
             <h2 className="text-lg font-extrabold text-ink mb-1">Change location</h2>
             <p className="text-sm text-muted mb-4">
               Updates what you see in the marketplace.

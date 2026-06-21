@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Home, ShoppingBag, Users, User } from "lucide-react";
 import { ModalShell } from "./ui/ModalShell";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../lib/ui-constants";
 
 // Each menu row is a full-width button with comfortable thumb-tap height.
 const ROW_BASE =

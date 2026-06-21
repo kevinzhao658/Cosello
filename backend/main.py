@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Community, CommunityMember, WishlistItem, WishlistFolder, PurchaseOrder, Notification, Listing
 from auth import get_current_user, get_optional_user
+from queries import get_listing_or_404, assert_listing_owner
 from routers.auth import router as auth_router
 from routers.circles import router as circles_router
 from routers.communities import router as communities_router
@@ -1859,9 +1860,7 @@ def get_listing_detail(
     detail).  It is NOT computed in the list/feed endpoint where calling
     Directions for every item would be slow and expensive.
     """
-    listing = db.query(Listing).filter(Listing.id == listing_id).first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
+    listing = get_listing_or_404(listing_id, db)
 
     result = listing.to_dict()
 
@@ -1943,9 +1942,7 @@ def get_listing_map(
     The exact lat/lng coordinates are NEVER included in the response.
     No authentication required — buyers browsing must see the map.
     """
-    listing = db.query(Listing).filter(Listing.id == listing_id).first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
+    listing = get_listing_or_404(listing_id, db)
 
     if not _MAPBOX_TOKEN or listing.latitude is None or listing.longitude is None:
         return Response(status_code=204)
@@ -2100,11 +2097,8 @@ def delete_listing(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    listing = db.query(Listing).filter(Listing.id == listing_id).first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your listing")
+    listing = get_listing_or_404(listing_id, db)
+    assert_listing_owner(listing, current_user.id)
     if listing.status == "sold":
         raise HTTPException(status_code=400, detail="Sold listings cannot be removed")
 

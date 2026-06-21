@@ -30,6 +30,7 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { useProfilePictureUpload } from "../../hooks/useProfilePictureUpload";
+import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAuth } from "../../contexts/AuthContext";
 import { useSettings, type Settings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
@@ -240,8 +241,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
   const [editCommunityIsPublic, setEditCommunityIsPublic] = useState(true);
   const [isSavingCommunity, setIsSavingCommunity] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeletingCommunity, setIsDeletingCommunity] = useState(false);
-  const [isLeavingCommunity, setIsLeavingCommunity] = useState(false);
   const [editCommunityShowSuggestions, setEditCommunityShowSuggestions] = useState(false);
   const editCommunityNeighborhoodRef = useRef<HTMLInputElement>(null);
   const editCommunitySuggestionsRef = useRef<HTMLDivElement>(null);
@@ -1022,10 +1021,9 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     }
   };
 
-  const handleDeleteCommunity = async () => {
-    if (!selectedCommunity || !token) return;
-    setIsDeletingCommunity(true);
-    try {
+  const { run: handleDeleteCommunity, pending: isDeletingCommunity } = useAsyncAction(
+    async () => {
+      if (!selectedCommunity || !token) return;
       const res = await apiFetch(`/api/communities/${selectedCommunity.id}`, { method: "DELETE" });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
@@ -1033,29 +1031,20 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         setShowDeleteConfirm(false);
         onCommunitiesChanged?.();
       }
-    } catch {
-      // ignore
-    } finally {
-      setIsDeletingCommunity(false);
-    }
-  };
+    },
+  );
 
-  const handleLeaveCommunity = async () => {
-    if (!selectedCommunity || !token) return;
-    setIsLeavingCommunity(true);
-    try {
+  const { run: handleLeaveCommunity, pending: isLeavingCommunity } = useAsyncAction(
+    async () => {
+      if (!selectedCommunity || !token) return;
       const res = await apiFetch(`/api/communities/${selectedCommunity.id}/leave`, { method: "DELETE" });
       if (res.ok) {
         setCommunities((prev) => prev.filter((c) => c.id !== selectedCommunity!.id));
         setShowCommunityDetail(false);
         onCommunitiesChanged?.();
       }
-    } catch {
-      // ignore
-    } finally {
-      setIsLeavingCommunity(false);
-    }
-  };
+    },
+  );
 
   const handleAddFriendsSearch = (query: string) => {
     setAddFriendsSearch(query);

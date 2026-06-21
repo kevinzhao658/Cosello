@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { X, Check, Plus, Loader2, ExternalLink } from "lucide-react";
+import { Check, Plus, Loader2, ExternalLink, X } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import { ModalCloseButton } from "../../components/ui/ModalCloseButton";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { ListingImage } from "../../components/ui/ListingImage";
 import { apiFetch } from "../../lib/api";
@@ -166,13 +167,7 @@ export function BuyModal({
   return (
     <ModalShell open onClose={handleClose} z={250}>
       <div className="relative w-full max-w-md mx-4 bg-canvas border border-hairline rounded-xl shadow-overlay overflow-hidden max-h-[85vh] overflow-y-auto">
-        <button
-          onClick={handleClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 z-10 size-8 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <X className="size-4" />
-        </button>
+        <ModalCloseButton onClick={handleClose} size={8} className="z-10" />
 
         <div className="p-5">
           <h3 className="text-lg font-semibold text-ink mb-4">

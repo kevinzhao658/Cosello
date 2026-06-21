@@ -4,9 +4,7 @@ import { ModalShell } from "./ui/ModalShell";
 import { SkeletonImage } from "./ui/SkeletonImage";
 import * as draftStorage from "../lib/draftStorage";
 import type { Draft } from "../lib/draftStorage";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../lib/ui-constants";
 
 // Top-3 visible by default. Expand to show all.
 const DEFAULT_VISIBLE_COUNT = 3;

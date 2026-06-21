@@ -10,6 +10,7 @@ from database import get_db
 from models import Community, CommunityMember, User, Notification
 from models import JoinRequest as JoinRequestModel
 from auth import get_current_user
+from queries import require_community_owner
 from services import storage
 
 router = APIRouter(prefix="/api/communities", tags=["communities"])
@@ -381,8 +382,7 @@ def get_join_requests(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner can view join requests")
+    require_community_owner(community, current_user.id, detail="Only the owner can view join requests")
 
     requests = (
         db.query(JoinRequestModel)
@@ -414,8 +414,7 @@ def accept_join_request(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner can accept requests")
+    require_community_owner(community, current_user.id, detail="Only the owner can accept requests")
 
     join_request = (
         db.query(JoinRequestModel)
@@ -450,8 +449,7 @@ def reject_join_request(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner can reject requests")
+    require_community_owner(community, current_user.id, detail="Only the owner can reject requests")
 
     join_request = (
         db.query(JoinRequestModel)
@@ -564,8 +562,7 @@ def update_community(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the creator can edit this community")
+    require_community_owner(community, current_user.id, detail="Only the creator can edit this community")
 
     if req.name is not None:
         community.name = req.name
@@ -595,8 +592,7 @@ async def update_community_image(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the creator can edit this community")
+    require_community_owner(community, current_user.id, detail="Only the creator can edit this community")
 
     content_type = image.content_type or ""
     if not content_type.startswith("image/"):
@@ -620,8 +616,7 @@ def delete_community(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the creator can delete this community")
+    require_community_owner(community, current_user.id, detail="Only the creator can delete this community")
 
     # Delete all memberships first
     db.query(CommunityMember).filter(CommunityMember.community_id == community_id).delete()
@@ -640,8 +635,7 @@ def kick_member(
     community = db.query(Community).filter(Community.id == community_id).first()
     if not community:
         raise HTTPException(status_code=404, detail="Community not found")
-    if community.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the creator can remove members")
+    require_community_owner(community, current_user.id, detail="Only the creator can remove members")
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot kick yourself")
 

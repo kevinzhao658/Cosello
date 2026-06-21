@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Notification, User, JoinRequest, Community, CommunityMember
 from auth import get_current_user
+from queries import require_community_owner
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -116,8 +117,9 @@ def accept_from_notification(
         raise HTTPException(status_code=404, detail="Notification not found")
 
     community = db.query(Community).filter(Community.id == n.community_id).first()
-    if not community or community.created_by != current_user.id:
+    if not community:
         raise HTTPException(status_code=403, detail="Only the owner can accept requests")
+    require_community_owner(community, current_user.id, detail="Only the owner can accept requests")
 
     jr = db.query(JoinRequest).filter(
         JoinRequest.community_id == n.community_id,
@@ -155,8 +157,9 @@ def reject_from_notification(
         raise HTTPException(status_code=404, detail="Notification not found")
 
     community = db.query(Community).filter(Community.id == n.community_id).first()
-    if not community or community.created_by != current_user.id:
+    if not community:
         raise HTTPException(status_code=403, detail="Only the owner can reject requests")
+    require_community_owner(community, current_user.id, detail="Only the owner can reject requests")
 
     jr = db.query(JoinRequest).filter(
         JoinRequest.community_id == n.community_id,

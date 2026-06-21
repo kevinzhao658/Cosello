@@ -1,7 +1,8 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
 import { Tooltip } from "../../../components/ui/tooltip";
-import { X, UserPlus, User, Loader2, Trash2 } from "lucide-react";
+import { UserPlus, User, Loader2, Trash2 } from "lucide-react";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
+import { ModalCloseButton } from "../../../components/ui/ModalCloseButton";
 
 export interface FriendListItem {
   id: string;
@@ -28,13 +29,7 @@ export function FriendsListModal({
   return (
     <ModalShell open onClose={onClose} z={50}>
       <div className="relative bg-canvas border border-hairline rounded-md max-w-md w-full mx-4 shadow-overlay max-h-[85vh] flex flex-col">
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className={`absolute top-3 right-3 size-9 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center ${FOCUS_RING}`}
-        >
-          <X className="size-5" />
-        </button>
+        <ModalCloseButton onClick={onClose} />
 
         <div className="px-6 pt-6 pb-4">
           <div className="flex items-center gap-3">

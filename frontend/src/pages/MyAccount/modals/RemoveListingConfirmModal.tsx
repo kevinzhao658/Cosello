@@ -1,7 +1,8 @@
 import { ModalShell } from "../../../components/ui/ModalShell";
-import { X, Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2 } from "lucide-react";
 import { formatTitle } from "../../../lib/format";
 import { FOCUS_RING, MODAL_TITLE } from "../constants";
+import { ModalCloseButton } from "../../../components/ui/ModalCloseButton";
 
 export interface RemoveListingConfirmModalProps {
   open: boolean;
@@ -26,14 +27,7 @@ export function RemoveListingConfirmModal({
   return (
     <ModalShell open onClose={isRemoving ? () => undefined : onClose} z={50}>
       <div className="relative bg-canvas border border-hairline rounded-md max-w-sm w-full mx-4 shadow-overlay">
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          disabled={isRemoving}
-          className={`absolute top-3 right-3 size-9 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed ${FOCUS_RING}`}
-        >
-          <X className="size-5" />
-        </button>
+        <ModalCloseButton onClick={onClose} disabled={isRemoving} />
 
         <div className="px-6 pt-6 pb-4">
           <div className="flex items-center gap-3 mb-4">
