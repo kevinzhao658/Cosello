@@ -8,7 +8,7 @@ user-level flag (services here do not touch the friend graph).
 import re
 import secrets
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from models import Community, CommunityMember, Friendship, SchoolSeed, User
@@ -317,13 +317,14 @@ def _connection_degree_from_sets(
     seller_id: str,
     viewer_friends: set[str],
     seller_friends: set[str],
-    edges_from_viewer_friends: dict[str, set[str]],
+    reachable_seller_friends: set[str],
     viewer_id: str,
 ) -> int | None:
     """Pure degree computation from pre-loaded graph slices (lowest wins).
 
-    edges_from_viewer_friends: {friend_id: that friend's accepted-friend set},
-    used only for the 3rd-degree check.
+    reachable_seller_friends: subset of seller_friends that are one accepted-
+    friend hop from any viewer friend (pre-computed by _bridge_reachable).
+    Used only for the 3rd-degree check.
     """
     if seller_id == viewer_id:
         return None
@@ -331,9 +332,8 @@ def _connection_degree_from_sets(
         return 1
     if viewer_friends & seller_friends:
         return 2
-    for a in viewer_friends:
-        if edges_from_viewer_friends.get(a, set()) & seller_friends:
-            return 3
+    if seller_friends & reachable_seller_friends:
+        return 3
     return None
 
 
@@ -372,26 +372,43 @@ def _load_friend_ids(db: Session, uid: str) -> set[str]:
     return out
 
 
-def _friend_edges_for(db: Session, user_ids: set[str]) -> dict[str, set[str]]:
-    """For each id in user_ids, its accepted-friend set (one query). Used for
-    the 3rd-degree check."""
-    edges: dict[str, set[str]] = {uid: set() for uid in user_ids}
-    if not user_ids:
-        return edges
+def _bridge_reachable(db: Session, viewer_friends: set[str], candidate_friends: set[str]) -> set[str]:
+    """Subset of candidate_friends that are one accepted-friend hop from any
+    member of viewer_friends. One indexed query, bounded by both sets.
+
+    Used for the 3rd-degree check: if any seller-friend sits in the returned
+    set, the seller is reachable in 3 hops from the viewer.
+
+    Scaling note: at large graph sizes this should be replaced with a cached
+    degree table (e.g. precomputed adjacency) or a fan-out cap. At current
+    Cosello graph size this single indexed query is negligible.
+    """
+    if not viewer_friends or not candidate_friends:
+        return set()
     rows = (
-        db.query(Friendship)
+        db.query(Friendship.user_id, Friendship.friend_id)
         .filter(
             Friendship.status == "accepted",
-            (Friendship.user_id.in_(user_ids)) | (Friendship.friend_id.in_(user_ids)),
+            or_(
+                and_(
+                    Friendship.user_id.in_(viewer_friends),
+                    Friendship.friend_id.in_(candidate_friends),
+                ),
+                and_(
+                    Friendship.friend_id.in_(viewer_friends),
+                    Friendship.user_id.in_(candidate_friends),
+                ),
+            ),
         )
         .all()
     )
-    for r in rows:
-        if r.user_id in edges:
-            edges[r.user_id].add(r.friend_id)
-        if r.friend_id in edges:
-            edges[r.friend_id].add(r.user_id)
-    return edges
+    out: set[str] = set()
+    for uid, fid in rows:
+        if uid in viewer_friends and fid in candidate_friends:
+            out.add(fid)
+        if fid in viewer_friends and uid in candidate_friends:
+            out.add(uid)
+    return out
 
 
 def _seller_school_for_viewer(
@@ -524,12 +541,16 @@ def seller_circles_for_viewer(
         seller = db.query(User).filter(User.id == seller_id).first()
     degree = None
     if seller is not None and bool(seller.share_mutual_friends):
+        # Future optimisation: cache vf per viewer_id with a ~45 s TTL to avoid
+        # a re-query on rapid filter toggles. Skipped here because module-level
+        # caches cause stale-friendship flakes in the test suite (create/delete
+        # in the same process) and friendship changes are rare in production.
         vf = _load_friend_ids(db, viewer.id)
         sf = _load_friend_ids(db, seller_id)
-        edges = _friend_edges_for(db, vf)
+        reachable = _bridge_reachable(db, vf, sf)
         degree = _connection_degree_from_sets(
             seller_id=seller_id, viewer_friends=vf, seller_friends=sf,
-            edges_from_viewer_friends=edges, viewer_id=viewer.id,
+            reachable_seller_friends=reachable, viewer_id=viewer.id,
         )
 
     return _assemble_circles(school=school, degree=degree)
@@ -622,11 +643,10 @@ def seller_circles_for_viewer_batch(
 
     # --- Graph slices for degree (only if any seller shares) ---
     viewer_friends: set[str] = set()
-    edges: dict[str, set[str]] = {}
+    reachable: set[str] = set()
     seller_friends_map: dict[str, set[str]] = {sid: set() for sid in sharing}
     if sharing:
         viewer_friends = _load_friend_ids(db, viewer.id)
-        edges = _friend_edges_for(db, viewer_friends)
         rows = (
             db.query(Friendship)
             .filter(
@@ -640,6 +660,11 @@ def seller_circles_for_viewer_batch(
                 seller_friends_map[r.user_id].add(r.friend_id)
             if r.friend_id in seller_friends_map:
                 seller_friends_map[r.friend_id].add(r.user_id)
+        # Bridge query: which seller-friends are one hop from any viewer-friend?
+        # Bounded by viewer_friends × all_seller_friends — replaces the old full
+        # 2-hop expansion over viewer_friends.
+        all_sf: set[str] = set().union(*seller_friends_map.values()) if seller_friends_map else set()
+        reachable = _bridge_reachable(db, viewer_friends, all_sf)
 
     result: dict[str, dict] = {}
     for sid in seller_ids:
@@ -648,7 +673,7 @@ def seller_circles_for_viewer_batch(
             degree = _connection_degree_from_sets(
                 seller_id=sid, viewer_friends=viewer_friends,
                 seller_friends=seller_friends_map.get(sid, set()),
-                edges_from_viewer_friends=edges, viewer_id=viewer.id,
+                reachable_seller_friends=reachable, viewer_id=viewer.id,
             )
         result[sid] = _assemble_circles(school=pick_school(sid), degree=degree)
     return result

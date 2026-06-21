@@ -6,40 +6,41 @@ def test_degree_direct_friend():
     # seller is directly in viewer's friend set
     assert _connection_degree_from_sets(
         seller_id="S", viewer_friends={"S", "A"}, seller_friends={"V"},
-        edges_from_viewer_friends={}, viewer_id="V") == 1
+        reachable_seller_friends=set(), viewer_id="V") == 1
 
 
 def test_degree_mutual_friend():
     # viewer and seller share friend "M"
     assert _connection_degree_from_sets(
         seller_id="S", viewer_friends={"M"}, seller_friends={"M"},
-        edges_from_viewer_friends={}, viewer_id="V") == 2
+        reachable_seller_friends=set(), viewer_id="V") == 2
 
 
 def test_degree_third():
-    # viewer→A (friend), A→B (edge), B→seller (B in seller_friends): degree 3
+    # viewer→A→B→seller: B is in seller_friends AND reachable from viewer_friends
     assert _connection_degree_from_sets(
         seller_id="S", viewer_friends={"A"}, seller_friends={"B"},
-        edges_from_viewer_friends={"A": {"B"}}, viewer_id="V") == 3
+        reachable_seller_friends={"B"}, viewer_id="V") == 3
 
 
 def test_degree_none_beyond_third():
+    # B is in seller_friends but NOT reachable from viewer_friends → no path
     assert _connection_degree_from_sets(
         seller_id="S", viewer_friends={"A"}, seller_friends={"B"},
-        edges_from_viewer_friends={"A": {"C"}}, viewer_id="V") is None
+        reachable_seller_friends=set(), viewer_id="V") is None
 
 
 def test_degree_self_is_none():
     assert _connection_degree_from_sets(
         seller_id="V", viewer_friends=set(), seller_friends=set(),
-        edges_from_viewer_friends={}, viewer_id="V") is None
+        reachable_seller_friends=set(), viewer_id="V") is None
 
 
 def test_degree_lowest_wins():
     # direct friend AND shares a mutual → still 1
     assert _connection_degree_from_sets(
         seller_id="S", viewer_friends={"S", "M"}, seller_friends={"M"},
-        edges_from_viewer_friends={}, viewer_id="V") == 1
+        reachable_seller_friends=set(), viewer_id="V") == 1
 
 
 from services.circles import EMPTY_CIRCLES
