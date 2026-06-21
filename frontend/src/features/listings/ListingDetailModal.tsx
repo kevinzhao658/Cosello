@@ -8,6 +8,7 @@ import { Tooltip } from "../../components/ui/tooltip";
 import { ListingMap } from "../../components/ListingMap";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { apiFetch } from "../../lib/api";
+import { CircleByline } from "../../components/CircleByline";
 import type { Listing } from "../../lib/types";
 
 export type SellerProfile = {
@@ -408,6 +409,10 @@ export function ListingDetailModal({
             {/* Wrap the rest of the content so mobile padding only applies
                 below the photo block (which has its own p-3). */}
             <div className="p-4 md:p-6 md:pt-6">
+            {/* Circle byline — medal ribbon (left) + school (right). Mirrors
+                the card byline; degrades gracefully when circles is absent. */}
+            <CircleByline circles={listing.circles} />
+
             {/* Trust strip — community always renders via PLACEHOLDER_COMMUNITY
                 fallback until the sell-flow community selector ships. */}
             <div className="flex items-center gap-2 text-xs text-muted mb-3">
@@ -442,6 +447,9 @@ export function ListingDetailModal({
                   >
                     <MapPin className="size-3" aria-hidden />
                     {listing.location}
+                    {listing.distance_miles != null && (
+                      <span className="font-normal text-muted no-underline"> · {listing.distance_miles} mi</span>
+                    )}
                   </button>
                   {/* Desktop: switches to Location tab */}
                   <button
@@ -451,6 +459,9 @@ export function ListingDetailModal({
                   >
                     <MapPin className="size-3" aria-hidden />
                     {listing.location}
+                    {listing.distance_miles != null && (
+                      <span className="font-normal text-muted no-underline"> · {listing.distance_miles} mi</span>
+                    )}
                   </button>
                 </>
               ) : null}
