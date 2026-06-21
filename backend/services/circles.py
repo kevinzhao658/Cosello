@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 
 from models import Community, CommunityMember, Friendship, SchoolSeed, User
 
-# Circle kinds that are surfaced to users (both in My Account and on listing
-# cards).  Building circles are created at registration but are invisible/
-# unconsented since the 2026-06-19 pivot, so they are intentionally absent.
-DISPLAYED_CIRCLE_KINDS: tuple[str, ...] = ("neighborhood", "school")
+# Circle kinds included in the ranking overlap signal.  Building circles are
+# created at registration but are invisible/unconsented since the 2026-06-19
+# pivot, so they are intentionally absent from the overlap calculation.
+RANKING_OVERLAP_KINDS: tuple[str, ...] = ("neighborhood", "school")
 
 # Stopwords to drop when computing institution acronyms.
 _ACRONYM_STOPWORDS = frozenset({"of", "and", "the", "at", "for", "in", "a", "an"})

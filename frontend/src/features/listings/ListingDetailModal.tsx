@@ -448,7 +448,7 @@ export function ListingDetailModal({
                     <MapPin className="size-3" aria-hidden />
                     {listing.location}
                     {listing.distance_miles != null && (
-                      <span className="font-normal text-muted no-underline"> · {listing.distance_miles} mi</span>
+                      <><span className="font-normal text-line-strong no-underline"> · </span><span className="font-normal text-muted no-underline">{listing.distance_miles} mi</span></>
                     )}
                   </button>
                   {/* Desktop: switches to Location tab */}
@@ -460,7 +460,7 @@ export function ListingDetailModal({
                     <MapPin className="size-3" aria-hidden />
                     {listing.location}
                     {listing.distance_miles != null && (
-                      <span className="font-normal text-muted no-underline"> · {listing.distance_miles} mi</span>
+                      <><span className="font-normal text-line-strong no-underline"> · </span><span className="font-normal text-muted no-underline">{listing.distance_miles} mi</span></>
                     )}
                   </button>
                 </>

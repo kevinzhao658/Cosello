@@ -360,7 +360,7 @@ def test_ranking_overlap_building_kind_excluded(db_session, make_user):
         posted_at=_time.time(),
     )
     db_session.add(listing); db_session.commit(); db_session.refresh(listing)
-    # Building kind is excluded from DISPLAYED_CIRCLE_KINDS — overlap must be zero.
+    # Building kind is excluded from RANKING_OVERLAP_KINDS — overlap must be zero.
     assert _community_overlap(viewer, listing, db_session) == 0.0
     db_session.query(RankingListing).filter(RankingListing.id == listing.id).delete()
     db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()

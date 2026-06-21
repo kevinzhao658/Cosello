@@ -96,7 +96,7 @@ export function ListingCard({
         <p className="text-xs text-muted line-clamp-1">
           {listing.location}
           {listing.distance_miles != null && (
-            <span className="text-muted"> · </span>
+            <span className="text-line-strong"> · </span>
           )}
           {listing.distance_miles != null && `${listing.distance_miles} mi`}
         </p>
