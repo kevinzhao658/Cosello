@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, type ComponentType } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Input } from "../../components/ui/input";
 import { ModalShell } from "../../components/ui/ModalShell";
 import { Tooltip } from "../../components/ui/tooltip";
@@ -9,45 +9,34 @@ import {
   X,
   Loader2,
   Copy,
-  Check,
   Lock,
   Unlock,
   Send,
-  MessageSquare,
-  CalendarCheck,
-  Coins,
   Pencil,
   LogOut,
   AlertTriangle,
   Users,
   UserPlus,
-  RotateCcw,
   Star,
-  ChevronDown,
   Trash2,
   Globe,
-  ChevronRight,
   ImagePlus,
 } from "lucide-react";
 import { useProfilePictureUpload } from "../../hooks/useProfilePictureUpload";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAuth } from "../../contexts/AuthContext";
-import { useSettings, type Settings } from "../../contexts/SettingsContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { formatTitle } from "../../lib/format";
 import { supabase } from "../../lib/supabase";
 import { useClickOutside } from "../../hooks/useClickOutside";
-import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
 import { apiFetch } from "../../lib/api";
 import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData } from "../../lib/types";
-import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../lib/listings";
-import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE, MODAL_TITLE } from "./constants";
+import { FOCUS_RING, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { ListingImage } from "../../components/ui/ListingImage";
 import { useNeighborhoods } from "../../lib/useNeighborhoods";
 import {
-  getBuyerOrderViewState,
   getPickupCountdown,
-  getSellerListingCtaState,
 } from "../../lib/orderStatus";
 import { useOrderModals } from "../../contexts/OrderModalsContext";
 import { FriendsListModal } from "./modals/FriendsListModal";
@@ -58,10 +47,13 @@ import { CircleSettings } from "./CircleSettings";
 import { ToggleSwitch } from "../../components/ui/ToggleSwitch";
 import { AvatarUploadButton } from "../../components/ui/AvatarUploadButton";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { ListingRowSkeleton } from "../../components/ListingRowSkeleton";
-import { ListingCardSkeleton } from "../../components/ListingCardSkeleton";
-import { KpiCardSkeleton } from "../../components/KpiCardSkeleton";
-import { PunchlistRowSkeleton } from "../../components/PunchlistRowSkeleton";
+import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
+import { ListingsTabContent } from "./tabs/ListingsTabContent";
+import { SavedTabContent } from "./tabs/SavedTabContent";
+import { SettingsTabContent } from "./tabs/SettingsTabContent";
+import { OverviewTabContent } from "./tabs/OverviewTabContent";
+import { useEditProfileForm } from "./hooks/useEditProfileForm";
+import { MyAccountProvider } from "./MyAccountContext";
 
 interface CommunityData {
   id: number;
@@ -199,14 +191,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // Edit Profile modal
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-  const [editFirstName, setEditFirstName] = useState("");
-  const [editLastName, setEditLastName] = useState("");
-  const [editPickupAddress, setEditPickupAddress] = useState("");
-  const [editNeighborhood, setEditNeighborhood] = useState("");
-  const [editZipCode, setEditZipCode] = useState("");
-  const [editShowSuggestions, setEditShowSuggestions] = useState(false);
-  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [editProfileError, setEditProfileError] = useState("");
+  const editProfileForm = useEditProfileForm(neighborhoods);
   const [showNeighborhoodChangeConfirm, setShowNeighborhoodChangeConfirm] = useState(false);
   const editSuggestionsRef = useRef<HTMLDivElement>(null);
   const editNeighborhoodRef = useRef<HTMLInputElement>(null);
@@ -801,7 +786,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       draft_listings: myListings.filter((l) => l.status === "draft"),
       unread_messages: [],
     };
-  }, [mySellerOrders, myPurchases, myListings, getPickupCountdown, countdownTick]);
+  }, [mySellerOrders, myPurchases, myListings, countdownTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const punchlistLoaded = !isLoadingMyOrders && !isLoadingMyListings;
 
@@ -1102,40 +1087,30 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setAddFriendsResults([]);
   };
 
-  const editIsValidNeighborhood = neighborhoods.some(
-    (n) => n.toLowerCase() === editNeighborhood.trim().toLowerCase(),
-  );
-  const editFilteredNeighborhoods = editNeighborhood.trim()
-    ? neighborhoods.filter((n) => n.toLowerCase().includes(editNeighborhood.trim().toLowerCase()))
-    : neighborhoods;
-
   const openEditProfileModal = () => {
-    const name = user?.display_name || "";
-    const parts = name.split(" ");
-    setEditFirstName(parts[0] || "");
-    setEditLastName(parts.slice(1).join(" ") || "");
-    setEditPickupAddress(user?.pickup_address || "");
-    setEditNeighborhood(user?.neighborhood || "");
-    setEditZipCode(user?.zip_code || "");
-    setEditProfileError("");
-    setEditShowSuggestions(false);
+    editProfileForm.reset({
+      displayName: user?.display_name || "",
+      neighborhood: user?.neighborhood || "",
+      pickupAddress: user?.pickup_address || "",
+      zipCode: user?.zip_code || "",
+    });
     setShowEditProfileModal(true);
   };
 
-  const isNeighborhoodChanging = editNeighborhood.trim() !== (user?.neighborhood ?? "");
+  const isNeighborhoodChanging = editProfileForm.fields.neighborhood.trim() !== (user?.neighborhood ?? "");
 
   const doUpdateProfile = async () => {
-    setIsUpdatingProfile(true);
-    setEditProfileError("");
+    editProfileForm.setPending(true);
+    editProfileForm.setError("");
     try {
       const res = await apiFetch("/api/auth/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          display_name: `${editFirstName.trim()} ${editLastName.trim()}`,
-          neighborhood: editNeighborhood.trim(),
-          pickup_address: editPickupAddress.trim() || undefined,
-          zip_code: editZipCode.trim() || undefined,
+          display_name: `${editProfileForm.fields.firstName.trim()} ${editProfileForm.fields.lastName.trim()}`,
+          neighborhood: editProfileForm.fields.neighborhood.trim(),
+          pickup_address: editProfileForm.fields.pickupAddress.trim() || undefined,
+          zip_code: editProfileForm.fields.zipCode.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -1148,19 +1123,19 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       // Communities refetch fires reactively via the `user?.neighborhood`
       // useEffect below — see comment there for why.
     } catch (err) {
-      setEditProfileError(err instanceof Error ? err.message : "Update failed");
+      editProfileForm.setError(err instanceof Error ? err.message : "Update failed");
     } finally {
-      setIsUpdatingProfile(false);
+      editProfileForm.setPending(false);
     }
   };
 
   const handleUpdateProfile = async () => {
-    if (!editFirstName.trim() || !editLastName.trim()) {
-      setEditProfileError("Please enter your first and last name");
+    if (!editProfileForm.fields.firstName.trim() || !editProfileForm.fields.lastName.trim()) {
+      editProfileForm.setError("Please enter your first and last name");
       return;
     }
-    if (!editIsValidNeighborhood) {
-      setEditProfileError("Please select a valid Manhattan neighborhood");
+    if (!editProfileForm.isValidNeighborhood) {
+      editProfileForm.setError("Please select a valid Manhattan neighborhood");
       return;
     }
     if (isNeighborhoodChanging) {
@@ -1181,7 +1156,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     setShowEditProfileModal(true);
   };
 
-  useClickOutside([editNeighborhoodRef, editSuggestionsRef], () => setEditShowSuggestions(false), editShowSuggestions);
+  useClickOutside([editNeighborhoodRef, editSuggestionsRef], () => editProfileForm.setField("showSuggestions", false), editProfileForm.fields.showSuggestions);
   useClickOutside([editCommunityNeighborhoodRef, editCommunitySuggestionsRef], () => setEditCommunityShowSuggestions(false), editCommunityShowSuggestions);
 
   // ── Derived data ───────────────────────────────────────
@@ -1200,6 +1175,37 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         ? wishlistItemsWithFolder
         : wishlistItemsWithFolder.filter((i) => i.folder_id === selectedFolderId))
     : wishlistItems;
+
+  // ── Shared context value ───────────────────────────────
+  const sharedContextValue = useMemo(() => ({
+    myListings,
+    myPurchases,
+    mySellerOrders,
+    categorySchemas,
+    isLoadingMyListings,
+    isLoadingMyOrders,
+    isLoadingStats,
+    isLoadingSaved,
+    openEditListing,
+    openRemoveListing,
+    openOrderModal: openOrderManagement,
+    openConfirmedOrderSummary,
+    openRatingModal,
+    openListingDetail,
+    handleRelist,
+    relistingId,
+    openEditProfileModal,
+    openAddFriendsModal,
+    openFriendsModal,
+    onNavigate,
+    onViewUser,
+    getListingTimeInfo,
+    getPickupCountdown,
+  }), [ // eslint-disable-line react-hooks/exhaustive-deps
+    myListings, myPurchases, mySellerOrders, categorySchemas,
+    isLoadingMyListings, isLoadingMyOrders, isLoadingStats, isLoadingSaved,
+    relistingId, onNavigate, onViewUser, openListingDetail,
+  ]);
 
   return (
     <section className="min-h-[calc(100vh-64px)] bg-canvas text-ink">
@@ -1322,10 +1328,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         </div>
 
         {/* ── Tab panels ────────────────────────────────── */}
-        {accountTab === "overview" && (
-          <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
-              <OverviewListingsPanel
+        <MyAccountProvider value={sharedContextValue}>
+          {accountTab === "overview" && (
+            <div id="account-panel-overview" role="tabpanel" className="flex flex-col gap-6">
+              <OverviewTabContent
                 listingsTab={listingsTab}
                 setListingsTab={setListingsTab}
                 myListings={myListings}
@@ -1341,111 +1347,103 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 getListingTimeInfo={getListingTimeInfo}
                 getPickupCountdown={getPickupCountdown}
                 onNavigate={onNavigate}
-              />
-              <PunchlistPanel
                 punchlist={punchlist}
                 punchlistLoaded={punchlistLoaded}
-                openOrderModal={openOrderManagement}
-                openEditListing={openEditListing}
-                openRatingModal={openRatingModal}
-                openConfirmedOrderSummary={openConfirmedOrderSummary}
-                mySellerOrders={mySellerOrders}
-                myPurchases={myPurchases}
               />
             </div>
-          </div>
-        )}
+          )}
 
-        {accountTab === "listings" && (
-          <div id="account-panel-listings" role="tabpanel">
-            <ListingsTabContent
-              listingsTab={listingsTab}
-              setListingsTab={(t) => { setListingsTab(t); setListingsFilter("all"); }}
-              listingsFilter={listingsFilter}
-              setListingsFilter={setListingsFilter}
-              myListings={myListings}
-              myPurchases={myPurchases}
-              mySellerOrders={mySellerOrders}
-              isLoadingStats={isLoadingStats}
-              isLoadingMyListings={isLoadingMyListings}
-              isLoadingMyOrders={isLoadingMyOrders}
-              sellingActiveCount={sellingActiveCount}
-              sellingDraftCount={sellingDraftCount}
-              sellingSoldCount={sellingSoldCount}
-              buyingActiveCount={buyingActiveCount}
-              buyingCompletedCount={buyingCompletedCount}
-              buyingDeclinedCount={buyingDeclinedCount}
-              openEditListing={openEditListing}
-              openRemoveListing={openRemoveListing}
-              openOrderModal={openOrderManagement}
-              openConfirmedOrderSummary={openConfirmedOrderSummary}
-              openRatingModal={openRatingModal}
-              openListingDetail={openListingDetail}
-              handleRelist={handleRelist}
-              relistingId={relistingId}
-              getListingTimeInfo={getListingTimeInfo}
-              getPickupCountdown={getPickupCountdown}
-              setShowWithdrawConfirm={setShowWithdrawConfirm}
-              showWithdrawConfirm={showWithdrawConfirm}
-              handleWithdrawOrder={handleWithdrawOrder}
-              withdrawingOrderId={withdrawingOrderId}
-              onNavigate={onNavigate}
-            />
-          </div>
-        )}
+          {accountTab === "listings" && (
+            <div id="account-panel-listings" role="tabpanel">
+              <ListingsTabContent
+                listingsTab={listingsTab}
+                setListingsTab={(t) => { setListingsTab(t); setListingsFilter("all"); }}
+                listingsFilter={listingsFilter}
+                setListingsFilter={setListingsFilter}
+                myListings={myListings}
+                myPurchases={myPurchases}
+                mySellerOrders={mySellerOrders}
+                isLoadingStats={isLoadingStats}
+                isLoadingMyListings={isLoadingMyListings}
+                isLoadingMyOrders={isLoadingMyOrders}
+                sellingActiveCount={sellingActiveCount}
+                sellingDraftCount={sellingDraftCount}
+                sellingSoldCount={sellingSoldCount}
+                buyingActiveCount={buyingActiveCount}
+                buyingCompletedCount={buyingCompletedCount}
+                buyingDeclinedCount={buyingDeclinedCount}
+                openEditListing={openEditListing}
+                openRemoveListing={openRemoveListing}
+                openOrderModal={openOrderManagement}
+                openConfirmedOrderSummary={openConfirmedOrderSummary}
+                openRatingModal={openRatingModal}
+                openListingDetail={openListingDetail}
+                handleRelist={handleRelist}
+                relistingId={relistingId}
+                getListingTimeInfo={getListingTimeInfo}
+                getPickupCountdown={getPickupCountdown}
+                setShowWithdrawConfirm={setShowWithdrawConfirm}
+                showWithdrawConfirm={showWithdrawConfirm}
+                handleWithdrawOrder={handleWithdrawOrder}
+                withdrawingOrderId={withdrawingOrderId}
+                onNavigate={onNavigate}
+              />
+            </div>
+          )}
 
-        {accountTab === "saved" && (
-          <div id="account-panel-saved" role="tabpanel">
-            <SavedTabContent
-              folders={wishlistFolders}
-              foldersAvailable={wishlistFoldersAvailable}
-              items={visibleSavedItems}
-              isLoadingSaved={isLoadingSaved}
-              selectedFolderId={selectedFolderId}
-              setSelectedFolderId={setSelectedFolderId}
-              selectedIds={selectedSavedIds}
-              setSelectedIds={setSelectedSavedIds}
-              newFolderOpen={newFolderOpen}
-              setNewFolderOpen={setNewFolderOpen}
-              newFolderName={newFolderName}
-              setNewFolderName={setNewFolderName}
-              creatingFolder={creatingFolder}
-              createFolder={createFolder}
-              renamingFolderId={renamingFolderId}
-              setRenamingFolderId={setRenamingFolderId}
-              renamingFolderName={renamingFolderName}
-              setRenamingFolderName={setRenamingFolderName}
-              savingFolderId={savingFolderId}
-              renameFolder={renameFolder}
-              deleteFolder={deleteFolder}
-              moveSelectedToFolder={moveSelectedToFolder}
-              unsaveSelected={unsaveSelected}
-              moveOpen={moveOpen}
-              setMoveOpen={setMoveOpen}
-              openListingDetail={openListingDetail}
-              wishlistItemsWithFolder={wishlistItemsWithFolder}
-              onNavigate={onNavigate}
-            />
-          </div>
-        )}
+          {accountTab === "saved" && (
+            <div id="account-panel-saved" role="tabpanel">
+              <SavedTabContent
+                folders={wishlistFolders}
+                foldersAvailable={wishlistFoldersAvailable}
+                items={visibleSavedItems}
+                isLoadingSaved={isLoadingSaved}
+                selectedFolderId={selectedFolderId}
+                setSelectedFolderId={setSelectedFolderId}
+                selectedIds={selectedSavedIds}
+                setSelectedIds={setSelectedSavedIds}
+                newFolderOpen={newFolderOpen}
+                setNewFolderOpen={setNewFolderOpen}
+                newFolderName={newFolderName}
+                setNewFolderName={setNewFolderName}
+                creatingFolder={creatingFolder}
+                createFolder={createFolder}
+                renamingFolderId={renamingFolderId}
+                setRenamingFolderId={setRenamingFolderId}
+                renamingFolderName={renamingFolderName}
+                setRenamingFolderName={setRenamingFolderName}
+                savingFolderId={savingFolderId}
+                renameFolder={renameFolder}
+                deleteFolder={deleteFolder}
+                moveSelectedToFolder={moveSelectedToFolder}
+                unsaveSelected={unsaveSelected}
+                moveOpen={moveOpen}
+                setMoveOpen={setMoveOpen}
+                openListingDetail={openListingDetail}
+                wishlistItemsWithFolder={wishlistItemsWithFolder}
+                onNavigate={onNavigate}
+              />
+            </div>
+          )}
 
-        {accountTab === "settings" && (
-          <div id="account-panel-settings" role="tabpanel">
-            <SettingsTabContent
-              settings={settings}
-              updateSetting={updateSetting}
-              resetSettings={resetSettings}
-              openEditProfileModal={openEditProfileModal}
-              openAddFriendsModal={openAddFriendsModal}
-              openFriendsModal={openFriendsModal}
-              friendsCount={stats.friends_count}
-              logout={async () => {
-                await logout();
-                onNavigate("home");
-              }}
-            />
-          </div>
-        )}
+          {accountTab === "settings" && (
+            <div id="account-panel-settings" role="tabpanel">
+              <SettingsTabContent
+                settings={settings}
+                updateSetting={updateSetting}
+                resetSettings={resetSettings}
+                openEditProfileModal={openEditProfileModal}
+                openAddFriendsModal={openAddFriendsModal}
+                openFriendsModal={openFriendsModal}
+                friendsCount={stats.friends_count}
+                logout={async () => {
+                  await logout();
+                  onNavigate("home");
+                }}
+              />
+            </div>
+          )}
+        </MyAccountProvider>
       </div>
 
       {/* ── Modals ───────────────────────────────────────── */}
@@ -1456,26 +1454,26 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
         avatarUploadError={avatarUploadError}
         onAvatarChange={(file) => void uploadAvatar(file)}
         onAvatarErrorClear={clearAvatarError}
-        editFirstName={editFirstName}
-        editLastName={editLastName}
-        editPickupAddress={editPickupAddress}
-        editNeighborhood={editNeighborhood}
-        editZipCode={editZipCode}
-        editShowSuggestions={editShowSuggestions}
-        editFilteredNeighborhoods={editFilteredNeighborhoods}
-        editIsValidNeighborhood={editIsValidNeighborhood}
-        editProfileError={editProfileError}
-        isUpdatingProfile={isUpdatingProfile}
+        editFirstName={editProfileForm.fields.firstName}
+        editLastName={editProfileForm.fields.lastName}
+        editPickupAddress={editProfileForm.fields.pickupAddress}
+        editNeighborhood={editProfileForm.fields.neighborhood}
+        editZipCode={editProfileForm.fields.zipCode}
+        editShowSuggestions={editProfileForm.fields.showSuggestions}
+        editFilteredNeighborhoods={editProfileForm.filteredNeighborhoods}
+        editIsValidNeighborhood={editProfileForm.isValidNeighborhood}
+        editProfileError={editProfileForm.error}
+        isUpdatingProfile={editProfileForm.pending}
         isLoadingNeighborhoods={isLoadingNeighborhoodsList}
         neighborhoodsError={neighborhoodsListError}
         editNeighborhoodRef={editNeighborhoodRef}
         editSuggestionsRef={editSuggestionsRef}
-        setEditFirstName={setEditFirstName}
-        setEditLastName={setEditLastName}
-        setEditPickupAddress={setEditPickupAddress}
-        setEditNeighborhood={setEditNeighborhood}
-        setEditZipCode={setEditZipCode}
-        setEditShowSuggestions={setEditShowSuggestions}
+        setEditFirstName={(v) => editProfileForm.setField("firstName", v)}
+        setEditLastName={(v) => editProfileForm.setField("lastName", v)}
+        setEditPickupAddress={(v) => editProfileForm.setField("pickupAddress", v)}
+        setEditNeighborhood={(v) => editProfileForm.setField("neighborhood", v)}
+        setEditZipCode={(v) => editProfileForm.setField("zipCode", v)}
+        setEditShowSuggestions={(v) => editProfileForm.setField("showSuggestions", v)}
         onClose={() => setShowEditProfileModal(false)}
         onSubmit={handleUpdateProfile}
       />
@@ -1486,7 +1484,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
             <h3 className="text-base font-semibold text-ink mb-2">Change neighborhood?</h3>
             <p className="text-sm text-body leading-relaxed">
               You'll leave the <strong>{user?.neighborhood ?? "—"}</strong> community
-              and join <strong>{editNeighborhood}</strong>. Your existing listings
+              and join <strong>{editProfileForm.fields.neighborhood}</strong>. Your existing listings
               stay tagged to {user?.neighborhood ?? "your previous neighborhood"}.
             </p>
             <div className="flex justify-end gap-2 mt-4">
@@ -1500,10 +1498,10 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <button
                 type="button"
                 onClick={handleConfirmNeighborhoodChange}
-                disabled={isUpdatingProfile}
+                disabled={editProfileForm.pending}
                 className={`h-9 px-4 rounded-md bg-primary text-on-primary hover:bg-primary-hover text-sm font-semibold disabled:opacity-50 ${FOCUS_RING}`}
               >
-                {isUpdatingProfile ? <Loader2 className="size-4 animate-spin" /> : "Confirm"}
+                {editProfileForm.pending ? <Loader2 className="size-4 animate-spin" /> : "Confirm"}
               </button>
             </div>
           </div>
@@ -1695,8 +1693,8 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                     <label className="text-xs text-muted mb-1 block">Zip code</label>
                     <Input
                       value={editCommunityZipCode}
-                      onChange={(e) => setEditCommunityZipCode(e.target.value.replace(/[^\d-]/g, "").slice(0, 10))}
-                      placeholder="e.g., 10001"
+                      onChange={(e) => setEditCommunityZipCode(e.target.value)}
+                      placeholder="10001"
                     />
                   </div>
                   <div className="flex items-center justify-between">
@@ -1932,1637 +1930,3 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     </section>
   );
 }
-
-// ── Selling row priority (for action-urgency sort) ──────────
-function getSellingRowPriority(
-  listing: MyListing,
-  mySellerOrders: OrderData[],
-  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string },
-  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number },
-): number {
-  const timeInfo = getListingTimeInfo(listing.postedAt);
-  const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
-  const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
-  const sellerReviewed = sellerOrder?.seller_reviewed ?? false;
-  const buyerReviewed = sellerOrder?.buyer_reviewed ?? false;
-  const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
-
-  if (sellerOrder?.status === "completed") return 5;
-  if (timeInfo.expired) return 5;
-  if (sellerOrder?.status === "confirmed" && sellerCountdown?.expired && !sellerReviewed) return 0; // pickup ready
-  if (sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired) return 1; // countdown
-  if (hasPendingOrders) return 2; // pending offers
-  if (sellerOrder?.status === "confirmed" && sellerCountdown?.expired && sellerReviewed && !buyerReviewed) return 3; // awaiting buyer
-  return 4; // live
-}
-
-// ── Overview: Your Listings Panel ───────────────────────────
-function OverviewListingsPanel({
-  listingsTab,
-  setListingsTab,
-  myListings,
-  myPurchases,
-  mySellerOrders,
-  isLoadingMyListings,
-  isLoadingMyOrders,
-  openEditListing,
-  openOrderModal,
-  openConfirmedOrderSummary,
-  openRatingModal,
-  openListingDetail,
-  getListingTimeInfo,
-  getPickupCountdown,
-  onNavigate,
-}: {
-  listingsTab: "selling" | "buying";
-  setListingsTab: (t: "selling" | "buying") => void;
-  myListings: MyListing[];
-  myPurchases: OrderData[];
-  mySellerOrders: OrderData[];
-  isLoadingMyListings: boolean;
-  isLoadingMyOrders: boolean;
-  openEditListing: (l: MyListing) => void;
-  openOrderModal: (l: MyListing) => void;
-  openConfirmedOrderSummary: (id: string) => void;
-  openRatingModal: (o: OrderData) => void;
-  openListingDetail?: (l: Listing) => void;
-  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
-  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
-  onNavigate: (page: string) => void;
-}) {
-  const sellingRows = [...myListings].sort((a, b) => {
-    const pa = getSellingRowPriority(a, mySellerOrders, getListingTimeInfo, getPickupCountdown);
-    const pb = getSellingRowPriority(b, mySellerOrders, getListingTimeInfo, getPickupCountdown);
-    if (pa !== pb) return pa - pb; // lower priority number = higher in list
-    const aTime = a.latestOrderAt || "";
-    const bTime = b.latestOrderAt || "";
-    if (aTime !== bTime) return bTime > aTime ? 1 : -1;
-    return 0;
-  });
-
-  return (
-    <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className={`text-base ${PANEL_TITLE}`}>Your listings</h3>
-        <div role="tablist" aria-label="Selling or buying" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md">
-          {(["selling", "buying"] as const).map((side) => {
-            const active = listingsTab === side;
-            return (
-              <button
-                key={side}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setListingsTab(side)}
-                className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
-              >
-                {side === "selling" ? "Selling" : "Buying"}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {listingsTab === "selling" ? (
-        isLoadingMyListings && myListings.length === 0 ? (
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
-              <span>Item</span>
-              <span>Price</span>
-              <span>Status</span>
-            </div>
-            {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
-          </div>
-        ) : myListings.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-            <p className="text-sm text-muted mb-4">No listings yet</p>
-            <button
-              onClick={() => onNavigate("newlisting")}
-              className={`inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-            >
-              Create listing
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            {/* 3-col grid: Item (with community subtitle) / Price / Status.
-                Each value gets its own cell — no flex wrapper. Min-widths on
-                Price and Status lock the Status column's left edge at the same
-                x-position across all rows regardless of pill content length.
-                Identical to the Buying table below so the two read as one
-                visual system. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
-              <span>Item</span>
-              <span>Price</span>
-              <span>Status</span>
-            </div>
-            <div>
-              {sellingRows.map((listing) => {
-                const timeInfo = getListingTimeInfo(listing.postedAt);
-                const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
-                const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
-                const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
-                const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
-                const buyerHasReviewed = sellerOrder?.buyer_reviewed ?? false;
-                const isSellerPickupReady = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed;
-                const isSellerWaitingForBuyer = sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed;
-                const isCompleted = sellerOrder?.status === "completed";
-                const cta = getSellerListingCtaState({
-                  timeExpired: timeInfo.expired,
-                  isSellerWaitingForBuyer: !!isSellerWaitingForBuyer,
-                  isSellerPickupReady: !!isSellerPickupReady,
-                  sellerOrderStatus: sellerOrder?.status ?? null,
-                  hasPendingOrders,
-                });
-
-                // Confirmed-and-still-ticking state renders the countdown label
-                // as text ("Pickup in Xh Ym"). Other states keep their existing labels.
-                const isConfirmedTicking = sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired;
-
-                const statusLabel = listing.status === "draft"
-                  ? "Draft"
-                  : listing.status === "sold"
-                    ? "Sold"
-                    : isCompleted
-                      ? "Completed"
-                      : isSellerPickupReady
-                        ? "Pickup ready"
-                        : isSellerWaitingForBuyer
-                          ? "Awaiting buyer"
-                          : isConfirmedTicking
-                            ? `Pickup in ${sellerCountdown.label}`
-                            : hasPendingOrders
-                              ? `${listing.pendingOrderCount} offers`
-                              : timeInfo.expired
-                                ? "Expired"
-                                : "Live";
-
-                // Terminal states (expired / completed / sold) open the
-                // product details modal. Awaiting-buyer falls through to the
-                // confirmed-order summary via the existing `sellerOrder`
-                // branch. Every row is clickable now.
-                const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
-
-                return (
-                  <button
-                    key={listing.id}
-                    onClick={() => {
-                      if (isTerminal) {
-                        openListingDetail?.(listing as Listing);
-                        return;
-                      }
-                      if (isSellerPickupReady && sellerOrder) openRatingModal(sellerOrder);
-                      else if (hasPendingOrders) openOrderModal(listing);
-                      else if (sellerOrder) openConfirmedOrderSummary(listing.id);
-                      else openEditListing(listing);
-                    }}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors cursor-pointer hover:bg-surface-soft ${FOCUS_RING}`}
-                  >
-                    {/* Item cell — thumb + community subtitle (muted) above title. */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <ListingImage src={listing.imageUrl} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-[10px] text-muted truncate">{PLACEHOLDER_COMMUNITY.name}</p>
-                        <p className="text-sm font-semibold text-ink truncate">{formatTitle(listing.brand, listing.name)}</p>
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-ink tabular-nums">${listing.price}</span>
-                    <span className={`justify-self-start text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
-                        ? "bg-surface-strong text-muted"
-                        : statusLabel === "Awaiting buyer"
-                          ? "bg-warning-soft text-warning"
-                          : "bg-primary-soft text-primary"
-                    }`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      {statusLabel}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )
-      ) : (
-        isLoadingMyOrders && myPurchases.length === 0 ? (
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
-              <span>Item</span>
-              <span>Price</span>
-              <span>Status</span>
-            </div>
-            {Array.from({ length: 4 }).map((_, i) => <ListingRowSkeleton key={i} />)}
-          </div>
-        ) : myPurchases.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-            <p className="text-sm text-muted mb-4">No purchases yet</p>
-            <button
-              onClick={() => onNavigate("market")}
-              className={`inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-            >
-              Browse market
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            {/* 3-col grid: Item (with community subtitle) / Price / Status —
-                identical template to the Selling table above. */}
-            <div className="grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 gap-y-0 text-[11px] text-muted pb-2 border-b border-hairline">
-              <span>Item</span>
-              <span>Price</span>
-              <span>Status</span>
-            </div>
-            <div>
-              {myPurchases.map((order) => {
-                const countdown = getPickupCountdown(order);
-                const viewState = getBuyerOrderViewState({
-                  status: order.status,
-                  countdownExpired: countdown.expired,
-                  hasReviewed: order.buyer_reviewed,
-                  otherReviewed: order.seller_reviewed,
-                });
-                const isConfirmedTicking = viewState === "confirmedCountdown";
-                const statusLabel = viewState === "declined" ? "Declined"
-                  : viewState === "withdrawn" ? "Withdrawn"
-                  : viewState === "expired" ? "Expired"
-                  : viewState === "cancelledBySeller" ? "Cancelled by seller"
-                  : viewState === "waitingForOther" ? "Awaiting seller"
-                  : viewState === "pickupReady" ? "Pickup ready"
-                  : isConfirmedTicking ? `Pickup in ${countdown.label}`
-                  : order.status === "completed" ? "Completed"
-                  : "Pending";
-                const isClickable = !(viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || viewState === "cancelledBySeller" || viewState === "waitingForOther");
-                return (
-                  <button
-                    key={order.id}
-                    onClick={() => {
-                      if (!isClickable) return;
-                      if (viewState === "pickupReady") openRatingModal(order);
-                      else if (order.status === "confirmed") openConfirmedOrderSummary(order.listing_id);
-                    }}
-                    disabled={!isClickable}
-                    className={`w-full grid grid-cols-[minmax(0,1fr)_max-content_minmax(108px,max-content)] gap-x-3 items-center py-3 border-b border-hairline-soft text-left transition-colors ${FOCUS_RING} ${isClickable ? "hover:bg-surface-soft cursor-pointer" : "cursor-default"}`}
-                  >
-                    {/* Item cell — thumb + community subtitle above title.
-                        Seller @handle no longer rendered in the table; still
-                        available via the order summary modal. */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <ListingImage src={order.listing_image} alt="" size="small" className="size-10 rounded-md object-cover border border-hairline shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-[10px] text-muted truncate">{PLACEHOLDER_COMMUNITY.name}</p>
-                        <p className="text-sm font-semibold text-ink truncate">{order.listing_title}</p>
-                      </div>
-                    </div>
-                    <span className="text-sm font-bold text-primary tabular-nums">${order.listing_price}</span>
-                    <span className={`justify-self-start text-[10px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
-                      viewState === "declined" || viewState === "withdrawn" || viewState === "expired" || order.status === "completed"
-                        ? "bg-surface-strong text-muted"
-                        : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                          ? "bg-warning-soft text-warning"
-                          : "bg-primary-soft text-primary"
-                    }`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      {statusLabel}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )
-      )}
-    </div>
-  );
-}
-
-// ── Overview: Punchlist Panel ───────────────────────────────
-function PunchlistPanel({
-  punchlist,
-  punchlistLoaded,
-  openOrderModal,
-  openEditListing,
-  openRatingModal,
-  openConfirmedOrderSummary,
-  mySellerOrders,
-  myPurchases,
-}: {
-  punchlist: PunchlistResponse | null;
-  punchlistLoaded: boolean;
-  openOrderModal: (l: MyListing) => void;
-  openEditListing: (l: MyListing) => void;
-  openRatingModal: (o: OrderData) => void;
-  openConfirmedOrderSummary: (listingId: string) => void;
-  mySellerOrders: OrderData[];
-  myPurchases: OrderData[];
-}) {
-  // Each cat entry uses a typed discriminated union so the render loop can
-  // dispatch without `any`. Pickups carry PunchlistPickup items; offers and
-  // drafts carry MyListing items; messages carry unknown[].
-  type PickupCat = {
-    id: "pickups";
-    label: string;
-    icon: ComponentType<{ className?: string }>;
-    items: PunchlistPickup[];
-    cta: string;
-    onAction: (item: PunchlistPickup) => void;
-  };
-  type ListingCat = {
-    id: "offers" | "drafts";
-    label: string;
-    icon: ComponentType<{ className?: string }>;
-    items: MyListing[];
-    cta: string;
-    onAction: (item: MyListing) => void;
-  };
-  type MessageCat = {
-    id: "messages";
-    label: string;
-    icon: ComponentType<{ className?: string }>;
-    items: unknown[];
-    cta: string;
-    onAction: () => void;
-  };
-  type PunchCat = PickupCat | ListingCat | MessageCat;
-
-  const cats: PunchCat[] = [
-    {
-      id: "pickups",
-      label: "Confirm pickups",
-      icon: CalendarCheck,
-      items: punchlist?.pickups_to_confirm ?? [],
-      cta: "Confirm slot",
-      onAction: (item: PunchlistPickup) => {
-        // Disabled until slot passes — both roles.
-        if (!item.pickup_expired) return;
-
-        if (item.role === "seller") {
-          const order = mySellerOrders.find((o) => o.id === item.order_id);
-          if (order) openRatingModal(order);
-          return;
-        }
-        // Buyer side
-        const order = myPurchases.find((o) => o.id === item.order_id);
-        if (order) openRatingModal(order);
-      },
-    },
-    {
-      id: "offers",
-      label: "Review offers",
-      icon: Coins,
-      items: punchlist?.offers_to_review ?? [],
-      cta: "Review offer",
-      onAction: (item: MyListing) => openOrderModal(item),
-    },
-    {
-      id: "messages",
-      label: "Respond to messages",
-      icon: MessageSquare,
-      items: punchlist?.unread_messages ?? [],
-      cta: "Open thread",
-      onAction: () => {},
-    },
-    {
-      id: "drafts",
-      label: "Finish drafts",
-      icon: Pencil,
-      items: punchlist?.draft_listings ?? [],
-      cta: "Resume draft",
-      onAction: (item: MyListing) => openEditListing(item),
-    },
-  ];
-
-  const totalTodo = cats.reduce((n, c) => n + c.items.length, 0);
-  const [open, setOpen] = useState<Record<string, boolean>>(() => {
-    const top = cats.reduce<PunchCat | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
-    return top && top.items.length > 0 ? { [top.id]: true } : {};
-  });
-  useEffect(() => {
-    setOpen((cur) => {
-      if (Object.values(cur).some(Boolean)) return cur;
-      const top = cats.reduce<PunchCat | null>((acc, c) => (c.items.length > (acc?.items.length || 0) ? c : acc), null);
-      return top && top.items.length > 0 ? { [top.id]: true } : cur;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [punchlist]);
-
-  const handleRowClick = (cat: { id: string }, item: unknown) => {
-    if (cat.id === "pickups") {
-      const pickup = item as PunchlistPickup;
-      openConfirmedOrderSummary(pickup.listing_id);
-      return;
-    }
-    if (cat.id === "offers") {
-      openOrderModal(item as MyListing);
-      return;
-    }
-    if (cat.id === "drafts") {
-      openEditListing(item as MyListing);
-      return;
-    }
-    // messages — no-op
-  };
-
-  return (
-    <div className="bg-canvas border border-hairline rounded-md p-6 h-[560px] overflow-y-auto flex flex-col">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className={`text-base ${PANEL_TITLE}`}>Punchlist</h3>
-        <span className="text-xs text-muted">{totalTodo} to do today</span>
-      </div>
-      <ul className="space-y-2 flex-1">
-        {!punchlistLoaded
-          ? Array.from({ length: 4 }).map((_, i) => <PunchlistRowSkeleton key={i} />)
-          : cats.map((cat) => {
-          const empty = cat.items.length === 0;
-          const isOpen = !!open[cat.id] && !empty;
-          const Icon = cat.icon;
-          return (
-            <li key={cat.id} className={`rounded-md border ${empty ? "border-hairline-soft" : "border-hairline"}`}>
-              <button
-                onClick={() => !empty && setOpen((o) => ({ ...o, [cat.id]: !o[cat.id] }))}
-                aria-expanded={isOpen}
-                disabled={empty}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left ${FOCUS_RING} rounded-md ${empty ? "cursor-default" : "hover:bg-surface-soft"}`}
-              >
-                <span className={`size-7 rounded-md flex items-center justify-center ${empty ? "bg-surface-soft text-muted-soft" : "bg-primary-soft text-primary"}`}>
-                  <Icon className="size-3.5" aria-hidden="true" />
-                </span>
-                <span className={`flex-1 text-sm font-semibold ${empty ? "text-muted-soft" : "text-ink"}`}>{cat.label}</span>
-                {empty ? (
-                  <span className="text-[11px] text-muted-soft inline-flex items-center gap-1">
-                    <Check className="size-3" aria-hidden="true" />
-                    All clear
-                  </span>
-                ) : (
-                  <>
-                    <span className="text-[11px] font-semibold bg-primary text-on-primary px-2 py-0.5 rounded-full">{cat.items.length}</span>
-                    <ChevronDown className={`size-4 text-muted transition-transform motion-safe:duration-150 ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-                  </>
-                )}
-              </button>
-              {isOpen && (
-                <ul className="px-3 pb-3 space-y-2">
-                  {cat.items.map((it, i) => {
-                    const isPickup = cat.id === "pickups";
-                    const pickup = isPickup ? (it as PunchlistPickup) : null;
-                    const listing = (cat.id === "offers" || cat.id === "drafts") ? (it as MyListing) : null;
-                    const itemTitle = pickup?.listing_title
-                      ?? (listing ? formatTitle(listing.brand, listing.name) : "Item");
-                    const itemImage = pickup?.listing_image ?? listing?.imageUrl ?? null;
-                    return (
-                      <li key={i} className="flex items-center gap-3 p-2 rounded-md bg-surface-soft border border-hairline-soft">
-                        <button
-                          type="button"
-                          onClick={() => handleRowClick(cat, it)}
-                          className="flex-1 flex items-center gap-3 text-left cursor-pointer hover:bg-surface-soft transition-colors rounded-md px-2 -mx-2 py-1 -my-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                          {itemImage && (
-                            <ListingImage src={itemImage} alt="" size="small" className="size-9 rounded-md object-cover border border-hairline shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-ink leading-snug line-clamp-2">
-                              {itemTitle}
-                            </p>
-                            {pickup?.slot && <p className="text-[11px] text-muted truncate">{pickup.slot}</p>}
-                          </div>
-                        </button>
-                        {cat.id === "pickups" && pickup ? (
-                          !pickup.pickup_expired ? (
-                            <button
-                              type="button"
-                              disabled
-                              className="inline-flex items-center justify-center h-7 px-3 rounded-md bg-surface-strong text-muted text-[11px] font-semibold cursor-not-allowed"
-                            >
-                              Pickup in {pickup.countdown_label}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); cat.onAction(pickup); }}
-                              className={`inline-flex items-center justify-center h-7 px-3 rounded-md bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                            >
-                              Confirm pickup
-                            </button>
-                          )
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (cat.id === "offers" && listing) cat.onAction(listing);
-                              else if (cat.id === "drafts" && listing) cat.onAction(listing);
-                            }}
-                            className={`inline-flex items-center justify-center h-7 px-3 rounded-full bg-primary text-on-primary text-[11px] font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                          >
-                            {cat.cta}
-                          </button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-// ── Listings tab content ────────────────────────────────────
-function ListingsTabContent({
-  listingsTab,
-  setListingsTab,
-  listingsFilter,
-  setListingsFilter,
-  myListings,
-  myPurchases,
-  mySellerOrders,
-  isLoadingStats,
-  isLoadingMyListings,
-  isLoadingMyOrders,
-  sellingActiveCount,
-  sellingDraftCount,
-  sellingSoldCount,
-  buyingActiveCount,
-  buyingCompletedCount,
-  buyingDeclinedCount,
-  openEditListing,
-  openRemoveListing,
-  openOrderModal,
-  openConfirmedOrderSummary,
-  openRatingModal,
-  openListingDetail,
-  handleRelist,
-  relistingId,
-  getListingTimeInfo,
-  getPickupCountdown,
-  setShowWithdrawConfirm,
-  showWithdrawConfirm,
-  handleWithdrawOrder,
-  withdrawingOrderId,
-  onNavigate,
-}: {
-  listingsTab: "selling" | "buying";
-  setListingsTab: (t: "selling" | "buying") => void;
-  listingsFilter: string;
-  setListingsFilter: (f: string) => void;
-  myListings: MyListing[];
-  myPurchases: OrderData[];
-  mySellerOrders: OrderData[];
-  isLoadingStats: boolean;
-  isLoadingMyListings: boolean;
-  isLoadingMyOrders: boolean;
-  sellingActiveCount: number;
-  sellingDraftCount: number;
-  sellingSoldCount: number;
-  buyingActiveCount: number;
-  buyingCompletedCount: number;
-  buyingDeclinedCount: number;
-  openEditListing: (l: MyListing) => void;
-  openRemoveListing: (l: MyListing) => void;
-  openOrderModal: (l: MyListing) => void;
-  openConfirmedOrderSummary: (id: string) => void;
-  openRatingModal: (o: OrderData) => void;
-  openListingDetail?: (l: Listing) => void;
-  handleRelist: (id: string) => void;
-  relistingId: string | null;
-  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
-  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
-  setShowWithdrawConfirm: (id: number | null) => void;
-  showWithdrawConfirm: number | null;
-  handleWithdrawOrder: (id: number) => void;
-  withdrawingOrderId: number | null;
-  onNavigate: (page: string) => void;
-}) {
-  const sellingKpis: { label: string; value: string; sub: string }[] = [
-    { label: "Active", value: String(sellingActiveCount), sub: sellingActiveCount === 1 ? "listing" : "listings" },
-    { label: "Total views", value: "—", sub: "Coming soon" },
-    { label: "Saved by buyers", value: "—", sub: "Coming soon" },
-    { label: "Pending offers", value: "—", sub: "Coming soon" },
-  ];
-
-  const buyingKpis: { label: string; value: string; sub: string }[] = [
-    { label: "Active offers", value: "—", sub: "Coming soon" },
-    { label: "Pickup soon", value: String(myPurchases.filter((o) => o.status === "confirmed").length), sub: "orders" },
-    { label: "Awaiting payment", value: "—", sub: "Coming soon" },
-    { label: "Total committed", value: "—", sub: "Coming soon" },
-  ];
-
-  const sellingFilters: [string, string, number][] = [
-    ["all", "All", myListings.length],
-    ["live", "Live", sellingActiveCount],
-    ["draft", "Drafts", sellingDraftCount],
-    ["sold", "Sold", sellingSoldCount],
-  ];
-
-  const buyingFilters: [string, string, number][] = [
-    ["all", "All", myPurchases.length],
-    ["active", "Active", buyingActiveCount],
-    ["completed", "Completed", buyingCompletedCount],
-    ["inactive", "Inactive", buyingDeclinedCount],
-  ];
-
-  const filteredListings = myListings.filter((l) => {
-    if (listingsFilter === "all") return true;
-    const timeInfo = getListingTimeInfo(l.postedAt);
-    if (listingsFilter === "draft") return l.status === "draft";
-    if (listingsFilter === "sold") return l.status === "sold";
-    if (listingsFilter === "live") return !timeInfo.expired && l.status !== "draft" && l.status !== "sold";
-    return true;
-  });
-
-  const filteredPurchases = myPurchases.filter((o) => {
-    if (listingsFilter === "all") return true;
-    if (listingsFilter === "active") return o.status === "pending" || o.status === "confirmed";
-    if (listingsFilter === "completed") return o.status === "completed";
-    if (listingsFilter === "inactive") return o.status === "declined" || o.status === "withdrawn" || o.status === "expired" || o.status === "cancelled_by_seller";
-    return true;
-  });
-
-  return (
-    <>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <div role="tablist" aria-label="Selling or buying" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md">
-          {(["selling", "buying"] as const).map((side) => {
-            const active = listingsTab === side;
-            return (
-              <button
-                key={side}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setListingsTab(side)}
-                className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
-              >
-                {side === "selling" ? "Selling" : "Buying"}
-              </button>
-            );
-          })}
-        </div>
-        <button
-          onClick={() => onNavigate("newlisting")}
-          className={`inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-        >
-          <Plus className="size-4" />
-          New listing
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        {isLoadingStats
-          ? Array.from({ length: 4 }).map((_, i) => <KpiCardSkeleton key={i} />)
-          : (listingsTab === "selling" ? sellingKpis : buyingKpis).map((kpi) => (
-              <div key={kpi.label} className="bg-surface-card border border-hairline rounded-md p-4">
-                <p className="text-[11px] text-muted">{kpi.label}</p>
-                <p className={`text-3xl font-extrabold tracking-display mt-1 ${kpi.value === "—" ? "text-muted-soft" : "text-ink"}`}>{kpi.value}</p>
-                <p className={`text-[11px] mt-0.5 ${kpi.value === "—" ? "text-muted-soft" : "text-muted"}`}>{kpi.sub}</p>
-              </div>
-            ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-6">
-        {(listingsTab === "selling" ? sellingFilters : buyingFilters).map(([id, label, n]) => {
-          const active = listingsFilter === id;
-          return (
-            <button
-              key={id}
-              onClick={() => setListingsFilter(id)}
-              className={getChipClass(active)}
-            >
-              {label}
-              <span className={`text-[10px] ${active ? "text-on-primary/80" : "text-muted"}`}>{n}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {listingsTab === "selling" ? (
-        isLoadingMyListings && filteredListings.length === 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => <ListingCardSkeleton key={i} />)}
-          </div>
-        ) : filteredListings.length === 0 ? (
-          <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
-            <p className="text-sm text-muted">Nothing in this view yet.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredListings.map((listing) => {
-              const timeInfo = getListingTimeInfo(listing.postedAt);
-              const hasPendingOrders = (listing.pendingOrderCount ?? 0) > 0;
-              const sellerOrder = mySellerOrders.find((o) => o.listing_id === listing.id && (o.status === "confirmed" || o.status === "completed"));
-              const sellerCountdown = sellerOrder ? getPickupCountdown(sellerOrder) : null;
-              const sellerHasReviewed = sellerOrder?.seller_reviewed ?? false;
-              const buyerHasReviewed = sellerOrder?.buyer_reviewed ?? false;
-              const isSellerPickupReady = !!(sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && !sellerHasReviewed);
-              const isSellerWaitingForBuyer = !!(sellerOrder && sellerOrder.status === "confirmed" && sellerCountdown?.expired && sellerHasReviewed && !buyerHasReviewed);
-              const isCompleted = sellerOrder?.status === "completed";
-              const isConfirmedTicking = !!(sellerOrder?.status === "confirmed" && sellerCountdown && !sellerCountdown.expired);
-
-              const statusLabel = listing.status === "draft"
-                ? "Draft"
-                : listing.status === "sold"
-                  ? "Sold"
-                  : isCompleted
-                    ? "Completed"
-                    : isSellerPickupReady
-                      ? "Pickup ready"
-                      : isSellerWaitingForBuyer
-                        ? "Awaiting buyer"
-                        : isConfirmedTicking
-                          ? `Pickup in ${sellerCountdown.label}`
-                          : hasPendingOrders
-                            ? `${listing.pendingOrderCount} offers`
-                            : timeInfo.expired
-                              ? "Expired"
-                              : "Live";
-              const statusClass = statusLabel === "Draft" || statusLabel === "Sold" || statusLabel === "Completed" || statusLabel === "Expired"
-                ? "bg-surface-strong text-muted"
-                : statusLabel === "Awaiting buyer"
-                  ? "bg-warning-soft text-warning"
-                  : "bg-primary-soft text-primary";
-
-              // Cards in terminal states (expired / completed / sold) and the
-              // awaiting-buyer transient state get a card-level click handler
-              // routed to detail / order summary. Active states leave the
-              // article without onClick — inner buttons drive the interactions.
-              const isTerminal = timeInfo.expired || isCompleted || listing.status === "sold";
-              const isCardClickable = isTerminal || isSellerWaitingForBuyer;
-              const onCardClick = isCardClickable
-                ? () => {
-                    if (isSellerWaitingForBuyer && sellerOrder) {
-                      openConfirmedOrderSummary(listing.id);
-                      return;
-                    }
-                    openListingDetail?.(listing as Listing);
-                  }
-                : undefined;
-
-              return (
-                <article
-                  key={listing.id}
-                  onClick={onCardClick}
-                  className={`bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col ${isCardClickable ? "cursor-pointer" : ""}`}
-                >
-                  {/* Trust band — mirrors marketplace card.
-                      MyListing payload omits allCommunities; falls back to
-                      PLACEHOLDER_COMMUNITY until the sell-flow community
-                      selector ships. Replicated inline rather than
-                      extracted to a shared <ListingCard> per R-5.9 brief. */}
-                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                    <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                  </div>
-                  <div className="relative aspect-square bg-surface-soft">
-                    <ListingImage src={listing.imageUrl} alt="" size="card" className="absolute inset-0 size-full object-cover" />
-                    <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                      {statusLabel}
-                    </span>
-                  </div>
-                  <div className="p-3 flex-1 flex flex-col gap-1">
-                    <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand, listing.name)}</p>
-                    <p className="text-xs text-muted line-clamp-1">{listing.location || "—"}</p>
-                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
-                    <div className="flex items-center gap-1.5 mt-2">
-                      {timeInfo.expired ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleRelist(listing.id); }}
-                          disabled={relistingId === listing.id}
-                          className={`flex-1 inline-flex items-center justify-center gap-1 h-8 px-3 rounded-md bg-primary-soft text-primary text-xs font-semibold hover:bg-primary-tint transition-colors disabled:opacity-50 ${FOCUS_RING}`}
-                        >
-                          {relistingId === listing.id ? <Loader2 className="size-3 animate-spin" /> : <><RotateCcw className="size-3" />Relist</>}
-                        </button>
-                      ) : (
-                        <>
-                          <Tooltip content="Edit listing">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openEditListing(listing); }}
-                              className={`inline-flex items-center justify-center size-8 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft transition-colors ${FOCUS_RING}`}
-                              aria-label="Edit listing"
-                            >
-                              <Pencil className="size-3.5" />
-                            </button>
-                          </Tooltip>
-                          {hasPendingOrders ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openOrderModal(listing); }}
-                              className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                            >
-                              Review {listing.pendingOrderCount} {listing.pendingOrderCount === 1 ? "offer" : "offers"}
-                            </button>
-                          ) : isSellerPickupReady && sellerOrder ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openRatingModal(sellerOrder); }}
-                              className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                            >
-                              Confirm pickup
-                            </button>
-                          ) : isSellerWaitingForBuyer ? (
-                            <span className="flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-warning/10 text-warning text-xs font-semibold">
-                              Awaiting buyer
-                            </span>
-                          ) : sellerOrder?.status === "confirmed" && sellerCountdown ? (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openConfirmedOrderSummary(listing.id); }}
-                              className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
-                            >
-                              {sellerCountdown.label} to pickup
-                            </button>
-                          ) : (
-                            <span className="flex-1 text-[11px] text-muted text-right pr-1">{timeInfo.label}</span>
-                          )}
-                          {listing.status !== "sold" && (
-                            <Tooltip content="Remove listing">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openRemoveListing(listing); }}
-                                className={`inline-flex items-center justify-center size-8 rounded-md border border-error/30 text-error bg-canvas hover:bg-error/5 hover:text-error transition-colors ${FOCUS_RING}`}
-                                aria-label="Remove listing"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </Tooltip>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )
-      ) : (
-        isLoadingMyOrders && filteredPurchases.length === 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => <ListingCardSkeleton key={i} />)}
-          </div>
-        ) : filteredPurchases.length === 0 ? (
-          <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
-            <p className="text-sm text-muted">Nothing in this view yet.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredPurchases.map((order) => {
-              const countdown = getPickupCountdown(order);
-              const viewState = getBuyerOrderViewState({
-                status: order.status,
-                countdownExpired: countdown.expired,
-                hasReviewed: order.buyer_reviewed,
-                otherReviewed: order.seller_reviewed,
-              });
-              const statusLabel = viewState === "declined" ? "Declined"
-                : viewState === "withdrawn" ? "Withdrawn"
-                : viewState === "expired" ? "Expired"
-                : viewState === "cancelledBySeller" ? "Cancelled by seller"
-                : viewState === "waitingForOther" ? "Awaiting seller"
-                : viewState === "pickupReady" ? "Pickup ready"
-                : viewState === "confirmedCountdown" ? `Pickup in ${countdown.label}`
-                : order.status === "completed" ? "Completed"
-                : "Pending";
-              const statusClass = ["declined", "withdrawn", "expired"].includes(viewState) || order.status === "completed"
-                ? "bg-surface-strong text-muted"
-                : viewState === "cancelledBySeller" || viewState === "waitingForOther"
-                  ? "bg-warning-soft text-warning"
-                  : "bg-primary-soft text-primary";
-
-              // Pending buyer-side orders get the distinct "Pending" overlay
-              // (uppercase tracking-widest jade pill) mirroring the marketplace
-              // "Sold" overlay treatment — a clearer trust signal that this is
-              // a live order awaiting the seller. Other states keep the
-              // standard rounded-full status pill.
-              const isPending = order.status === "pending" && !["declined", "withdrawn", "expired", "cancelledBySeller"].includes(viewState);
-              return (
-                <article key={order.id} className="bg-canvas border border-hairline rounded-md overflow-hidden hover:shadow-hover transition-shadow flex flex-col">
-                  {/* Trust band — mirrors marketplace card. OrderData
-                      doesn't enrich with allCommunities; falls back to
-                      PLACEHOLDER_COMMUNITY. Seller @handle stays in the
-                      band so the buyer can see who they bought from. */}
-                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                    <span className="text-ink font-medium truncate">{PLACEHOLDER_COMMUNITY.name}</span>
-                    {order.seller_name && (
-                      <>
-                        <span className="text-muted">·</span>
-                        <span className="text-muted truncate">@{order.seller_name}</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="relative aspect-square bg-surface-soft">
-                    <ListingImage src={order.listing_image} alt="" size="card" className="absolute inset-0 size-full object-cover" />
-                    {isPending ? (
-                      <span className="absolute top-2 left-2 text-[10px] font-semibold text-on-primary bg-primary px-2 py-1 rounded-sm">
-                        Pending
-                      </span>
-                    ) : (
-                      <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold ${statusClass}`}>
-                        <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-                        {statusLabel}
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-3 flex-1 flex flex-col gap-1">
-                    <p className="text-sm font-medium text-ink line-clamp-1">{order.listing_title}</p>
-                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${order.listing_price}</p>
-                    <div className="flex items-center gap-1.5 mt-2">
-                      {viewState === "pickupReady" ? (
-                        <button
-                          onClick={() => openRatingModal(order)}
-                          className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                        >
-                          Confirm pickup
-                        </button>
-                      ) : viewState === "confirmedCountdown" ? (
-                        <button
-                          onClick={() => openConfirmedOrderSummary(order.listing_id)}
-                          className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
-                        >
-                          {countdown.label} to pickup
-                        </button>
-                      ) : order.status === "pending" ? (
-                        <button
-                          onClick={() => setShowWithdrawConfirm(showWithdrawConfirm === order.id ? null : order.id)}
-                          className={`flex-1 inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
-                        >
-                          Withdraw
-                        </button>
-                      ) : (
-                        <span className="flex-1 text-[11px] text-muted text-right pr-1">
-                          {order.created_at ? new Date(order.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}
-                        </span>
-                      )}
-                    </div>
-                    {showWithdrawConfirm === order.id && (
-                      <div className="mt-2 bg-warning/5 border border-warning/20 rounded-md p-2">
-                        <p className="text-[11px] text-body mb-2">Withdraw your order? You can re-order later.</p>
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={() => setShowWithdrawConfirm(null)}
-                            className={`flex-1 h-7 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-[11px] font-semibold ${FOCUS_RING}`}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => handleWithdrawOrder(order.id)}
-                            disabled={withdrawingOrderId === order.id}
-                            className={`flex-1 h-7 rounded-md bg-warning text-on-primary text-[11px] font-semibold hover:bg-warning/90 disabled:opacity-50 ${FOCUS_RING}`}
-                          >
-                            {withdrawingOrderId === order.id ? "…" : "Withdraw"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )
-      )}
-    </>
-  );
-}
-
-// ── Saved tab content ───────────────────────────────────────
-function SavedTabContent({
-  folders,
-  foldersAvailable,
-  items,
-  isLoadingSaved,
-  selectedFolderId,
-  setSelectedFolderId,
-  selectedIds,
-  setSelectedIds,
-  newFolderOpen,
-  setNewFolderOpen,
-  newFolderName,
-  setNewFolderName,
-  creatingFolder,
-  createFolder,
-  renamingFolderId,
-  setRenamingFolderId,
-  renamingFolderName,
-  setRenamingFolderName,
-  savingFolderId,
-  renameFolder,
-  deleteFolder,
-  moveSelectedToFolder,
-  unsaveSelected,
-  moveOpen,
-  setMoveOpen,
-  openListingDetail,
-  wishlistItemsWithFolder,
-  onNavigate,
-}: {
-  folders: WishlistFolder[];
-  foldersAvailable: boolean;
-  items: WishlistListingWithFolder[] | Listing[];
-  isLoadingSaved: boolean;
-  selectedFolderId: number | "all";
-  setSelectedFolderId: (id: number | "all") => void;
-  selectedIds: Set<string>;
-  setSelectedIds: (ids: Set<string>) => void;
-  newFolderOpen: boolean;
-  setNewFolderOpen: (v: boolean) => void;
-  newFolderName: string;
-  setNewFolderName: (v: string) => void;
-  creatingFolder: boolean;
-  createFolder: () => void;
-  renamingFolderId: number | null;
-  setRenamingFolderId: (id: number | null) => void;
-  renamingFolderName: string;
-  setRenamingFolderName: (v: string) => void;
-  savingFolderId: number | null;
-  renameFolder: (id: number) => void;
-  deleteFolder: (id: number) => void;
-  moveSelectedToFolder: (folderId: number | null) => void;
-  unsaveSelected: () => void;
-  moveOpen: boolean;
-  setMoveOpen: (v: boolean) => void;
-  openListingDetail?: (l: Listing) => void;
-  wishlistItemsWithFolder: WishlistListingWithFolder[];
-  onNavigate: (page: string) => void;
-}) {
-  const totalCount = wishlistItemsWithFolder.length > 0 ? wishlistItemsWithFolder.length : items.length;
-  const toggleSelect = (id: string) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedIds(next);
-  };
-  const selectAll = () => setSelectedIds(new Set(items.map((i) => i.id)));
-  const clearSel = () => setSelectedIds(new Set());
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6">
-      <aside className="space-y-1">
-        <h3 className="text-[11px] text-muted px-2 pb-1">Collections</h3>
-        {!foldersAvailable && (
-          <div className="px-3 py-2 mb-2 rounded-md bg-warning/10 border border-warning/20 text-[11px] text-body">
-            Folders coming soon — backend in progress.
-          </div>
-        )}
-        <button
-          onClick={() => setSelectedFolderId("all")}
-          className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${FOCUS_RING} ${
-            selectedFolderId === "all" ? "bg-primary-soft text-primary font-semibold" : "text-body hover:bg-surface-soft"
-          }`}
-        >
-          <Heart className="size-3.5 shrink-0" />
-          <span className="flex-1 text-left truncate">All saved</span>
-          <span className="text-[11px] text-muted">{totalCount}</span>
-        </button>
-        {foldersAvailable && folders.map((f) => {
-          const active = selectedFolderId === f.id;
-          const isRenaming = renamingFolderId === f.id;
-          return (
-            <div key={f.id} className="group relative">
-              {isRenaming ? (
-                <div className="flex items-center gap-1.5 px-2 py-1.5">
-                  <input
-                    value={renamingFolderName}
-                    onChange={(e) => setRenamingFolderName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") renameFolder(f.id);
-                      if (e.key === "Escape") setRenamingFolderId(null);
-                    }}
-                    autoFocus
-                    className={`flex-1 h-7 px-2 rounded-md border border-hairline bg-canvas text-sm text-ink ${FOCUS_RING}`}
-                  />
-                  <button
-                    onClick={() => renameFolder(f.id)}
-                    disabled={savingFolderId === f.id}
-                    className={`h-7 px-2 rounded-md bg-primary text-on-primary text-[11px] font-semibold disabled:opacity-50 ${FOCUS_RING}`}
-                  >
-                    {savingFolderId === f.id ? <Loader2 className="size-3 animate-spin" /> : "Save"}
-                  </button>
-                  <button
-                    onClick={() => setRenamingFolderId(null)}
-                    className={`h-7 px-2 rounded-md text-muted hover:text-ink text-[11px] ${FOCUS_RING}`}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setSelectedFolderId(f.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${FOCUS_RING} ${
-                    active ? "bg-primary-soft text-primary font-semibold" : "text-body hover:bg-surface-soft"
-                  }`}
-                >
-                  <FolderIcon className="size-3.5 shrink-0" filled={active} />
-                  <span className="flex-1 text-left truncate">{f.name}</span>
-                  <span className="text-[11px] text-muted">{f.item_count}</span>
-                </button>
-              )}
-              {!isRenaming && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5 bg-canvas border border-hairline rounded-md shadow-card">
-                  <Tooltip content="Rename folder">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setRenamingFolderId(f.id); setRenamingFolderName(f.name); }}
-                      className={`size-7 inline-flex items-center justify-center text-muted hover:text-ink rounded-md ${FOCUS_RING}`}
-                      aria-label="Rename folder"
-                    >
-                      <Pencil className="size-3" />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="Delete folder">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteFolder(f.id); }}
-                      className={`size-7 inline-flex items-center justify-center text-muted hover:text-error rounded-md ${FOCUS_RING}`}
-                      aria-label="Delete folder"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {foldersAvailable && (
-          newFolderOpen ? (
-            <div className="px-2 py-1.5 mt-1 border border-dashed border-hairline rounded-md">
-              <input
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") createFolder();
-                  if (e.key === "Escape") { setNewFolderOpen(false); setNewFolderName(""); }
-                }}
-                placeholder="Folder name"
-                autoFocus
-                className={`w-full h-8 px-2 rounded-md border border-hairline bg-canvas text-sm text-ink ${FOCUS_RING}`}
-              />
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <button
-                  onClick={createFolder}
-                  disabled={!newFolderName.trim() || creatingFolder}
-                  className={`flex-1 h-7 rounded-md bg-primary text-on-primary text-[11px] font-semibold disabled:opacity-50 ${FOCUS_RING}`}
-                >
-                  {creatingFolder ? <Loader2 className="size-3 animate-spin mx-auto" /> : "Create"}
-                </button>
-                <button
-                  onClick={() => { setNewFolderOpen(false); setNewFolderName(""); }}
-                  className={`flex-1 h-7 rounded-md text-muted hover:text-ink text-[11px] ${FOCUS_RING}`}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setNewFolderOpen(true)}
-              className={`w-full flex items-center gap-2 px-3 py-2 mt-2 rounded-md text-sm text-muted hover:text-ink border border-dashed border-hairline hover:border-border-strong transition-colors ${FOCUS_RING}`}
-            >
-              <Plus className="size-3.5" />
-              <span className="flex-1 text-left">New folder</span>
-            </button>
-          )
-        )}
-      </aside>
-
-      <div>
-        {selectedIds.size > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mb-4 px-4 py-2 bg-surface-soft border border-hairline rounded-md">
-            <span className="text-sm font-semibold text-ink">{selectedIds.size} selected</span>
-            <div className="flex-1" />
-            {foldersAvailable && folders.length > 0 && (
-              <div className="relative">
-                <button
-                  onClick={() => setMoveOpen(!moveOpen)}
-                  className={`inline-flex items-center gap-1 h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                >
-                  Add to folder
-                  <ChevronDown className="size-3" />
-                </button>
-                {moveOpen && (
-                  <div role="menu" className="absolute right-0 top-full mt-1 w-48 bg-canvas border border-hairline rounded-md shadow-overlay overflow-hidden z-10">
-                    {folders.map((f) => (
-                      <button
-                        key={f.id}
-                        role="menuitem"
-                        onClick={() => moveSelectedToFolder(f.id)}
-                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-body hover:bg-surface-soft hover:text-ink text-left ${FOCUS_RING}`}
-                      >
-                        <FolderIcon className="size-3.5" />
-                        <span className="flex-1 truncate">{f.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {foldersAvailable && selectedFolderId !== "all" && (
-              <button
-                onClick={() => moveSelectedToFolder(null)}
-                className={`inline-flex items-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold ${FOCUS_RING}`}
-              >
-                Remove from folder
-              </button>
-            )}
-            <button
-              onClick={unsaveSelected}
-              className={`inline-flex items-center h-8 px-3 rounded-md border border-error/40 text-error bg-canvas hover:bg-error/5 text-xs font-semibold ${FOCUS_RING}`}
-            >
-              Unsave
-            </button>
-            <button
-              onClick={clearSel}
-              className={`text-xs text-muted hover:text-ink ${FOCUS_RING} rounded`}
-            >
-              Clear
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm text-muted">
-            {items.length} {items.length === 1 ? "item" : "items"}
-          </p>
-          {items.length > 0 && (
-            <button
-              onClick={selectedIds.size === items.length ? clearSel : selectAll}
-              className={`text-xs text-primary hover:underline ${FOCUS_RING} rounded`}
-            >
-              {selectedIds.size === items.length ? "Clear selection" : "Select all"}
-            </button>
-          )}
-        </div>
-
-        {/* Skeleton fires while the folder-aware fetch is in flight, even
-            if the parent's `wishlistItems` prop has already populated the
-            `items` fallback. This way the user sees a clear loading affordance
-            every time they land on Saved, not just on first-ever empty load. */}
-        {isLoadingSaved && wishlistItemsWithFolder.length === 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => <ListingCardSkeleton key={i} />)}
-          </div>
-        ) : items.length === 0 ? (
-          <div className="text-center py-16 border border-hairline rounded-md bg-surface-soft">
-            <p className="text-sm text-muted mb-4">Nothing saved here yet.</p>
-            <button
-              onClick={() => onNavigate("market")}
-              className={`inline-flex items-center justify-center h-9 px-4 rounded-full bg-primary text-on-primary text-sm font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-            >
-              Browse market
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-            {items.map((item) => {
-              const selected = selectedIds.has(item.id);
-              const folderId = "folder_id" in item ? item.folder_id : null;
-              const folder = folderId != null ? folders.find((f) => f.id === folderId) : null;
-              const listing = item as Listing;
-              const heroCommunity = listing.allCommunities?.find((c) => c.is_mutual)
-                ?? listing.allCommunities?.[0]
-                ?? PLACEHOLDER_COMMUNITY;
-              const images = listing.imageUrls && listing.imageUrls.length > 0
-                ? listing.imageUrls
-                : [listing.imageUrl];
-              return (
-                <article
-                  key={item.id}
-                  onClick={() => openListingDetail?.(listing)}
-                  className={`group bg-canvas border rounded-md overflow-hidden cursor-pointer transition-shadow ${
-                    selected ? "border-primary ring-2 ring-primary" : "border-hairline hover:shadow-hover"
-                  }`}
-                >
-                  {/* Trust band — mirrors marketplace card.
-                      Falls back to PLACEHOLDER_COMMUNITY when the wishlist
-                      payload omits allCommunities enrichment. */}
-                  <div className="flex items-center gap-2 px-3 py-2 bg-primary-soft/60 border-b border-hairline text-xs">
-                    <span className="size-3 rounded-full bg-primary shrink-0" aria-hidden="true" />
-                    <span className="text-ink font-medium truncate">{heroCommunity.name}</span>
-                    {listing.seller_name && (
-                      <>
-                        <span className="text-muted">·</span>
-                        <span className="text-muted truncate">@{listing.seller_name}</span>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Photo */}
-                  <div className="relative aspect-square bg-surface-soft">
-                    <ListingImage
-                      src={images[0]}
-                      alt=""
-                      size="card"
-                      className="absolute inset-0 size-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
-                      aria-label={selected ? "Deselect" : "Select"}
-                      aria-pressed={selected}
-                      className={`absolute top-2 left-2 size-6 rounded-full flex items-center justify-center transition-colors ${FOCUS_RING} ${
-                        selected ? "bg-primary text-on-primary" : "bg-canvas/90 text-muted hover:text-ink border border-hairline"
-                      }`}
-                    >
-                      {selected ? <Check className="size-3.5" /> : <span className="size-3 rounded-full border-2 border-current" />}
-                    </button>
-                    {listing.status === "sold" && (
-                      <span className="absolute top-2 right-2 text-[10px] font-semibold text-on-primary bg-ink px-2 py-1 rounded-sm">
-                        Sold
-                      </span>
-                    )}
-                    {folder && (
-                      <div className="absolute bottom-2 right-2 flex items-center gap-0.5 bg-canvas/90 px-2 py-1 rounded-full border border-hairline" title={folder.name}>
-                        <FolderIcon className="size-3 text-primary" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Body */}
-                  <div className="p-3 space-y-1">
-                    <p className="text-sm font-medium text-ink line-clamp-1">{formatTitle(listing.brand ?? "", listing.name ?? "")}</p>
-                    <p className="text-xs text-muted line-clamp-1">{listing.location}</p>
-                    <p className="text-2xl font-extrabold text-primary tracking-display leading-none pt-1">${listing.price}</p>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Heart icon (filled) ─────────────────────────────────────
-function Heart({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M20.84 4.6a5.5 5.5 0 0 0-7.78 0L12 5.7l-1.06-1.1a5.5 5.5 0 0 0-7.78 7.78L12 21l8.84-8.62a5.5 5.5 0 0 0 0-7.78z" />
-    </svg>
-  );
-}
-
-// ── Folder icon (filled when active) ────────────────────────
-function FolderIcon({ className, filled }: { className?: string; filled?: boolean }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-// ── Settings tab content ────────────────────────────────────
-function SettingsTabContent({
-  settings,
-  updateSetting,
-  resetSettings,
-  openEditProfileModal,
-  openAddFriendsModal,
-  openFriendsModal,
-  friendsCount,
-  logout,
-}: {
-  settings: Settings;
-  updateSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
-  resetSettings: () => void;
-  openEditProfileModal: () => void;
-  openAddFriendsModal: () => void;
-  openFriendsModal: () => void;
-  friendsCount: number;
-  logout: () => Promise<void>;
-}) {
-  const fontSizes: [Settings["fontSize"], string][] = [
-    ["default", "Default"],
-    ["large", "Large"],
-    ["extra-large", "Extra large"],
-  ];
-  const colorBlindModes: [Settings["colorBlindMode"], string][] = [
-    ["off", "Off"],
-    ["protanopia", "Protanopia"],
-    ["deuteranopia", "Deuteranopia"],
-    ["tritanopia", "Tritanopia"],
-  ];
-
-  // Reset-to-default uses an inline two-stage confirm: first click swaps
-  // the button into Confirm/Cancel pair, auto-reverting after 3s so a
-  // stray click can never wipe settings without intent. Confirmed reset
-  // shows a 2s "Settings reset." inline note.
-  const [resetConfirming, setResetConfirming] = useState(false);
-  const [resetNoticeVisible, setResetNoticeVisible] = useState(false);
-  useEffect(() => {
-    if (!resetConfirming) return;
-    const t = setTimeout(() => setResetConfirming(false), 3000);
-    return () => clearTimeout(t);
-  }, [resetConfirming]);
-  useEffect(() => {
-    if (!resetNoticeVisible) return;
-    const t = setTimeout(() => setResetNoticeVisible(false), 2000);
-    return () => clearTimeout(t);
-  }, [resetNoticeVisible]);
-  const handleResetConfirm = () => {
-    resetSettings();
-    setResetConfirming(false);
-    setResetNoticeVisible(true);
-  };
-
-  return (
-    <div className="max-w-2xl space-y-8">
-      <section>
-        <div className="flex items-center justify-between gap-3 mb-1">
-          <h3 className={`text-base ${PANEL_TITLE}`}>General</h3>
-          <div className="flex items-center gap-2">
-            {resetNoticeVisible && (
-              <span className="text-xs text-muted" role="status" aria-live="polite">
-                Settings reset.
-              </span>
-            )}
-            {resetConfirming ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleResetConfirm}
-                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                >
-                  Confirm reset
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setResetConfirming(false)}
-                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md text-muted hover:text-ink text-xs font-semibold ${FOCUS_RING}`}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setResetConfirming(true)}
-                className={`inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold transition-colors ${FOCUS_RING}`}
-              >
-                Reset to default
-              </button>
-            )}
-          </div>
-        </div>
-        <p className="text-sm text-muted mb-4">Restore every device setting on this page to its default value.</p>
-      </section>
-
-      <section>
-        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Accessibility</h3>
-        <p className="text-sm text-muted mb-4">Stored on this device, applied across Cosello.</p>
-        <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
-          <div className="flex items-center justify-between gap-4 p-4">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-ink">Text size</p>
-              <p className="text-xs text-muted mt-0.5">Adjust body text size used throughout Cosello.</p>
-            </div>
-            <div role="radiogroup" aria-label="Text size" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md shrink-0">
-              {fontSizes.map(([v, label]) => {
-                const active = settings.fontSize === v;
-                return (
-                  <button
-                    key={v}
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => updateSetting("fontSize", v)}
-                    className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <SettingRow
-            title="Reduce motion"
-            subtitle="Disable transitions and incidental animation."
-            control={<ToggleSwitch checked={settings.reduceMotion} onChange={(v) => updateSetting("reduceMotion", v)} label="Reduce motion" />}
-          />
-          <SettingRow
-            title="High contrast"
-            subtitle="Increase contrast on muted text and borders."
-            control={<ToggleSwitch checked={settings.highContrast} onChange={(v) => updateSetting("highContrast", v)} label="High contrast" />}
-          />
-          <SettingRow
-            title="Compact mode"
-            subtitle="Tighten spacing across cards, sections, and layouts."
-            control={<ToggleSwitch checked={settings.compactMode} onChange={(v) => updateSetting("compactMode", v)} label="Compact mode" />}
-          />
-          {/* Dark mode sets data-theme="dark" on <html>; SettingsContext
-              persists the choice to localStorage and restores on reload.
-              The Electric Violet token set (UI redesign v3) fully supports
-              dark mode via the [data-theme="dark"] block in theme.css. */}
-          <SettingRow
-            title="Dark mode"
-            subtitle="Use a dark surface palette across Cosello."
-            control={<ToggleSwitch checked={settings.darkMode} onChange={(v) => updateSetting("darkMode", v)} label="Dark mode" />}
-          />
-          <div className="flex items-center justify-between gap-4 p-4">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-ink">Color-blind mode</p>
-              <p className="text-xs text-muted mt-0.5">Substitute accent hues with palette-safe alternates.</p>
-            </div>
-            <div role="radiogroup" aria-label="Color-blind mode" className="inline-flex items-center gap-1 bg-surface-soft p-1 rounded-md shrink-0">
-              {colorBlindModes.map(([v, label]) => {
-                const active = settings.colorBlindMode === v;
-                return (
-                  <button
-                    key={v}
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => updateSetting("colorBlindMode", v)}
-                    className={`${SEG_BTN_BASE} ${active ? "bg-canvas text-ink shadow-card" : "text-muted hover:text-ink"}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Friends</h3>
-        <p className="text-sm text-muted mb-4">Manage your friend connections.</p>
-        <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
-          <SettingRow
-            title="Friends"
-            subtitle={`${friendsCount} ${friendsCount === 1 ? "friend" : "friends"}`}
-            control={
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={openFriendsModal}
-                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold ${FOCUS_RING}`}
-                >
-                  View
-                </button>
-                <button
-                  onClick={openAddFriendsModal}
-                  className={`inline-flex items-center justify-center h-8 px-3 rounded-md bg-primary text-on-primary text-xs font-semibold hover:bg-primary-hover transition-colors ${FOCUS_RING}`}
-                >
-                  Add friends
-                </button>
-              </div>
-            }
-          />
-        </div>
-      </section>
-
-      <section>
-        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Circles</h3>
-        <p className="text-sm text-muted mb-4">Control which trust signals appear on your listings.</p>
-        <CircleSettings />
-      </section>
-
-      <section>
-        <h3 className={`text-base ${PANEL_TITLE} mb-1`}>Account</h3>
-        <div className="bg-canvas border border-hairline rounded-md divide-y divide-hairline-soft">
-          <SettingRow
-            title="Edit profile"
-            subtitle="Name, photo, neighborhood, and pickup address."
-            control={
-              <button
-                onClick={openEditProfileModal}
-                className={`inline-flex items-center justify-center h-8 px-3 rounded-md border border-border-strong text-ink bg-canvas hover:bg-surface-soft text-xs font-semibold ${FOCUS_RING}`}
-              >
-                Edit
-              </button>
-            }
-          />
-          <SettingRow
-            title="Log out"
-            subtitle="Sign out of Cosello on this device."
-            control={
-              <button
-                onClick={logout}
-                className={`inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md border border-error/40 text-error bg-canvas hover:bg-error/5 text-xs font-semibold ${FOCUS_RING}`}
-              >
-                <LogOut className="size-3.5" />
-                Log out
-              </button>
-            }
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function SettingRow({ title, subtitle, control }: { title: string; subtitle: string; control: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 p-4">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-ink">{title}</p>
-        <p className="text-xs text-muted mt-0.5">{subtitle}</p>
-      </div>
-      <div className="shrink-0">{control}</div>
-    </div>
-  );
-}
-
