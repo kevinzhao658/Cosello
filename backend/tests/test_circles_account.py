@@ -43,7 +43,8 @@ def test_remove_user_school_drops_membership(db_session, make_user):
 
 
 def test_circles_summary_shape(db_session, make_user):
-    """get_user_circles_summary returns neighborhood (not building) per spec rev 2026-06-19."""
+    """get_user_circles_summary returns {schools, mutualFriends} only (spec rev 2026-06-20).
+    Neighborhood is no longer a displayed circle."""
     u = make_user(display_name="ZzzqaSumUser")
     set_user_neighborhood(db_session, u, "Chelsea")
     nbr = get_neighborhood_community(db_session, "Chelsea")
@@ -53,10 +54,9 @@ def test_circles_summary_shape(db_session, make_user):
     db_session.commit()
 
     summary = get_user_circles_summary(db_session, u)
-    assert summary["neighborhood"] is not None
-    assert summary["neighborhood"]["share"] is True
-    assert summary["neighborhood"]["community_id"] == nbr.id
-    assert summary["neighborhood"]["label"] == "Chelsea"
+    # New shape: no neighborhood key (spec rev 2026-06-20)
+    assert "neighborhood" not in summary
+    assert set(summary.keys()) == {"schools", "mutualFriends"}
     assert summary["schools"] == []
     assert summary["mutualFriends"]["share"] is True
 
@@ -83,40 +83,33 @@ def test_circles_me_and_consent_and_schools(db_session, make_user, client, overr
     override_auth_user(u)
 
     # --- GET /api/circles/me ---
+    # New shape: {schools, mutualFriends} — no neighborhood key (spec rev 2026-06-20)
     me = client.get("/api/circles/me").json()
-    assert me["neighborhood"] is not None
-    assert me["neighborhood"]["share"] is False   # default-off until we toggle
-    assert me["neighborhood"]["label"] == "Chelsea"
-    nbr_cid = me["neighborhood"]["community_id"]
-
-    # --- PATCH /api/circles/consent (neighborhood toggle) ---
-    resp = client.patch("/api/circles/consent", json={"community_id": nbr_cid, "share": True})
-    assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
-    me2 = client.get("/api/circles/me").json()
-    assert me2["neighborhood"]["share"] is True
+    assert "neighborhood" not in me
+    assert set(me.keys()) == {"schools", "mutualFriends"}
+    assert me["schools"] == []
 
     # --- PATCH /api/circles/mutual-friends ---
     resp = client.patch("/api/circles/mutual-friends", json={"share": True})
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    me3 = client.get("/api/circles/me").json()
-    assert me3["mutualFriends"]["share"] is True
+    me2 = client.get("/api/circles/me").json()
+    assert me2["mutualFriends"]["share"] is True
 
     # --- POST /api/circles/schools ---
     added = client.post("/api/circles/schools", json={"seed_id": seed.id})
     assert added.status_code == 200
     s_cid = added.json()["community_id"]
     assert added.json()["name"] == "Zzzqa Pace University"
-    me4 = client.get("/api/circles/me").json()
-    assert any(s["community_id"] == s_cid for s in me4["schools"])
+    me3 = client.get("/api/circles/me").json()
+    assert any(s["community_id"] == s_cid for s in me3["schools"])
 
     # --- DELETE /api/circles/schools/{community_id} ---
     resp = client.delete(f"/api/circles/schools/{s_cid}")
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    me5 = client.get("/api/circles/me").json()
-    assert me5["schools"] == []
+    me4 = client.get("/api/circles/me").json()
+    assert me4["schools"] == []
 
     # cleanup
     nbr = get_neighborhood_community(db_session, "Chelsea")

@@ -44,9 +44,12 @@ def test_feed_listing_exposes_circles_for_mutual_viewer(
     resp = client.get("/api/listings")
     assert resp.status_code == 200
     mine = next(l for l in resp.json() if l["id"] == listing.id)
-    assert mine["circles"]["neighborhood"]["shared"] is True
-    assert mine["circles"]["school"]["shared"] is False
-    assert mine["circles"]["mutualFriends"]["count"] == 0
+    # New circles shape: {connection:{degree}, school}
+    # Neighborhood is no longer in the circles shape (spec rev 2026-06-20)
+    assert "neighborhood" not in mine["circles"]
+    assert set(mine["circles"].keys()) == {"connection", "school"}
+    assert mine["circles"]["connection"]["degree"] is None  # not friends
+    assert mine["circles"]["school"] is None  # seller has no school
 
     # cleanup listing and memberships for seller/viewer (not the system-owned Community)
     db_session.query(Listing).filter(Listing.id == listing.id).delete()
@@ -96,10 +99,11 @@ def test_mine_listing_exposes_circles_for_seller(
     mine = next((l for l in resp.json() if l["id"] == listing.id), None)
     assert mine is not None, "listing not found in /api/listings/mine response"
     assert "circles" in mine, "/api/listings/mine listing missing 'circles' key"
-    assert mine["circles"]["neighborhood"]["shared"] is True
-    assert mine["circles"]["school"]["shared"] is False
-    assert mine["circles"]["mutualFriends"]["count"] == 0
-    assert "directFriend" in mine["circles"]["mutualFriends"]
+    # New circles shape: {connection:{degree}, school} (spec rev 2026-06-20)
+    assert set(mine["circles"].keys()) == {"connection", "school"}
+    assert "neighborhood" not in mine["circles"]
+    assert mine["circles"]["connection"]["degree"] is None  # viewer == seller
+    assert mine["circles"]["school"] is None  # seller has no school
 
     # cleanup listing + seller's neighborhood membership
     db_session.query(Listing).filter(Listing.id == listing.id).delete()
@@ -110,10 +114,9 @@ def test_mine_listing_exposes_circles_for_seller(
     db_session.commit()
 
 
-def test_public_feed_circles_use_neighborhood_key(db_session, make_user, client, mock_storage, override_auth_user):
-    """GET /api/listings/public must return circles with a 'neighborhood' key (not
-    'building') so unsigned-out callers and CircleByline don't crash with TypeError.
-    Regression guard for the building->neighborhood pivot (spec rev 2026-06-19)."""
+def test_public_feed_circles_use_new_shape(db_session, make_user, client, mock_storage, override_auth_user):
+    """GET /api/listings/public must return circles with the new {connection, school}
+    shape (spec rev 2026-06-20). No 'neighborhood' or 'building' keys."""
     import json as _json
     seller = make_user(display_name="PubSeller", neighborhood="SoHo")
     override_auth_user(seller)
@@ -141,14 +144,18 @@ def test_public_feed_circles_use_neighborhood_key(db_session, make_user, client,
     # minimum the endpoint must return 200 and every item must use "neighborhood").
     for item in items:
         circles = item.get("circles", {})
-        assert "neighborhood" in circles, (
-            f"listing {item.get('id')!r} circles dict missing 'neighborhood' key: {circles}"
+        # New shape: {connection:{degree}, school} — no neighborhood, no building,
+        # no mutualFriends keys (spec rev 2026-06-20).
+        assert set(circles.keys()) == {"connection", "school"}, (
+            f"listing {item.get('id')!r} unexpected circles keys: {set(circles.keys())}"
+        )
+        assert "neighborhood" not in circles, (
+            f"listing {item.get('id')!r} circles dict still has legacy 'neighborhood' key"
         )
         assert "building" not in circles, (
-            f"listing {item.get('id')!r} circles dict still has legacy 'building' key: {circles}"
+            f"listing {item.get('id')!r} circles dict still has legacy 'building' key"
         )
-        assert "school" in circles
-        assert "mutualFriends" in circles
+        assert "degree" in circles["connection"]
 
     # cleanup
     from models import Listing as _Listing

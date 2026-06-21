@@ -63,3 +63,10 @@ def test_batch_returns_new_shape_for_each_seller(db_session, make_user, test_use
     assert set(out[seller.id].keys()) == {"connection", "school"}
     assert out[seller.id]["connection"]["degree"] is None  # strangers, no graph
     assert out[seller.id]["school"] is None                 # seller has no school
+
+
+def test_summary_has_no_neighborhood_key(db_session, test_user):
+    from services.circles import get_user_circles_summary
+    out = get_user_circles_summary(db_session, test_user)
+    assert "neighborhood" not in out
+    assert set(out.keys()) == {"schools", "mutualFriends"}

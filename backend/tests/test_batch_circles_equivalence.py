@@ -142,12 +142,13 @@ def test_scenario_a_shared_neighborhood(db_session, make_user):
     _assert_batch_equals_single(db_session, [seller.id], viewer, viewer_cids)
 
     # Verify the expected value is correct (not just "both paths agree on wrong answer")
+    # New shape: {connection:{degree}, school} — no neighborhood (spec rev 2026-06-20)
     single = seller_circles_for_viewer(
         db_session, seller.id, viewer, viewer_circle_ids=viewer_cids
     )
-    assert single["neighborhood"]["shared"] is True
-    assert single["neighborhood"]["label"] == "Chelsea"
-    assert single["school"]["shared"] is False
+    assert "neighborhood" not in single
+    assert single["connection"]["degree"] is None  # no friendship
+    assert single["school"] is None  # seller has no school
 
     # Cleanup memberships (not the system-owned Community row)
     db_session.query(CommunityMember).filter(
@@ -170,12 +171,16 @@ def test_scenario_b_shared_school(db_session, make_user):
 
     _assert_batch_equals_single(db_session, [seller.id], viewer, viewer_cids)
 
+    # New shape: school always-on when seller has school + share_with_mutuals=True
     single = seller_circles_for_viewer(
         db_session, seller.id, viewer, viewer_circle_ids=viewer_cids
     )
-    assert single["school"]["shared"] is True
-    assert single["school"]["label"] == "ZZZTest University Batch"
-    assert single["neighborhood"]["shared"] is False
+    assert "neighborhood" not in single
+    assert single["school"] is not None
+    assert single["school"]["fullName"] == "ZZZTest University Batch"
+    # viewer is enrolled in the same school → isMine=True
+    assert single["school"]["isMine"] is True
+    assert single["connection"]["degree"] is None  # no friendship
 
     # Cleanup
     db_session.query(CommunityMember).filter(
@@ -206,11 +211,13 @@ def test_scenario_c_mutual_friends(db_session, make_user):
 
     _assert_batch_equals_single(db_session, [seller.id], viewer, viewer_cids)
 
+    # New shape: mutual friends → degree 2 (share ≥1 mutual friend)
     single = seller_circles_for_viewer(
         db_session, seller.id, viewer, viewer_circle_ids=viewer_cids
     )
-    assert single["mutualFriends"]["count"] == 2
-    assert single["mutualFriends"]["directFriend"] is False
+    assert "mutualFriends" not in single
+    assert single["connection"]["degree"] == 2
+    assert single["school"] is None  # seller has no school
 
     # Cleanup
     db_session.query(Friendship).filter(
@@ -234,10 +241,13 @@ def test_scenario_d_direct_friend(db_session, make_user):
 
     _assert_batch_equals_single(db_session, [seller.id], viewer, viewer_cids)
 
+    # New shape: direct friend → degree 1
     single = seller_circles_for_viewer(
         db_session, seller.id, viewer, viewer_circle_ids=viewer_cids
     )
-    assert single["mutualFriends"]["directFriend"] is True
+    assert "mutualFriends" not in single
+    assert single["connection"]["degree"] == 1
+    assert single["school"] is None  # seller has no school
 
     # Cleanup
     db_session.query(Friendship).filter(
@@ -256,13 +266,14 @@ def test_scenario_e_no_overlap(db_session, make_user):
 
     _assert_batch_equals_single(db_session, [seller.id], viewer, viewer_cids)
 
+    # New shape: no overlap → degree None, school None
     single = seller_circles_for_viewer(
         db_session, seller.id, viewer, viewer_circle_ids=viewer_cids
     )
-    assert single["neighborhood"]["shared"] is False
-    assert single["school"]["shared"] is False
-    assert single["mutualFriends"]["count"] == 0
-    assert single["mutualFriends"]["directFriend"] is False
+    assert "neighborhood" not in single
+    assert "mutualFriends" not in single
+    assert single["connection"]["degree"] is None
+    assert single["school"] is None
 
 
 def test_scenario_f_share_mutual_friends_false(db_session, make_user):
@@ -281,11 +292,13 @@ def test_scenario_f_share_mutual_friends_false(db_session, make_user):
 
     _assert_batch_equals_single(db_session, [seller.id], viewer, viewer_cids)
 
+    # New shape: seller opted out → degree None regardless of graph
     single = seller_circles_for_viewer(
         db_session, seller.id, viewer, viewer_circle_ids=viewer_cids
     )
-    assert single["mutualFriends"]["count"] == 0
-    assert single["mutualFriends"]["directFriend"] is False
+    assert "mutualFriends" not in single
+    assert single["connection"]["degree"] is None
+    assert single["school"] is None  # seller has no school
 
     # Cleanup
     db_session.query(Friendship).filter(
