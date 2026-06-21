@@ -9,11 +9,11 @@ import { ListingImage } from "./ui/ListingImage";
 import { CategorySelector, CategoryAttributeFields } from "./CategoryFields";
 import { CONDITIONS } from "../lib/listings";
 import type {
-  CategorySchema,
   CategorySlug,
   Listing,
   ListingUpdatePatch,
 } from "../lib/types";
+import { useCategorySchemas } from "../contexts/CategorySchemasContext";
 
 type EditListingSource = Pick<
   Listing,
@@ -39,9 +39,6 @@ export type EditListingModalProps = {
   // relying on whatever stale value lives on the listing.
   location: string;
   onSave: (patch: ListingUpdatePatch) => Promise<void>;
-  // When omitted (or empty), the category section is hidden. Both Marketplace
-  // and MyAccount call sites pass this so the modal looks identical.
-  categorySchemas?: Record<string, CategorySchema>;
   // Z-index override (App.tsx uses z=260 to stack above listing detail).
   z?: number;
 };
@@ -59,9 +56,9 @@ export function EditListingModal({
   listing,
   location,
   onSave,
-  categorySchemas,
   z = 50,
 }: EditListingModalProps) {
+  const categorySchemas = useCategorySchemas();
   const [brand, setBrand] = useState(listing.brand || "");
   const [name, setName] = useState(listing.name || "");
   const [description, setDescription] = useState(listing.description || "");
@@ -75,7 +72,7 @@ export function EditListingModal({
   );
   const [isSaving, setIsSaving] = useState(false);
 
-  const showCategory = categorySchemas && Object.keys(categorySchemas).length > 0;
+  const showCategory = Object.keys(categorySchemas).length > 0;
   const previewUrls = listing.imageUrls && listing.imageUrls.length > 0
     ? listing.imageUrls
     : listing.imageUrl

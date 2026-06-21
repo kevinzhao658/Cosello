@@ -8,6 +8,8 @@ import { Tooltip } from "./components/ui/tooltip";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import { useOrderModals } from "./contexts/OrderModalsContext";
+import { CategorySchemasProvider } from "./contexts/CategorySchemasContext";
+import { CommunitiesProvider } from "./contexts/CommunitiesContext";
 import { FOCUS_RING } from "./lib/ui-constants";
 import { ModalCloseButton } from "./components/ui/ModalCloseButton";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
@@ -585,6 +587,8 @@ export default function App() {
   })();
 
   return (
+    <CategorySchemasProvider value={categorySchemas}>
+    <CommunitiesProvider value={{ publicCommunities, privateCommunities, fetchFilterCommunities }}>
     <div className="min-h-screen bg-canvas text-ink">
       {/* Navigation */}
       <nav className="sticky top-0 border-b border-hairline bg-canvas z-50">
@@ -954,12 +958,9 @@ export default function App() {
                   <Suspense fallback={null}>
                   <SellWizard
                     ref={sellWizardRef}
-                    categorySchemas={categorySchemas}
                     isActive={true}
                     mode={newListing.mode}
                     photosOnly={newListing.mode === "manual"}
-                    publicCommunities={publicCommunities}
-                    privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={requestSignInForPublish}
                     onPosted={() => {
@@ -1526,7 +1527,6 @@ export default function App() {
             filterCommunities={filterCommunities}
             selectedMarketCommunities={market.selectedCommunities}
             onToggleCommunity={handleToggleMarketCommunity}
-            categorySchemas={categorySchemas}
             selectedCategories={market.selectedCategories}
             onToggleCategory={handleToggleCategory}
             distanceMiles={market.distanceMiles}
@@ -1961,7 +1961,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlist.items} wishlist={wishlist.ids} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={detail.openListingDetail} onViewUser={detail.openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} wishlistItems={wishlist.items} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={detail.openListingDetail} onViewUser={detail.openUserDashboard} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 
@@ -2046,7 +2046,6 @@ export default function App() {
         sellerProfile={detail.sellerProfile}
         isLoadingSeller={detail.isLoadingSeller}
         buyerOrderStatus={detail.buyerOrderStatus}
-        categorySchemas={categorySchemas}
         onOpenUserDashboard={detail.openUserDashboard}
         onOpenEdit={detail.openEdit}
         onOpenBuy={detail.openBuy}
@@ -2073,7 +2072,6 @@ export default function App() {
           listing={detail.listing}
           location={user?.neighborhood || detail.listing.location || ""}
           onSave={detail.saveListingEdit}
-          categorySchemas={categorySchemas}
           z={260}
         />
       )}
@@ -2143,5 +2141,7 @@ export default function App() {
       )}
       <Analytics />
     </div>
+    </CommunitiesProvider>
+    </CategorySchemasProvider>
   );
 }

@@ -11,6 +11,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { apiFetch } from "../../lib/api";
 import { CircleByline } from "../../components/CircleByline";
 import type { Listing } from "../../lib/types";
+import { useCategorySchemas } from "../../contexts/CategorySchemasContext";
 
 export type SellerProfile = {
   id: string;
@@ -33,7 +34,6 @@ type ListingDetailModalProps = {
   sellerProfile: SellerProfile | null;
   isLoadingSeller: boolean;
   buyerOrderStatus: BuyerOrderStatus;
-  categorySchemas: Record<string, { label: string }>;
   onOpenUserDashboard: (userId: string) => void;
   onOpenEdit: () => void;
   onOpenBuy: () => void;
@@ -170,13 +170,13 @@ export function ListingDetailModal({
   sellerProfile,
   isLoadingSeller,
   buyerOrderStatus,
-  categorySchemas,
   onOpenUserDashboard,
   onOpenEdit,
   onOpenBuy,
   onEditPickupSlots,
   onSignInPrompt,
 }: ListingDetailModalProps) {
+  const categorySchemas = useCategorySchemas();
   const [imageIndex, setImageIndex] = useState(0);
   const [tab, setTab] = useState<DetailTab>("details");
   const [locationDrawerOpen, setLocationDrawerOpen] = useState(false);

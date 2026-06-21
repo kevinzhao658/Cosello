@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, startTransition, forwardRef } from "react";
 import { Loader2, X, Plus, AlertTriangle, MapPin, ImagePlus, ArrowRight } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import { useCategorySchemas } from "../../contexts/CategorySchemasContext";
+import { useCommunities } from "../../contexts/CommunitiesContext";
 import { apiFetch } from "../../lib/api";
 import { uploadToStorage } from "../../lib/uploadToStorage";
 import { compressImage } from "../../lib/compressImage";
-import type { CategorySchema, CategorySlug } from "../../lib/types";
+import type { CategorySlug } from "../../lib/types";
 import { NYC_ZIP_SET } from "../../lib/nycZips";
 import { hasMapboxToken } from "../../lib/mapboxSearch";
 import { useDraftAutosave } from "./useDraftAutosave";
@@ -47,7 +49,6 @@ export interface SellWizardHandle {
 }
 
 export interface SellWizardProps {
-  categorySchemas: Record<string, CategorySchema>;
   isActive: boolean;
   // Wizard mode. `"ai"` runs the existing segmentation → cards → pickup flow.
   // `"manual"` keeps the photo composer mounted but skips segmentation entirely;
@@ -57,10 +58,6 @@ export interface SellWizardProps {
   // no submit arrow, no downstream phases). Used by the #newlisting page where
   // the page owns the publish button.
   photosOnly?: boolean;
-  // The user's communities (from /mine). Used to pre-select the neighborhood
-  // community in the community selector and populate the picker.
-  publicCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
-  privateCommunities?: { id: number; name: string; neighborhood?: string; is_public?: boolean }[];
   onRequestSignIn: () => void;
   onPosted: () => void;
   onRequestSinglePostConfirm: () => void;
@@ -97,12 +94,9 @@ function relativeTime(ms: number): string {
 }
 
 export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function SellWizard({
-  categorySchemas,
   isActive,
   mode = "ai",
   photosOnly = false,
-  publicCommunities = [],
-  privateCommunities = [],
   onRequestSignIn,
   onPosted,
   onRequestSinglePostConfirm,
@@ -121,6 +115,8 @@ export const SellWizard = forwardRef<SellWizardHandle, SellWizardProps>(function
   onBackToDrafts,
 }, ref) {
   const { isAuthenticated, user, token } = useAuth();
+  const categorySchemas = useCategorySchemas();
+  const { publicCommunities, privateCommunities } = useCommunities();
 
   // Drafts: identify which draft this wizard instance is editing.
   // null = no draft yet (pre-first-photo).

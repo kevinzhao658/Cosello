@@ -6,6 +6,7 @@ import { formatTitle } from "../../../lib/format";
 import { PLACEHOLDER_COMMUNITY } from "../../../lib/listings";
 import { FOCUS_RING } from "../constants";
 import type { Listing } from "../../../lib/types";
+import { useMyAccount } from "../MyAccountContext";
 
 interface WishlistFolder {
   id: number;
@@ -43,9 +44,7 @@ export interface SavedTabContentProps {
   unsaveSelected: () => void;
   moveOpen: boolean;
   setMoveOpen: (v: boolean) => void;
-  openListingDetail?: (l: Listing) => void;
   wishlistItemsWithFolder: WishlistListingWithFolder[];
-  onNavigate: (page: string) => void;
 }
 
 function Heart({ className }: { className?: string }) {
@@ -99,10 +98,10 @@ export function SavedTabContent({
   unsaveSelected,
   moveOpen,
   setMoveOpen,
-  openListingDetail,
   wishlistItemsWithFolder,
-  onNavigate,
 }: SavedTabContentProps) {
+  const { openListingDetail, onNavigate } = useMyAccount();
+
   const totalCount = wishlistItemsWithFolder.length > 0 ? wishlistItemsWithFolder.length : items.length;
   const toggleSelect = (id: string) => {
     const next = new Set(selectedIds);

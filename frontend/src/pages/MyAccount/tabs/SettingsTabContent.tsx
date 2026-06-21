@@ -4,14 +4,12 @@ import { ToggleSwitch } from "../../../components/ui/ToggleSwitch";
 import { CircleSettings } from "../CircleSettings";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE } from "../constants";
 import type { Settings } from "../../../contexts/SettingsContext";
+import { useMyAccount } from "../MyAccountContext";
 
 export interface SettingsTabContentProps {
   settings: Settings;
   updateSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => void;
   resetSettings: () => void;
-  openEditProfileModal: () => void;
-  openAddFriendsModal: () => void;
-  openFriendsModal: () => void;
   friendsCount: number;
   logout: () => Promise<void>;
 }
@@ -32,12 +30,11 @@ export function SettingsTabContent({
   settings,
   updateSetting,
   resetSettings,
-  openEditProfileModal,
-  openAddFriendsModal,
-  openFriendsModal,
   friendsCount,
   logout,
 }: SettingsTabContentProps) {
+  const { openEditProfileModal, openAddFriendsModal, openFriendsModal } = useMyAccount();
+
   const fontSizes: [Settings["fontSize"], string][] = [
     ["default", "Default"],
     ["large", "Large"],

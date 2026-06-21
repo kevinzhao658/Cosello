@@ -8,14 +8,13 @@
  * provider. Tab components consume via useMyAccount().
  */
 import { createContext, useContext, type ReactNode } from "react";
-import type { CategorySchema, Listing, MyListing, OrderData } from "../../lib/types";
+import type { Listing, MyListing, OrderData } from "../../lib/types";
 
 export interface MyAccountSharedState {
   // Data
   myListings: MyListing[];
   myPurchases: OrderData[];
   mySellerOrders: OrderData[];
-  categorySchemas?: Record<string, CategorySchema>;
 
   // Loading gates
   isLoadingMyListings: boolean;

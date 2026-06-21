@@ -30,7 +30,8 @@ import { formatTitle } from "../../lib/format";
 import { supabase } from "../../lib/supabase";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { apiFetch } from "../../lib/api";
-import type { CategorySchema, Listing, ListingUpdatePatch, MyListing, OrderData } from "../../lib/types";
+import type { Listing, ListingUpdatePatch, MyListing, OrderData } from "../../lib/types";
+import { useCommunities } from "../../contexts/CommunitiesContext";
 import { FOCUS_RING, MODAL_TITLE } from "./constants";
 import { EditListingModal } from "../../components/EditListingModal";
 import { ListingImage } from "../../components/ui/ListingImage";
@@ -43,10 +44,8 @@ import { FriendsListModal } from "./modals/FriendsListModal";
 import { EditProfileModal } from "./modals/EditProfileModal";
 import { AddFriendsModal } from "./modals/AddFriendsModal";
 import { RemoveListingConfirmModal } from "./modals/RemoveListingConfirmModal";
-import { CircleSettings } from "./CircleSettings";
 import { ToggleSwitch } from "../../components/ui/ToggleSwitch";
 import { AvatarUploadButton } from "../../components/ui/AvatarUploadButton";
-import { Skeleton } from "../../components/ui/Skeleton";
 import { buildSlotTarget, parseSlotEndHour } from "../../lib/pickupTime";
 import { ListingsTabContent } from "./tabs/ListingsTabContent";
 import { SavedTabContent } from "./tabs/SavedTabContent";
@@ -68,13 +67,6 @@ interface CommunityData {
   created_by: string;
   member_count: number;
   role: string | null;
-}
-
-interface SearchUser {
-  id: string;
-  display_name: string | null;
-  neighborhood: string | null;
-  profile_picture: string | null;
 }
 
 interface FriendSearchUser {
@@ -129,16 +121,13 @@ const ACCOUNT_TAB_STORAGE_KEY = "myaccount_tab";
 
 interface MyAccountPageProps {
   onNavigate: (page: string) => void;
-  onCommunitiesChanged?: () => void;
   wishlistItems?: Listing[];
-  wishlist?: Set<string>;
   onToggleWishlist?: (listingId: string) => void;
   pendingListingId?: string | null;
   onClearPendingListing?: () => void;
   onAddToHistory?: (item: { id: string; title: string; imageUrl: string; price: string; type: "viewed" | "purchased" | "listed" | "sold" }) => void;
   openListingDetail?: (listing: Listing) => void;
   onViewUser?: (userId: string) => void;
-  categorySchemas?: Record<string, CategorySchema>;
   // Cross-page tab requests (e.g. Settings dropdown from global nav). The nonce
   // forces re-application even when the page is already mounted and the
   // requested tab matches the current tab.
@@ -146,9 +135,10 @@ interface MyAccountPageProps {
   onClearRequestedAccountTab?: () => void;
 }
 
-export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, categorySchemas, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
+export default function MyAccountPage({ onNavigate, wishlistItems = [], onToggleWishlist, pendingListingId, onClearPendingListing, onAddToHistory, openListingDetail, onViewUser, requestedAccountTab, onClearRequestedAccountTab }: MyAccountPageProps) {
   const { user, token, updateUser, logout } = useAuth();
   const { settings, updateSetting, resetSettings } = useSettings();
+  const { fetchFilterCommunities: onCommunitiesChanged } = useCommunities();
 
   // ── Profile picture upload ─────────────────────────────
   const { isUploading: isUploadingAvatar, uploadError: avatarUploadError, upload: uploadAvatar, clearError: clearAvatarError } = useProfilePictureUpload({
@@ -187,7 +177,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
 
   // ── Community data ─────────────────────────────────────
   const [communities, setCommunities] = useState<CommunityData[]>([]);
-  const [communitiesLoaded, setCommunitiesLoaded] = useState(false);
 
   // Edit Profile modal
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
@@ -542,8 +531,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
       if (res.ok) setCommunities(await res.json());
     } catch (err) {
       console.error("Failed to fetch communities:", err);
-    } finally {
-      setCommunitiesLoaded(true);
     }
   }, [token]);
 
@@ -1181,7 +1168,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     myListings,
     myPurchases,
     mySellerOrders,
-    categorySchemas,
     isLoadingMyListings,
     isLoadingMyOrders,
     isLoadingStats,
@@ -1202,7 +1188,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
     getListingTimeInfo,
     getPickupCountdown,
   }), [ // eslint-disable-line react-hooks/exhaustive-deps
-    myListings, myPurchases, mySellerOrders, categorySchemas,
+    myListings, myPurchases, mySellerOrders,
     isLoadingMyListings, isLoadingMyOrders, isLoadingStats, isLoadingSaved,
     relistingId, onNavigate, onViewUser, openListingDetail,
   ]);
@@ -1334,19 +1320,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
               <OverviewTabContent
                 listingsTab={listingsTab}
                 setListingsTab={setListingsTab}
-                myListings={myListings}
-                myPurchases={myPurchases}
-                mySellerOrders={mySellerOrders}
-                isLoadingMyListings={isLoadingMyListings}
-                isLoadingMyOrders={isLoadingMyOrders}
-                openEditListing={openEditListing}
-                openOrderModal={openOrderManagement}
-                openConfirmedOrderSummary={openConfirmedOrderSummary}
-                openRatingModal={openRatingModal}
-                openListingDetail={openListingDetail}
-                getListingTimeInfo={getListingTimeInfo}
-                getPickupCountdown={getPickupCountdown}
-                onNavigate={onNavigate}
                 punchlist={punchlist}
                 punchlistLoaded={punchlistLoaded}
               />
@@ -1360,33 +1333,16 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 setListingsTab={(t) => { setListingsTab(t); setListingsFilter("all"); }}
                 listingsFilter={listingsFilter}
                 setListingsFilter={setListingsFilter}
-                myListings={myListings}
-                myPurchases={myPurchases}
-                mySellerOrders={mySellerOrders}
-                isLoadingStats={isLoadingStats}
-                isLoadingMyListings={isLoadingMyListings}
-                isLoadingMyOrders={isLoadingMyOrders}
                 sellingActiveCount={sellingActiveCount}
                 sellingDraftCount={sellingDraftCount}
                 sellingSoldCount={sellingSoldCount}
                 buyingActiveCount={buyingActiveCount}
                 buyingCompletedCount={buyingCompletedCount}
                 buyingDeclinedCount={buyingDeclinedCount}
-                openEditListing={openEditListing}
-                openRemoveListing={openRemoveListing}
-                openOrderModal={openOrderManagement}
-                openConfirmedOrderSummary={openConfirmedOrderSummary}
-                openRatingModal={openRatingModal}
-                openListingDetail={openListingDetail}
-                handleRelist={handleRelist}
-                relistingId={relistingId}
-                getListingTimeInfo={getListingTimeInfo}
-                getPickupCountdown={getPickupCountdown}
                 setShowWithdrawConfirm={setShowWithdrawConfirm}
                 showWithdrawConfirm={showWithdrawConfirm}
                 handleWithdrawOrder={handleWithdrawOrder}
                 withdrawingOrderId={withdrawingOrderId}
-                onNavigate={onNavigate}
               />
             </div>
           )}
@@ -1419,9 +1375,7 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 unsaveSelected={unsaveSelected}
                 moveOpen={moveOpen}
                 setMoveOpen={setMoveOpen}
-                openListingDetail={openListingDetail}
                 wishlistItemsWithFolder={wishlistItemsWithFolder}
-                onNavigate={onNavigate}
               />
             </div>
           )}
@@ -1432,9 +1386,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
                 settings={settings}
                 updateSetting={updateSetting}
                 resetSettings={resetSettings}
-                openEditProfileModal={openEditProfileModal}
-                openAddFriendsModal={openAddFriendsModal}
-                openFriendsModal={openFriendsModal}
                 friendsCount={stats.friends_count}
                 logout={async () => {
                   await logout();
@@ -1918,7 +1869,6 @@ export default function MyAccountPage({ onNavigate, onCommunitiesChanged, wishli
           listing={editListing}
           location={user?.neighborhood || editListing.location || ""}
           onSave={handleSaveListing}
-          categorySchemas={categorySchemas}
         />
       )}
 

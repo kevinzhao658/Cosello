@@ -7,40 +7,24 @@ import { formatTitle } from "../../../lib/format";
 import { getChipClass, PLACEHOLDER_COMMUNITY } from "../../../lib/listings";
 import { getBuyerOrderViewState } from "../../../lib/orderStatus";
 import { FOCUS_RING, SEG_BTN_BASE } from "../constants";
-import type { Listing, MyListing, OrderData } from "../../../lib/types";
+import type { Listing } from "../../../lib/types";
+import { useMyAccount } from "../MyAccountContext";
 
 export interface ListingsTabContentProps {
   listingsTab: "selling" | "buying";
   setListingsTab: (t: "selling" | "buying") => void;
   listingsFilter: string;
   setListingsFilter: (f: string) => void;
-  myListings: MyListing[];
-  myPurchases: OrderData[];
-  mySellerOrders: OrderData[];
-  isLoadingStats: boolean;
-  isLoadingMyListings: boolean;
-  isLoadingMyOrders: boolean;
   sellingActiveCount: number;
   sellingDraftCount: number;
   sellingSoldCount: number;
   buyingActiveCount: number;
   buyingCompletedCount: number;
   buyingDeclinedCount: number;
-  openEditListing: (l: MyListing) => void;
-  openRemoveListing: (l: MyListing) => void;
-  openOrderModal: (l: MyListing) => void;
-  openConfirmedOrderSummary: (id: string) => void;
-  openRatingModal: (o: OrderData) => void;
-  openListingDetail?: (l: Listing) => void;
-  handleRelist: (id: string) => void;
-  relistingId: string | null;
-  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
-  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
   setShowWithdrawConfirm: (id: number | null) => void;
   showWithdrawConfirm: number | null;
   handleWithdrawOrder: (id: number) => void;
   withdrawingOrderId: number | null;
-  onNavigate: (page: string) => void;
 }
 
 export function ListingsTabContent({
@@ -48,34 +32,37 @@ export function ListingsTabContent({
   setListingsTab,
   listingsFilter,
   setListingsFilter,
-  myListings,
-  myPurchases,
-  mySellerOrders,
-  isLoadingStats,
-  isLoadingMyListings,
-  isLoadingMyOrders,
   sellingActiveCount,
   sellingDraftCount,
   sellingSoldCount,
   buyingActiveCount,
   buyingCompletedCount,
   buyingDeclinedCount,
-  openEditListing,
-  openRemoveListing,
-  openOrderModal,
-  openConfirmedOrderSummary,
-  openRatingModal,
-  openListingDetail,
-  handleRelist,
-  relistingId,
-  getListingTimeInfo,
-  getPickupCountdown,
   setShowWithdrawConfirm,
   showWithdrawConfirm,
   handleWithdrawOrder,
   withdrawingOrderId,
-  onNavigate,
 }: ListingsTabContentProps) {
+  const {
+    myListings,
+    myPurchases,
+    mySellerOrders,
+    isLoadingStats,
+    isLoadingMyListings,
+    isLoadingMyOrders,
+    openEditListing,
+    openRemoveListing,
+    openOrderModal,
+    openConfirmedOrderSummary,
+    openRatingModal,
+    openListingDetail,
+    handleRelist,
+    relistingId,
+    getListingTimeInfo,
+    getPickupCountdown,
+    onNavigate,
+  } = useMyAccount();
+
   const sellingKpis: { label: string; value: string; sub: string }[] = [
     { label: "Active", value: String(sellingActiveCount), sub: sellingActiveCount === 1 ? "listing" : "listings" },
     { label: "Total views", value: "—", sub: "Coming soon" },

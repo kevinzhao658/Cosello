@@ -8,6 +8,7 @@ import { PLACEHOLDER_COMMUNITY } from "../../../lib/listings";
 import { getBuyerOrderViewState, getSellerListingCtaState } from "../../../lib/orderStatus";
 import { FOCUS_RING, SEG_BTN_BASE, PANEL_TITLE } from "../constants";
 import type { Listing, MyListing, OrderData } from "../../../lib/types";
+import { useMyAccount } from "../MyAccountContext";
 
 // ── Types shared between sub-panels ──────────────────────────
 
@@ -58,38 +59,28 @@ function getSellingRowPriority(
 interface OverviewListingsPanelProps {
   listingsTab: "selling" | "buying";
   setListingsTab: (t: "selling" | "buying") => void;
-  myListings: MyListing[];
-  myPurchases: OrderData[];
-  mySellerOrders: OrderData[];
-  isLoadingMyListings: boolean;
-  isLoadingMyOrders: boolean;
-  openEditListing: (l: MyListing) => void;
-  openOrderModal: (l: MyListing) => void;
-  openConfirmedOrderSummary: (id: string) => void;
-  openRatingModal: (o: OrderData) => void;
-  openListingDetail?: (l: Listing) => void;
-  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
-  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
-  onNavigate: (page: string) => void;
 }
 
 function OverviewListingsPanel({
   listingsTab,
   setListingsTab,
-  myListings,
-  myPurchases,
-  mySellerOrders,
-  isLoadingMyListings,
-  isLoadingMyOrders,
-  openEditListing,
-  openOrderModal,
-  openConfirmedOrderSummary,
-  openRatingModal,
-  openListingDetail,
-  getListingTimeInfo,
-  getPickupCountdown: getPickupCountdownFn,
-  onNavigate,
 }: OverviewListingsPanelProps) {
+  const {
+    myListings,
+    myPurchases,
+    mySellerOrders,
+    isLoadingMyListings,
+    isLoadingMyOrders,
+    openEditListing,
+    openOrderModal,
+    openConfirmedOrderSummary,
+    openRatingModal,
+    openListingDetail,
+    getListingTimeInfo,
+    getPickupCountdown: getPickupCountdownFn,
+    onNavigate,
+  } = useMyAccount();
+
   const sellingRows = [...myListings].sort((a, b) => {
     const pa = getSellingRowPriority(a, mySellerOrders, getListingTimeInfo, getPickupCountdownFn);
     const pb = getSellingRowPriority(b, mySellerOrders, getListingTimeInfo, getPickupCountdownFn);
@@ -339,24 +330,21 @@ function OverviewListingsPanel({
 interface PunchlistPanelProps {
   punchlist: PunchlistResponse | null;
   punchlistLoaded: boolean;
-  openOrderModal: (l: MyListing) => void;
-  openEditListing: (l: MyListing) => void;
-  openRatingModal: (o: OrderData) => void;
-  openConfirmedOrderSummary: (listingId: string) => void;
-  mySellerOrders: OrderData[];
-  myPurchases: OrderData[];
 }
 
 function PunchlistPanel({
   punchlist,
   punchlistLoaded,
-  openOrderModal,
-  openEditListing,
-  openRatingModal,
-  openConfirmedOrderSummary,
-  mySellerOrders,
-  myPurchases,
 }: PunchlistPanelProps) {
+  const {
+    openOrderModal,
+    openEditListing,
+    openRatingModal,
+    openConfirmedOrderSummary,
+    mySellerOrders,
+    myPurchases,
+  } = useMyAccount();
+
   // Each cat entry uses a typed discriminated union so the render loop can
   // dispatch without `any`. Pickups carry PunchlistPickup items; offers and
   // drafts carry MyListing items; messages carry unknown[].
@@ -576,19 +564,6 @@ function PunchlistPanel({
 export interface OverviewTabContentProps {
   listingsTab: "selling" | "buying";
   setListingsTab: (t: "selling" | "buying") => void;
-  myListings: MyListing[];
-  myPurchases: OrderData[];
-  mySellerOrders: OrderData[];
-  isLoadingMyListings: boolean;
-  isLoadingMyOrders: boolean;
-  openEditListing: (l: MyListing) => void;
-  openOrderModal: (l: MyListing) => void;
-  openConfirmedOrderSummary: (id: string) => void;
-  openRatingModal: (o: OrderData) => void;
-  openListingDetail?: (l: Listing) => void;
-  getListingTimeInfo: (postedAt: number) => { expired: boolean; label: string };
-  getPickupCountdown: (o: OrderData) => { expired: boolean; label: string; diff: number };
-  onNavigate: (page: string) => void;
   punchlist: PunchlistResponse | null;
   punchlistLoaded: boolean;
 }
@@ -596,19 +571,6 @@ export interface OverviewTabContentProps {
 export function OverviewTabContent({
   listingsTab,
   setListingsTab,
-  myListings,
-  myPurchases,
-  mySellerOrders,
-  isLoadingMyListings,
-  isLoadingMyOrders,
-  openEditListing,
-  openOrderModal,
-  openConfirmedOrderSummary,
-  openRatingModal,
-  openListingDetail,
-  getListingTimeInfo,
-  getPickupCountdown,
-  onNavigate,
   punchlist,
   punchlistLoaded,
 }: OverviewTabContentProps) {
@@ -617,29 +579,10 @@ export function OverviewTabContent({
       <OverviewListingsPanel
         listingsTab={listingsTab}
         setListingsTab={setListingsTab}
-        myListings={myListings}
-        myPurchases={myPurchases}
-        mySellerOrders={mySellerOrders}
-        isLoadingMyListings={isLoadingMyListings}
-        isLoadingMyOrders={isLoadingMyOrders}
-        openEditListing={openEditListing}
-        openOrderModal={openOrderModal}
-        openConfirmedOrderSummary={openConfirmedOrderSummary}
-        openRatingModal={openRatingModal}
-        openListingDetail={openListingDetail}
-        getListingTimeInfo={getListingTimeInfo}
-        getPickupCountdown={getPickupCountdown}
-        onNavigate={onNavigate}
       />
       <PunchlistPanel
         punchlist={punchlist}
         punchlistLoaded={punchlistLoaded}
-        openOrderModal={openOrderModal}
-        openEditListing={openEditListing}
-        openRatingModal={openRatingModal}
-        openConfirmedOrderSummary={openConfirmedOrderSummary}
-        mySellerOrders={mySellerOrders}
-        myPurchases={myPurchases}
       />
     </div>
   );
