@@ -453,6 +453,53 @@ def _assemble_circles(
 EMPTY_CIRCLES: dict = {"connection": {"degree": None}, "school": None}
 
 
+def public_seller_circles_batch(
+    db: Session,
+    seller_ids: list[str],
+) -> dict[str, dict]:
+    """School-only circles enrichment for the unauthenticated public feed.
+
+    No viewer → connection.degree is always None; isMine is always False
+    (there is no viewer circle set to compare against). One DB query for all
+    sellers — no N+1.
+
+    Args:
+        seller_ids: Distinct seller user IDs whose school circles to load.
+
+    Returns:
+        ``{seller_id: {connection:{degree:None}, school:{...}|None}}``
+    """
+    if not seller_ids:
+        return {}
+
+    school_rows = (
+        db.query(CommunityMember.user_id, Community, SchoolSeed.short_name)
+        .join(Community, Community.id == CommunityMember.community_id)
+        .outerjoin(SchoolSeed, SchoolSeed.id == Community.school_seed_id)
+        .filter(
+            CommunityMember.user_id.in_(seller_ids),
+            CommunityMember.share_with_mutuals.is_(True),
+            Community.kind == "school",
+        )
+        .order_by(Community.id)
+        .all()
+    )
+    schools_by_seller: dict[str, dict | None] = {sid: None for sid in seller_ids}
+    for uid, community, short_name in school_rows:
+        if uid in schools_by_seller and schools_by_seller[uid] is None:
+            # Take the first (lowest-id) visible school; isMine always False.
+            schools_by_seller[uid] = {
+                "shortName": short_name or community.name,
+                "fullName": community.name,
+                "isMine": False,
+            }
+
+    return {
+        sid: _assemble_circles(school=schools_by_seller[sid], degree=None)
+        for sid in seller_ids
+    }
+
+
 def seller_circles_for_viewer(
     db: Session,
     seller_id: str,
