@@ -8,7 +8,7 @@ user-level flag (services here do not touch the friend graph).
 import re
 import secrets
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from models import Community, CommunityMember, Friendship, SchoolSeed, User
@@ -255,36 +255,23 @@ def remove_user_school(db: Session, user: User, community_id: int) -> None:
 def get_user_circles_summary(db: Session, user: User) -> dict:
     """Return the circles summary shape for My Account (GET /api/circles/me).
 
-    Returns a neighborhood row (community_id, label=neighborhood name, share)
-    instead of building — building is no longer a displayed circle
-    (spec rev 2026-06-19).
+    Returns schools and mutualFriends only. Neighborhood is no longer a
+    displayed circle (spec rev 2026-06-20 insights redesign).
     """
     rows = (
         db.query(Community, CommunityMember)
         .join(CommunityMember, CommunityMember.community_id == Community.id)
         .filter(
             CommunityMember.user_id == user.id,
-            Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
+            Community.kind == "school",
         )
         .all()
     )
-    neighborhood = None
-    schools: list[dict] = []
-    for community, membership in rows:
-        if community.kind == "neighborhood" and neighborhood is None:
-            neighborhood = {
-                "community_id": community.id,
-                "label": community.name,
-                "share": bool(membership.share_with_mutuals),
-            }
-        elif community.kind == "school":
-            schools.append({
-                "community_id": community.id,
-                "name": community.name,
-                "share": bool(membership.share_with_mutuals),
-            })
+    schools = [
+        {"community_id": c.id, "name": c.name, "share": bool(m.share_with_mutuals)}
+        for c, m in rows
+    ]
     return {
-        "neighborhood": neighborhood,
         "schools": schools,
         "mutualFriends": {"share": bool(user.share_mutual_friends)},
     }
@@ -325,6 +312,31 @@ def count_mutual_friends(db: Session, a_id: str, b_id: str) -> int:
     return len(friend_ids(a_id) & friend_ids(b_id))
 
 
+def _connection_degree_from_sets(
+    *,
+    seller_id: str,
+    viewer_friends: set[str],
+    seller_friends: set[str],
+    reachable_seller_friends: set[str],
+    viewer_id: str,
+) -> int | None:
+    """Pure degree computation from pre-loaded graph slices (lowest wins).
+
+    reachable_seller_friends: subset of seller_friends that are one accepted-
+    friend hop from any viewer friend (pre-computed by _bridge_reachable).
+    Used only for the 3rd-degree check.
+    """
+    if seller_id == viewer_id:
+        return None
+    if seller_id in viewer_friends:
+        return 1
+    if viewer_friends & seller_friends:
+        return 2
+    if seller_friends & reachable_seller_friends:
+        return 3
+    return None
+
+
 def are_direct_friends(db: Session, a_id: str, b_id: str) -> bool:
     """True if an accepted Friendship exists between a and b in either direction."""
     return (
@@ -360,54 +372,93 @@ def _load_friend_ids(db: Session, uid: str) -> set[str]:
     return out
 
 
-def _assemble_circles(
-    revealed_communities: list[Community],
-    viewer_circle_ids: set[int],
-    seller_friend_ids: set[str],
-    viewer_friend_ids: set[str],
-    viewer_id: str,
-    share_mutual_friends: bool,
-) -> dict:
-    """Build the circles response dict from pre-fetched data.
+def _bridge_reachable(db: Session, viewer_friends: set[str], candidate_friends: set[str]) -> set[str]:
+    """Subset of candidate_friends that are one accepted-friend hop from any
+    member of viewer_friends. One indexed query, bounded by both sets.
 
-    Both the single-call and batch paths call this so the output shape is
-    guaranteed consistent.
+    Used for the 3rd-degree check: if any seller-friend sits in the returned
+    set, the seller is reachable in 3 hops from the viewer.
 
-    Args:
-        revealed_communities: Communities the seller has opted to share
-            (share_with_mutuals=True, kind in neighborhood/school).
-        viewer_circle_ids: Set of community IDs the viewer belongs to.
-        seller_friend_ids: Accepted friend IDs of the seller (bidirectional).
-        viewer_friend_ids: Accepted friend IDs of the viewer (bidirectional).
-        viewer_id: The viewer's user ID (used for directFriend check).
-        share_mutual_friends: Whether the seller has enabled mutual-friend sharing.
+    Scaling note: at large graph sizes this should be replaced with a cached
+    degree table (e.g. precomputed adjacency) or a fan-out cap. At current
+    Cosello graph size this single indexed query is negligible.
     """
-    neighborhood: dict = {"shared": False, "label": ""}
-    school: dict = {"shared": False, "label": ""}
+    if not viewer_friends or not candidate_friends:
+        return set()
+    rows = (
+        db.query(Friendship.user_id, Friendship.friend_id)
+        .filter(
+            Friendship.status == "accepted",
+            or_(
+                and_(
+                    Friendship.user_id.in_(viewer_friends),
+                    Friendship.friend_id.in_(candidate_friends),
+                ),
+                and_(
+                    Friendship.friend_id.in_(viewer_friends),
+                    Friendship.user_id.in_(candidate_friends),
+                ),
+            ),
+        )
+        .all()
+    )
+    out: set[str] = set()
+    for uid, fid in rows:
+        if uid in viewer_friends and fid in candidate_friends:
+            out.add(fid)
+        if fid in viewer_friends and uid in candidate_friends:
+            out.add(uid)
+    return out
 
-    for community in revealed_communities:
-        if community.id not in viewer_circle_ids:
-            continue
-        if community.kind == "neighborhood" and not neighborhood["shared"]:
-            neighborhood["shared"] = True
-            neighborhood["label"] = community.name
-        elif community.kind == "school" and not school["shared"]:
-            school["shared"] = True
-            school["label"] = community.name
 
-    mf = 0
-    direct = False
-    if share_mutual_friends:
-        mf = len(viewer_friend_ids & seller_friend_ids)
-        # directFriend: viewer.id appears in seller's friend set (bidirectional
-        # load means this is true iff an accepted Friendship row links them).
-        direct = viewer_id in seller_friend_ids
+def _seller_school_for_viewer(
+    db: Session, seller_id: str, viewer_circle_ids: set[int]
+) -> dict | None:
+    """The seller's primary *visible* school as {shortName, fullName, isMine}.
 
-    return {
-        "neighborhood": neighborhood,
-        "school": school,
-        "mutualFriends": {"count": mf, "directFriend": direct},
-    }
+    Visible = a school membership with share_with_mutuals=True. isMine = the
+    viewer belongs to the same school community. Prefers a school the viewer
+    shares so the matching one is the one shown."""
+    rows = (
+        db.query(Community, SchoolSeed.short_name)
+        .join(CommunityMember, CommunityMember.community_id == Community.id)
+        .outerjoin(SchoolSeed, SchoolSeed.id == Community.school_seed_id)
+        .filter(
+            CommunityMember.user_id == seller_id,
+            CommunityMember.share_with_mutuals.is_(True),
+            Community.kind == "school",
+        )
+        .order_by(Community.id)
+        .all()
+    )
+    if not rows:
+        return None
+    chosen = None
+    for community, short_name in rows:
+        is_mine = community.id in viewer_circle_ids
+        entry = {
+            "shortName": short_name or community.name,
+            "fullName": community.name,
+            "isMine": is_mine,
+        }
+        if is_mine:
+            return entry          # prefer the shared school
+        if chosen is None:
+            chosen = entry
+    return chosen
+
+
+def _assemble_circles(
+    *,
+    school: dict | None,
+    degree: int | None,
+) -> dict:
+    """Build the per-viewer circles dict from pre-computed pieces.
+
+    school: {"shortName","fullName","isMine"} or None when the seller has no
+        visible school. degree: connection degree (1/2/3) or None.
+    """
+    return {"connection": {"degree": degree}, "school": school}
 
 
 # ---------------------------------------------------------------------------
@@ -416,11 +467,54 @@ def _assemble_circles(
 
 #: Canonical empty circles shape returned when there is no seller or when the
 #: seller has no overlap with the viewer.  Callers must NOT mutate this object.
-EMPTY_CIRCLES: dict = {
-    "neighborhood": {"shared": False, "label": ""},
-    "school": {"shared": False, "label": ""},
-    "mutualFriends": {"count": 0, "directFriend": False},
-}
+EMPTY_CIRCLES: dict = {"connection": {"degree": None}, "school": None}
+
+
+def public_seller_circles_batch(
+    db: Session,
+    seller_ids: list[str],
+) -> dict[str, dict]:
+    """School-only circles enrichment for the unauthenticated public feed.
+
+    No viewer → connection.degree is always None; isMine is always False
+    (there is no viewer circle set to compare against). One DB query for all
+    sellers — no N+1.
+
+    Args:
+        seller_ids: Distinct seller user IDs whose school circles to load.
+
+    Returns:
+        ``{seller_id: {connection:{degree:None}, school:{...}|None}}``
+    """
+    if not seller_ids:
+        return {}
+
+    school_rows = (
+        db.query(CommunityMember.user_id, Community, SchoolSeed.short_name)
+        .join(Community, Community.id == CommunityMember.community_id)
+        .outerjoin(SchoolSeed, SchoolSeed.id == Community.school_seed_id)
+        .filter(
+            CommunityMember.user_id.in_(seller_ids),
+            CommunityMember.share_with_mutuals.is_(True),
+            Community.kind == "school",
+        )
+        .order_by(Community.id)
+        .all()
+    )
+    schools_by_seller: dict[str, dict | None] = {sid: None for sid in seller_ids}
+    for uid, community, short_name in school_rows:
+        if uid in schools_by_seller and schools_by_seller[uid] is None:
+            # Take the first (lowest-id) visible school; isMine always False.
+            schools_by_seller[uid] = {
+                "shortName": short_name or community.name,
+                "fullName": community.name,
+                "isMine": False,
+            }
+
+    return {
+        sid: _assemble_circles(school=schools_by_seller[sid], degree=None)
+        for sid in seller_ids
+    }
 
 
 def seller_circles_for_viewer(
@@ -431,19 +525,8 @@ def seller_circles_for_viewer(
     viewer_circle_ids: set[int] | None = None,
     seller: User | None = None,
 ) -> dict:
-    """The seller's revealed circles relative to a viewer.
-
-    A circle is "shared" only when the seller opted in (share_with_mutuals) AND
-    the viewer is in the same circle. Mutual friends is gated by the seller's
-    user-level share_mutual_friends flag.
-
-    Args:
-        viewer_circle_ids: Pre-computed set of the viewer's community IDs.
-            When provided, avoids a DB query. Always pass this in feed loops.
-        seller: Pre-fetched seller User row (Task B optimisation). When
-            provided, skips the ``db.query(User)`` lookup — saves one query
-            per listing. Pass ``poster_map.get(seller_id)`` in ``get_listings``.
-    """
+    """The seller's insight circles relative to a viewer: connection degree +
+    always-on school (bold-when-mine resolved client-side via isMine)."""
     if viewer_circle_ids is None:
         viewer_circle_ids = {
             m.community_id
@@ -452,36 +535,25 @@ def seller_circles_for_viewer(
             .all()
         }
 
-    revealed = (
-        db.query(Community)
-        .join(CommunityMember, CommunityMember.community_id == Community.id)
-        .filter(
-            CommunityMember.user_id == seller_id,
-            CommunityMember.share_with_mutuals.is_(True),
-            Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
-        )
-        .order_by(Community.id)
-        .all()
-    )
+    school = _seller_school_for_viewer(db, seller_id, viewer_circle_ids)
 
     if seller is None:
         seller = db.query(User).filter(User.id == seller_id).first()
+    degree = None
+    if seller is not None and bool(seller.share_mutual_friends):
+        # Future optimisation: cache vf per viewer_id with a ~45 s TTL to avoid
+        # a re-query on rapid filter toggles. Skipped here because module-level
+        # caches cause stale-friendship flakes in the test suite (create/delete
+        # in the same process) and friendship changes are rare in production.
+        vf = _load_friend_ids(db, viewer.id)
+        sf = _load_friend_ids(db, seller_id)
+        reachable = _bridge_reachable(db, vf, sf)
+        degree = _connection_degree_from_sets(
+            seller_id=seller_id, viewer_friends=vf, seller_friends=sf,
+            reachable_seller_friends=reachable, viewer_id=viewer.id,
+        )
 
-    share_mf = seller is not None and bool(seller.share_mutual_friends)
-    seller_friends: set[str] = set()
-    viewer_friends: set[str] = set()
-    if share_mf:
-        seller_friends = _load_friend_ids(db, seller_id)
-        viewer_friends = _load_friend_ids(db, viewer.id)
-
-    return _assemble_circles(
-        revealed_communities=revealed,
-        viewer_circle_ids=viewer_circle_ids,
-        seller_friend_ids=seller_friends,
-        viewer_friend_ids=viewer_friends,
-        viewer_id=viewer.id,
-        share_mutual_friends=share_mf,
-    )
+    return _assemble_circles(school=school, degree=degree)
 
 
 def seller_circles_for_viewer_batch(
@@ -522,76 +594,86 @@ def seller_circles_for_viewer_batch(
     if not seller_ids:
         return {}
 
-    # --- 1. Revealed communities for all sellers in one query ---
-    revealed_rows = (
-        db.query(Community, CommunityMember.user_id)
-        .join(CommunityMember, CommunityMember.community_id == Community.id)
+    # --- Visible schools for all sellers in one query ---
+    school_rows = (
+        db.query(CommunityMember.user_id, Community, SchoolSeed.short_name)
+        .join(Community, Community.id == CommunityMember.community_id)
+        .outerjoin(SchoolSeed, SchoolSeed.id == Community.school_seed_id)
         .filter(
             CommunityMember.user_id.in_(seller_ids),
             CommunityMember.share_with_mutuals.is_(True),
-            Community.kind.in_(DISPLAYED_CIRCLE_KINDS),
+            Community.kind == "school",
         )
         .order_by(Community.id)
         .all()
     )
-    revealed_by_seller: dict[str, list[Community]] = {sid: [] for sid in seller_ids}
-    for community, uid in revealed_rows:
-        if uid in revealed_by_seller:
-            revealed_by_seller[uid].append(community)
+    schools_by_seller: dict[str, list[tuple]] = {sid: [] for sid in seller_ids}
+    for uid, community, short_name in school_rows:
+        if uid in schools_by_seller:
+            schools_by_seller[uid].append((community, short_name))
 
-    # --- 2. Resolve which sellers share mutual friends ---
-    # Start from seller_map for sellers we already have in memory.
-    sharing_seller_ids: set[str] = set()
+    def pick_school(sid: str) -> dict | None:
+        chosen = None
+        for community, short_name in schools_by_seller.get(sid, []):
+            is_mine = community.id in viewer_circle_ids
+            entry = {"shortName": short_name or community.name,
+                     "fullName": community.name, "isMine": is_mine}
+            if is_mine:
+                return entry
+            if chosen is None:
+                chosen = entry
+        return chosen
+
+    # --- Which sellers share mutual friends (consent) ---
+    sharing: set[str] = set()
     if seller_map is not None:
         for sid in seller_ids:
             u = seller_map.get(sid)
             if u is not None and bool(u.share_mutual_friends):
-                sharing_seller_ids.add(sid)
-        # For IDs not in seller_map, fall back to a DB query.
-        missing_ids = [sid for sid in seller_ids if sid not in seller_map]
-        if missing_ids:
-            for u in db.query(User).filter(User.id.in_(missing_ids)).all():
+                sharing.add(sid)
+        missing = [sid for sid in seller_ids if sid not in seller_map]
+        if missing:
+            for u in db.query(User).filter(User.id.in_(missing)).all():
                 if bool(u.share_mutual_friends):
-                    sharing_seller_ids.add(u.id)
+                    sharing.add(u.id)
     else:
-        seller_users = db.query(User).filter(User.id.in_(seller_ids)).all()
-        for u in seller_users:
+        for u in db.query(User).filter(User.id.in_(seller_ids)).all():
             if bool(u.share_mutual_friends):
-                sharing_seller_ids.add(u.id)
+                sharing.add(u.id)
 
-    # --- 3. Viewer's accepted friends (one query, only if any seller shares) ---
+    # --- Graph slices for degree (only if any seller shares) ---
     viewer_friends: set[str] = set()
-    if sharing_seller_ids:
+    reachable: set[str] = set()
+    seller_friends_map: dict[str, set[str]] = {sid: set() for sid in sharing}
+    if sharing:
         viewer_friends = _load_friend_ids(db, viewer.id)
-
-    # --- 4. Sharing sellers' accepted friends (one query over all sharing IDs) ---
-    seller_friends_map: dict[str, set[str]] = {sid: set() for sid in sharing_seller_ids}
-    if sharing_seller_ids:
-        friend_rows = (
+        rows = (
             db.query(Friendship)
             .filter(
                 Friendship.status == "accepted",
-                (Friendship.user_id.in_(sharing_seller_ids))
-                | (Friendship.friend_id.in_(sharing_seller_ids)),
+                (Friendship.user_id.in_(sharing)) | (Friendship.friend_id.in_(sharing)),
             )
             .all()
         )
-        for r in friend_rows:
+        for r in rows:
             if r.user_id in seller_friends_map:
                 seller_friends_map[r.user_id].add(r.friend_id)
             if r.friend_id in seller_friends_map:
                 seller_friends_map[r.friend_id].add(r.user_id)
+        # Bridge query: which seller-friends are one hop from any viewer-friend?
+        # Bounded by viewer_friends × all_seller_friends — replaces the old full
+        # 2-hop expansion over viewer_friends.
+        all_sf: set[str] = set().union(*seller_friends_map.values()) if seller_friends_map else set()
+        reachable = _bridge_reachable(db, viewer_friends, all_sf)
 
-    # --- Assemble per-seller output ---
     result: dict[str, dict] = {}
     for sid in seller_ids:
-        is_sharing = sid in sharing_seller_ids
-        result[sid] = _assemble_circles(
-            revealed_communities=revealed_by_seller.get(sid, []),
-            viewer_circle_ids=viewer_circle_ids,
-            seller_friend_ids=seller_friends_map.get(sid, set()),
-            viewer_friend_ids=viewer_friends,
-            viewer_id=viewer.id,
-            share_mutual_friends=is_sharing,
-        )
+        degree = None
+        if sid in sharing:
+            degree = _connection_degree_from_sets(
+                seller_id=sid, viewer_friends=viewer_friends,
+                seller_friends=seller_friends_map.get(sid, set()),
+                reachable_seller_friends=reachable, viewer_id=viewer.id,
+            )
+        result[sid] = _assemble_circles(school=pick_school(sid), degree=degree)
     return result

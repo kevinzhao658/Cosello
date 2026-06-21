@@ -186,8 +186,8 @@ def test_seller_circles_for_viewer_marks_direct_friend(db_session, make_user):
     db_session.commit()
 
     res = seller_circles_for_viewer(db_session, seller.id, viewer)
-    assert res["mutualFriends"]["directFriend"] is True
-    assert res["mutualFriends"]["count"] == 0  # no shared third-party friends
+    # New shape: direct friend → degree 1 (seller is in viewer's friend set)
+    assert res["connection"]["degree"] == 1
 
     # cleanup
     db_session.query(_F).filter(
@@ -232,13 +232,16 @@ def test_seller_circles_for_viewer_respects_consent_and_match(db_session, make_u
     assert nbr_community is not None, "Chelsea neighborhood community not seeded"
 
     res = seller_circles_for_viewer(db_session, seller.id, viewer)
-    assert res["neighborhood"]["shared"] is False         # consent off by default
+    # New shape: school=None (no school), connection degree=None (no friendship)
+    assert res["school"] is None
+    assert res["connection"]["degree"] is None
+    # Neighborhood no longer in the circles shape (spec rev 2026-06-20)
+    assert "neighborhood" not in res
     set_circle_consent(db_session, seller.id, nbr_community.id, True)
     res = seller_circles_for_viewer(db_session, seller.id, viewer)
-    assert res["neighborhood"]["shared"] is True           # consent on + same neighborhood
-    assert res["neighborhood"]["label"] == "Chelsea"
-    assert res["mutualFriends"]["count"] == 0
-    assert res["mutualFriends"]["directFriend"] is False
+    # Toggling neighborhood consent doesn't affect the new circles shape
+    assert res["school"] is None
+    assert res["connection"]["degree"] is None
     # cleanup memberships (neighborhood Communities are system-owned; don't delete them)
     db_session.query(CommunityMember).filter(
         CommunityMember.community_id == nbr_community.id,

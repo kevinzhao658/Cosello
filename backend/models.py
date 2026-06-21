@@ -63,6 +63,7 @@ class SchoolSeed(Base):
     name = Column(String(200), nullable=False)
     state = Column(String(2), nullable=True)
     acronym = Column(String(16), nullable=True, index=True)
+    short_name = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

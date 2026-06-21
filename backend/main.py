@@ -42,6 +42,7 @@ from services.neighborhood import get_neighborhood_community
 from services.circles import (
     seller_circles_for_viewer,
     seller_circles_for_viewer_batch,
+    public_seller_circles_batch,
     EMPTY_CIRCLES,
 )
 
@@ -1730,11 +1731,16 @@ def get_public_listings(
     if pub_poster_ids:
         pub_poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(pub_poster_ids)).all()}
 
+    # School-only circles for the signed-out feed: one query for all sellers,
+    # degree always None (no viewer), isMine always False.
+    pub_circles_batch = public_seller_circles_batch(db, list(pub_poster_ids))
+
     enriched_pub = []
     for l in results:
         listing_copy = dict(l)
         listing_copy["visibility"] = "public"
-        poster = pub_poster_map.get(l.get("userId"))
+        seller_id = l.get("userId")
+        poster = pub_poster_map.get(seller_id)
         listing_copy["seller_name"] = poster.display_name if poster else None
         listing_copy["seller_picture"] = poster.profile_picture if poster else None
         if poster and poster.neighborhood:
@@ -1747,7 +1753,7 @@ def get_public_listings(
                     all_comms.append({**pub_info[cid], "is_mutual": False})
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
-        listing_copy["circles"] = EMPTY_CIRCLES
+        listing_copy["circles"] = pub_circles_batch.get(seller_id, EMPTY_CIRCLES) if seller_id else EMPTY_CIRCLES
         enriched_pub.append(listing_copy)
     return enriched_pub
 
@@ -1900,6 +1906,17 @@ def get_listing_detail(
                 _walk_cache[cache_key] = walk
 
     result["walk_minutes"] = walk
+
+    # --- circles ---
+    seller_id = listing.user_id
+    if current_user is not None:
+        # Authed: full enrichment — connection degree + school with isMine.
+        result["circles"] = seller_circles_for_viewer(db, seller_id, current_user)
+    else:
+        # Signed-out: school-only (degree always None, isMine always False).
+        pub_circles = public_seller_circles_batch(db, [seller_id])
+        result["circles"] = pub_circles.get(seller_id, EMPTY_CIRCLES)
+
     return result
 
 

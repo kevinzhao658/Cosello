@@ -225,6 +225,14 @@
   --color-star-rating: var(--star-rating);
   --color-scrim: var(--scrim);
 
+  /* Medal ribbon pastel tokens (circles insight byline) */
+  --color-medal-gold: #FBEEC2;
+  --color-medal-gold-ink: #8A6A12;
+  --color-medal-silver: #E9ECF1;
+  --color-medal-silver-ink: #6B717A;
+  --color-medal-bronze: #F2DCC7;
+  --color-medal-bronze-ink: #8E5A31;
+
   /* Radii */
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);

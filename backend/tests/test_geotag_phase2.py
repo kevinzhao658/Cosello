@@ -77,6 +77,8 @@ def _mock_db_for_listing(listing_id_to_obj: dict):
     This lets us test the endpoint logic without any real DB connection or FK.
     """
 
+    from models import Listing as _Listing
+
     class _MockQuery:
         def __init__(self, model):
             self._model = model
@@ -98,21 +100,37 @@ def _mock_db_for_listing(listing_id_to_obj: dict):
             return self
 
         def first(self):
-            if self._filter_id is None:
-                return None
-            return listing_id_to_obj.get(self._filter_id)
+            if self._model is _Listing:
+                if self._filter_id is None:
+                    return None
+                return listing_id_to_obj.get(self._filter_id)
+            return None
 
-        # Support chained .filter().all() for feed endpoint calls
+        # Support chained .filter().all() for Listing-only feed calls;
+        # return [] for other models (CommunityMember, Friendship, User, etc.)
+        # so circles enrichment short-circuits cleanly.
         def all(self):
-            return list(listing_id_to_obj.values())
+            if self._model is _Listing:
+                return list(listing_id_to_obj.values())
+            return []
 
-        # Support .order_by() chaining
+        # Support .order_by() / .outerjoin() chaining
         def order_by(self, *args):
             return self
 
+        def outerjoin(self, *args, **kwargs):
+            return self
+
+        def join(self, *args, **kwargs):
+            return self
+
     class _MockSession:
-        def query(self, model):
-            return _MockQuery(model)
+        def query(self, *models):
+            # Accept single model or column expressions (e.g. CommunityMember.community_id)
+            primary = models[0] if models else None
+            if hasattr(primary, "class_"):
+                primary = primary.class_
+            return _MockQuery(primary)
 
         def get(self, model, key):
             return None  # ZipCentroid lookups handled by monkeypatch on centroid_for_zip
