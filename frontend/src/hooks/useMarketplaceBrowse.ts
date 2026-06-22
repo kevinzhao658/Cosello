@@ -34,6 +34,8 @@ export interface UseMarketplaceBrowseReturn {
 interface UseMarketplaceBrowseDeps {
   page: Page;
   isAuthenticated: boolean;
+  /** Mirrors AuthContext.authReady — true once the initial getSession() bootstrap has settled. The first market fetch is gated on this flag so it fires exactly once, with the correct auth state, on cold load. */
+  authReady: boolean;
   token: string | null;
   isDesktop: boolean;
   userNeighborhood: string | null | undefined;
@@ -42,6 +44,7 @@ interface UseMarketplaceBrowseDeps {
 export function useMarketplaceBrowse({
   page,
   isAuthenticated,
+  authReady,
   token,
   isDesktop,
   userNeighborhood,
@@ -161,9 +164,13 @@ export function useMarketplaceBrowse({
 
   // Market fetch effect — note: distanceMiles is NOT a dep; the slider filters
   // client-side without refetching.
+  // authReady gates the very first fire: on cold load isAuthenticated starts
+  // false before getSession() resolves, which would cause a spurious anonymous
+  // pre-auth fetch. We wait until authReady is true so there is exactly one
+  // request per filter/sort/page change — authenticated or anonymous.
   useEffect(() => {
-    if (page === "market") fetchListings();
-  }, [page, debouncedSearch, selectedCommunities, sort, selectedCategories, isAuthenticated, showMyListings]);
+    if (page === "market" && authReady) fetchListings();
+  }, [page, authReady, debouncedSearch, selectedCommunities, sort, selectedCategories, isAuthenticated, showMyListings]);
 
   // Reset the visible window whenever the underlying feed changes so the user
   // doesn't land deep into a now-shorter list.

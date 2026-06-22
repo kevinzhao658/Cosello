@@ -58,7 +58,7 @@ import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
-  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser, refreshUser } = useAuth();
+  const { isAuthenticated, authReady, user, token, needsRegistration, login, logout, updateUser, refreshUser } = useAuth();
   const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
@@ -138,7 +138,7 @@ export default function App() {
 
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
-  const market = useMarketplaceBrowse({ page, isAuthenticated, token, isDesktop, userNeighborhood: user?.neighborhood });
+  const market = useMarketplaceBrowse({ page, isAuthenticated, authReady, token, isDesktop, userNeighborhood: user?.neighborhood });
 
   const handleToggleMarketCommunity = useCallback((cid: number) => {
     market.setSelectedCommunities((prev) =>

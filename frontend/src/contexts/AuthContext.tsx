@@ -17,6 +17,8 @@ interface AuthContextValue {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** True once the initial getSession() bootstrap has settled (session present or absent). Safe to gate data fetches on this flag. */
+  authReady: boolean;
   needsRegistration: boolean;
   login: (token: string, user: AuthUser | null) => void;
   logout: () => Promise<void>;
@@ -44,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
 
   // Restore session from Supabase on mount; subscribe to auth changes.
   useEffect(() => {
@@ -72,6 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       }
+      // Mark auth bootstrap as settled regardless of whether a session exists.
+      // Downstream consumers (e.g. useMarketplaceBrowse) wait on authReady
+      // before firing their first fetch so there is exactly one request on
+      // cold load instead of an unauthenticated pre-auth fetch followed by
+      // an authenticated one.
+      setAuthReady(true);
       setIsLoading(false);
     })();
 
@@ -173,13 +182,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token,
       isLoading,
       isAuthenticated: token !== null && user !== null,
+      authReady,
       needsRegistration,
       login,
       logout,
       updateUser,
       refreshUser,
     }),
-    [user, token, isLoading, needsRegistration, login, logout, updateUser, refreshUser],
+    [user, token, isLoading, authReady, needsRegistration, login, logout, updateUser, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
