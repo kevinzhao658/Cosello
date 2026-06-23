@@ -10,8 +10,10 @@ which are re-exported aliases pointing at these same dict objects (same identity
 """
 
 import asyncio
+import base64
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -21,6 +23,7 @@ from typing import Optional
 import anthropic
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, get_optional_user
@@ -123,6 +126,71 @@ _TERMINAL_ORDER_STATUSES = (
     "expired",
     "cancelled_by_seller",
 )
+
+# ---------------------------------------------------------------------------
+# Pagination + radius constants
+# ---------------------------------------------------------------------------
+
+# Hard radius cap for the marketplace feed (miles). Listings beyond this
+# distance from the buyer's ZIP centroid are excluded from all feed pages.
+# Manhattan end-to-end is ~13 mi; 10 mi covers the island plus adjacent areas
+# (Hoboken, Astoria) — a sensible hyperlocal bound.
+FEED_MAX_RADIUS_MI = 10.0
+
+# FYP candidate window: score up to this many of the most-recent-within-radius
+# listings, then paginate the ranked result. Capped to bound scoring work.
+_FYP_CANDIDATE_WINDOW = 300
+
+# Default page size if caller doesn't specify.
+_DEFAULT_PAGE_LIMIT = 24
+
+
+# ---------------------------------------------------------------------------
+# Cursor helpers
+# ---------------------------------------------------------------------------
+
+def _encode_cursor(payload: dict) -> str:
+    """Encode a cursor payload dict as a URL-safe base64 string."""
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
+
+
+def _decode_cursor(cursor: str) -> dict | None:
+    """Decode a cursor string back to its payload dict. Returns None on any error."""
+    try:
+        return json.loads(base64.urlsafe_b64decode(cursor.encode()))
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Bounding-box prefilter helpers
+# ---------------------------------------------------------------------------
+
+# Approximate degrees-per-mile constants (mid-Manhattan latitude).
+_DEG_PER_MILE_LAT = 1.0 / 69.0
+_DEG_PER_MILE_LNG = 1.0 / 52.6
+
+
+def _bbox_filter(query, lat: float, lng: float, radius_mi: float):
+    """Add a bounding-box WHERE clause to a SQLAlchemy query.
+
+    Filters ``Listing.latitude`` / ``Listing.longitude`` to a rectangular
+    box that fully contains the circle of ``radius_mi`` miles around
+    ``(lat, lng)``.  This is a cheap prefilter — the precise haversine check
+    is applied in Python after fetching the candidate rows.
+
+    Listings with null lat/lng are excluded (no coord = can't measure distance).
+    """
+    dlat = radius_mi * _DEG_PER_MILE_LAT
+    dlng = radius_mi * _DEG_PER_MILE_LNG
+    return query.filter(
+        Listing.latitude.isnot(None),
+        Listing.longitude.isnot(None),
+        Listing.latitude.between(lat - dlat, lat + dlat),
+        Listing.longitude.between(lng - dlng, lng + dlng),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -624,32 +692,37 @@ def get_listings(
     community: Optional[str] = Query(None),
     neighborhood: Optional[str] = Query(None),
     max_distance: Optional[float] = Query(None),
+    limit: int = Query(_DEFAULT_PAGE_LIMIT),
+    cursor: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Paginated, SQL-filtered marketplace feed for authenticated users.
+
+    Returns ``{"items": [...], "nextCursor": <str|null>}``.  Each item dict is
+    byte-identical to what ``Listing.to_dict()`` returned before this change,
+    plus ``distance_miles``.
+
+    Cursor encoding (opaque to callers): base64({"offset": <int>}).
+    Offset is into the Python-sorted result window for the current filter
+    combination, enabling stable pagination even when Python sort order
+    differs from SQL order (tier, relevance, price).
+    """
+    from services.geo import centroid_for_zip, haversine_miles
+
     now = time.time()
     cutoff = now - LISTING_EXPIRY_SECONDS
-    rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
-    rows_by_id: dict[str, Listing] = {r.id: r for r in rows}
-    results = [r.to_dict() for r in rows]
 
-    # --- Distance computation + max_distance filter ---
-    from services.geo import centroid_for_zip, haversine_miles
+    # Clamp limit to a reasonable range.
+    limit = max(1, min(limit, 100))
+
+    # Resolve buyer location for distance computation and radius cap.
     buyer = centroid_for_zip(db, (current_user.zip_code or "").strip() or None) if current_user else None
-    for item in results:
-        lat, lng = item.get("latitude"), item.get("longitude")
-        if buyer is not None and lat is not None and lng is not None:
-            item["distance_miles"] = round(haversine_miles(buyer[0], buyer[1], lat, lng), 1)
-        else:
-            item["distance_miles"] = None
-    if max_distance is not None and buyer is not None:
-        results = [it for it in results if it["distance_miles"] is not None and it["distance_miles"] <= max_distance]
 
-    # FYP mode is the default feed: no search, no community filter (or "All").
-    # Search relevance and explicit community browses retain their existing
-    # tier/relevance ordering.
+    # FYP mode: no search, no community filter (or "All").
     fyp_mode = (not search) and (not community or community == "All")
 
+    # --- Resolve community visibility sets ---
     if _public_ids_cache["ids"] is not None and (now - float(_public_ids_cache["at"])) < _PUBLIC_IDS_TTL_S:
         all_public_ids: set[int] = _public_ids_cache["ids"]  # type: ignore[assignment]
     else:
@@ -662,14 +735,8 @@ def get_listings(
         m.community_id
         for m in db.query(CommunityMember).filter(CommunityMember.user_id == current_user.id).all()
     }
-    my_neighborhood = current_user.neighborhood
 
-    # Batch-fetch poster user records for neighborhood checks
-    poster_ids = {l.get("userId") for l in results if l.get("userId")}
-    poster_map: dict[str, User] = {}
-    if poster_ids:
-        poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(poster_ids)).all()}
-
+    # --- Shared helper: per-dict visibility/tier (operates on to_dict() dicts) ---
     def _ncid(cid):
         if isinstance(cid, int):
             return cid
@@ -697,15 +764,14 @@ def get_listings(
         vis = _infer_visibility(listing)
         if vis == "public":
             return True
-        else:
-            for c in lc:
-                nc = _ncid(c)
-                if isinstance(nc, int) and nc in my_community_ids:
-                    return True
-            return False
+        for c in lc:
+            nc = _ncid(c)
+            if isinstance(nc, int) and nc in my_community_ids:
+                return True
+        return False
 
     def _tier(listing: dict) -> int:
-        """Tier 1: user's private communities. Tier 2: user's public/neighborhood. Tier 3: other public."""
+        """Tier 1: user's private communities. Tier 2: public/neighborhood. Tier 3: other public."""
         vis = _infer_visibility(listing)
         if vis == "private":
             for c in listing.get("communities", []):
@@ -719,7 +785,123 @@ def get_listings(
                 return 2
         return 3
 
-    # --- Filtering ---
+    # ---------------------------------------------------------------------------
+    # Build base SQL query with pushed-down filters
+    # ---------------------------------------------------------------------------
+
+    base_q = db.query(Listing).filter(
+        Listing.posted_at >= cutoff,
+        Listing.status != "sold",
+    )
+
+    # --- SQL: category filter ---
+    if category:
+        cat_list = [c.strip().lower() for c in category.split(",") if c.strip()]
+        if cat_list:
+            base_q = base_q.filter(func.lower(Listing.category).in_(cat_list))
+
+    # --- SQL: search filter (ILIKE across title components + description + tags) ---
+    # Title is derived from brand + name; both columns are searched independently.
+    if search:
+        ilike_pat = f"%{search}%"
+        base_q = base_q.filter(or_(
+            Listing.brand.ilike(ilike_pat),
+            Listing.name.ilike(ilike_pat),
+            Listing.description.ilike(ilike_pat),
+            Listing.tags.ilike(ilike_pat),
+        ))
+
+    # --- SQL: hard radius cap bounding-box prefilter (requires buyer location) ---
+    if buyer is not None:
+        base_q = _bbox_filter(base_q, buyer[0], buyer[1], FEED_MAX_RADIUS_MI)
+
+    # --- Fetch candidate rows depending on path ---
+    # We need to apply community/visibility filtering in Python (JSON column
+    # content can't be cleanly queried in SQLite; Postgres JSON operators are
+    # available but the current schema stores communities as a JSON string with
+    # mixed int/string values making SQL-side intersection fragile). The radius
+    # cap + status/expiry + category/search filters pushed to SQL already cut the
+    # candidate set dramatically.
+
+    # All paths use offset-based pagination for correctness: the final sort order
+    # in all non-FYP paths may differ from SQL order (community tier, relevance,
+    # price) so keyset cursors on (posted_at, id) would produce duplicates after
+    # a Python reorder. Offset is simpler and correct for MVP scale.
+    #
+    # FYP path: bounded to _FYP_CANDIDATE_WINDOW so scoring stays fast.
+    # Browse/search/sort paths: bounded to a reasonable candidate cap.
+    _BROWSE_CANDIDATE_CAP = 500  # fetch at most this many rows before Python sorts
+
+    # Resolve the page offset from cursor.
+    # For FYP, the cursor also carries the `now` used on page 1 so that the
+    # freshness-based scores are identical across all page requests (preventing
+    # sort-order drift that would produce duplicate ids at page boundaries).
+    decoded_cursor: dict | None = _decode_cursor(cursor) if cursor else None
+    page_offset = 0
+    # `scoring_now` is the timestamp used for FYP scoring. On page 1 (no cursor),
+    # it equals `now`. On page 2+, it is read from the cursor so scores are stable.
+    scoring_now: float = now
+    if decoded_cursor and "offset" in decoded_cursor:
+        page_offset = int(decoded_cursor["offset"])
+        if "now" in decoded_cursor:
+            scoring_now = float(decoded_cursor["now"])
+
+    if fyp_mode and not search and sort not in ("price_low", "price_high"):
+        # FYP path: bounded window of the most recent candidates, scored + ranked.
+        candidate_orm_rows = (
+            base_q
+            .order_by(Listing.posted_at.desc(), Listing.id.desc())
+            .limit(_FYP_CANDIDATE_WINDOW)
+            .all()
+        )
+    else:
+        # Browse/search/sort path: fetch a bounded candidate window, Python-sort,
+        # then page via offset. Bounded to _BROWSE_CANDIDATE_CAP.
+        candidate_orm_rows = (
+            base_q
+            .order_by(Listing.posted_at.desc(), Listing.id.desc())
+            .limit(_BROWSE_CANDIDATE_CAP)
+            .all()
+        )
+
+    # ---------------------------------------------------------------------------
+    # Convert to dicts, compute distance, apply haversine fine-filter for radius cap
+    # ---------------------------------------------------------------------------
+
+    rows_by_id: dict[str, Listing] = {r.id: r for r in candidate_orm_rows}
+    results: list[dict] = [r.to_dict() for r in candidate_orm_rows]
+
+    for item in results:
+        lat, lng = item.get("latitude"), item.get("longitude")
+        if buyer is not None and lat is not None and lng is not None:
+            d = round(haversine_miles(buyer[0], buyer[1], lat, lng), 1)
+            item["distance_miles"] = d
+        else:
+            item["distance_miles"] = None
+
+    # Fine-grained haversine filter to drop bbox-false-positives beyond cap.
+    if buyer is not None:
+        results = [
+            it for it in results
+            if it["distance_miles"] is not None and it["distance_miles"] <= FEED_MAX_RADIUS_MI
+        ]
+        rows_by_id = {k: v for k, v in rows_by_id.items() if k in {r["id"] for r in results}}
+
+    # max_distance is a CLIENT-SIDE slider that further restricts the feed beyond
+    # the hard cap. Still applied here so server-side pagination is consistent.
+    if max_distance is not None and buyer is not None:
+        results = [it for it in results if it["distance_miles"] is not None and it["distance_miles"] <= max_distance]
+        rows_by_id = {k: v for k, v in rows_by_id.items() if k in {r["id"] for r in results}}
+
+    # ---------------------------------------------------------------------------
+    # Visibility / community filtering (Python, preserves existing semantics)
+    # ---------------------------------------------------------------------------
+
+    poster_ids = {l.get("userId") for l in results if l.get("userId")}
+    poster_map: dict[str, User] = {}
+    if poster_ids:
+        poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(poster_ids)).all()}
+
     if community and community != "All":
         parts = [c.strip() for c in community.split(",") if c.strip()]
         filtered: list[dict] = []
@@ -740,70 +922,95 @@ def get_listings(
     else:
         results = [l for l in results if _is_visible(l)]
 
-    # --- Search ---
-    if search:
-        q = search.lower()
-        results = [
-            l for l in results
-            if q in l["title"].lower() or q in l["description"].lower()
-            or any(q in t.lower() for t in l.get("tags", []))
-        ]
+    # ---------------------------------------------------------------------------
+    # Tag filter (fast Python pass on already-filtered set)
+    # ---------------------------------------------------------------------------
 
-        def _relevance(l: dict):
-            title = l.get("title", "").lower()
-            if title == q:
-                ts = 0
-            elif title.startswith(q):
-                ts = 1
-            elif q in title:
-                ts = 2
-            else:
-                ts = 3
-            return (ts, _tier(l), -l.get("postedAt", 0))
-
-        results.sort(key=_relevance)
-    else:
-        if sort == "price_low":
-            results.sort(key=lambda l: (_tier(l), float(l.get("price", 0))))
-        elif sort == "price_high":
-            results.sort(key=lambda l: (_tier(l), -float(l.get("price", 0))))
-        elif fyp_mode:
-            # FYP path: drop excluded listings, score the rest, sort by
-            # (-score, -postedAt). Score is internal and never serialized.
-            candidate_rows = [
-                rows_by_id[l["id"]] for l in results if l["id"] in rows_by_id
-            ]
-            kept_rows = _fyp_apply_exclusions(current_user, candidate_rows, db)
-            kept_ids = {r.id for r in kept_rows}
-            scored = score_listings(current_user, kept_rows, db, now)
-            score_by_id: dict[str, float] = {r.id: s for r, s in scored}
-            results = [l for l in results if l["id"] in kept_ids]
-            results.sort(
-                key=lambda l: (
-                    -score_by_id.get(l["id"], 0.0),
-                    -l.get("postedAt", 0),
-                )
-            )
-        else:
-            results.sort(key=lambda l: (_tier(l), -l.get("postedAt", 0)))
-
-    # Filter by tag
     if tag and tag != "All":
         results = [
             l for l in results
             if tag.lower() in [t.lower() for t in l.get("tags", [])]
         ]
 
-    # Filter by category
-    if category:
-        cat_list = [c.strip().lower() for c in category.split(",") if c.strip()]
-        if cat_list:
-            results = [
-                l for l in results
-                if l.get("category", "other").lower() in cat_list
-            ]
+    # ---------------------------------------------------------------------------
+    # Sorting + pagination
+    # ---------------------------------------------------------------------------
 
-    # --- Enrich response ---
+    next_cursor: str | None = None
+
+    if search:
+        # Search relevance ordering (tier + title-match rank + recency).
+        q_lower = search.lower()
+
+        def _relevance(l: dict):
+            title = l.get("title", "").lower()
+            if title == q_lower:
+                ts = 0
+            elif title.startswith(q_lower):
+                ts = 1
+            elif q_lower in title:
+                ts = 2
+            else:
+                ts = 3
+            return (ts, _tier(l), -l.get("postedAt", 0), l.get("id", ""))
+
+        results.sort(key=_relevance)
+        page = results[page_offset: page_offset + limit]
+        if page_offset + limit < len(results):
+            next_cursor = _encode_cursor({"offset": page_offset + limit})
+        results = page
+
+    elif sort == "price_low":
+        results.sort(key=lambda l: (_tier(l), float(l.get("price", 0)), l.get("id", "")))
+        page = results[page_offset: page_offset + limit]
+        if page_offset + limit < len(results):
+            next_cursor = _encode_cursor({"offset": page_offset + limit})
+        results = page
+
+    elif sort == "price_high":
+        results.sort(key=lambda l: (_tier(l), -float(l.get("price", 0)), l.get("id", "")))
+        page = results[page_offset: page_offset + limit]
+        if page_offset + limit < len(results):
+            next_cursor = _encode_cursor({"offset": page_offset + limit})
+        results = page
+
+    elif fyp_mode:
+        # FYP path: score the bounded candidate window, then paginate by offset.
+        # Cursor encodes {"offset": <int>, "now": <float>} so that the freshness
+        # component of the score is computed from the SAME baseline timestamp on
+        # every page, preventing sort-order drift that would produce duplicate ids.
+        candidate_rows_for_fyp = [
+            rows_by_id[l["id"]] for l in results if l["id"] in rows_by_id
+        ]
+        kept_rows = _fyp_apply_exclusions(current_user, candidate_rows_for_fyp, db)
+        kept_ids = {r.id for r in kept_rows}
+        scored = score_listings(current_user, kept_rows, db, scoring_now)
+        score_by_id: dict[str, float] = {r.id: s for r, s in scored}
+        results = [l for l in results if l["id"] in kept_ids]
+        results.sort(
+            key=lambda l: (
+                -score_by_id.get(l["id"], 0.0),
+                -l.get("postedAt", 0),
+                l.get("id", ""),   # stable tiebreaker
+            )
+        )
+        page = results[page_offset: page_offset + limit]
+        if page_offset + limit < len(results):
+            next_cursor = _encode_cursor({"offset": page_offset + limit, "now": scoring_now})
+        results = page
+
+    else:
+        # Default browse (sort=newest or unrecognised): (tier asc, postedAt desc).
+        results.sort(key=lambda l: (_tier(l), -l.get("postedAt", 0), l.get("id", "")))
+        page = results[page_offset: page_offset + limit]
+        if page_offset + limit < len(results):
+            next_cursor = _encode_cursor({"offset": page_offset + limit})
+        results = page
+
+    # ---------------------------------------------------------------------------
+    # Enrich response (same logic as before)
+    # ---------------------------------------------------------------------------
+
     all_community_ids_set: set[int] = set()
     for l in results:
         for cid in l.get("communities", []):
@@ -814,8 +1021,10 @@ def get_listings(
         for c in db.query(Community).filter(Community.id.in_(all_community_ids_set)).all():
             community_info_map[c.id] = {"name": c.name, "is_public": c.is_public, "image": c.image}
 
-    # Task C: batch-compute circles for all distinct sellers in one pass
-    # (replaces ~4-5 queries per listing with ~4 queries total).
+    # Refresh poster_map after visibility filtering narrowed the result set.
+    poster_ids = {l.get("userId") for l in results if l.get("userId")}
+    poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(poster_ids)).all()} if poster_ids else {}
+
     distinct_seller_ids = list({l["userId"] for l in results if l.get("userId")})
     circles_batch: dict[str, dict] = seller_circles_for_viewer_batch(
         db,
@@ -854,7 +1063,8 @@ def get_listings(
         seller_id = l.get("userId")
         listing_copy["circles"] = circles_batch.get(seller_id, EMPTY_CIRCLES) if seller_id else EMPTY_CIRCLES
         enriched.append(listing_copy)
-    return enriched
+
+    return {"items": enriched, "nextCursor": next_cursor}
 
 
 @router.get("/api/listings/public")
@@ -864,12 +1074,23 @@ def get_public_listings(
     category: Optional[str] = Query(None),
     sort: Optional[str] = Query("newest"),
     community: Optional[str] = Query(None),
+    limit: int = Query(_DEFAULT_PAGE_LIMIT),
+    cursor: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
+    """Paginated public feed for anonymous users (no auth required).
+
+    Returns ``{"items": [...], "nextCursor": <str|null>}``.  Each item dict is
+    byte-identical to what ``Listing.to_dict()`` returned before this change.
+    Only public-visibility listings are included; no distance_miles (no user location).
+
+    Cursor encoding: base64({"pa": <postedAt float>, "id": <str>}) — same keyset
+    as the authenticated endpoint.
+    """
     now = time.time()
     cutoff = now - LISTING_EXPIRY_SECONDS
-    rows = db.query(Listing).filter(Listing.posted_at >= cutoff, Listing.status != "sold").all()
-    results = [r.to_dict() for r in rows]
+
+    limit = max(1, min(limit, 100))
 
     all_public_ids: set[int] = {
         c.id for c in db.query(Community).filter(Community.is_public == True).all()
@@ -894,9 +1115,57 @@ def get_public_listings(
             for c in lc
         )
 
+    # ---------------------------------------------------------------------------
+    # SQL: push down status/expiry/category/search filters
+    # ---------------------------------------------------------------------------
+
+    base_q = db.query(Listing).filter(
+        Listing.posted_at >= cutoff,
+        Listing.status != "sold",
+        # Public-only: only explicitly public listings (visibility == "public").
+        # Listings with NULL or "private" visibility are excluded at SQL level
+        # where possible; the remaining community-based cases are handled in Python.
+        Listing.visibility == "public",
+    )
+
+    if category:
+        cat_list = [c.strip().lower() for c in category.split(",") if c.strip()]
+        if cat_list:
+            base_q = base_q.filter(func.lower(Listing.category).in_(cat_list))
+
+    if search:
+        ilike_pat = f"%{search}%"
+        base_q = base_q.filter(or_(
+            Listing.brand.ilike(ilike_pat),
+            Listing.name.ilike(ilike_pat),
+            Listing.description.ilike(ilike_pat),
+            Listing.tags.ilike(ilike_pat),
+        ))
+
+    # Resolve the page offset from cursor (offset-based pagination, same approach
+    # as the authenticated endpoint for consistency).
+    decoded_cursor: dict | None = _decode_cursor(cursor) if cursor else None
+    page_offset = 0
+    if decoded_cursor and "offset" in decoded_cursor:
+        page_offset = int(decoded_cursor["offset"])
+
+    _PUB_CANDIDATE_CAP = 500
+    candidate_orm_rows = (
+        base_q
+        .order_by(Listing.posted_at.desc(), Listing.id.desc())
+        .limit(_PUB_CANDIDATE_CAP)
+        .all()
+    )
+
+    results: list[dict] = [r.to_dict() for r in candidate_orm_rows]
+
+    # ---------------------------------------------------------------------------
+    # Visibility / community filtering (Python, same semantics as before)
+    # ---------------------------------------------------------------------------
+
     if community and community != "All":
         parts = [c.strip() for c in community.split(",") if c.strip()]
-        filtered: list[dict] = []
+        filtered_pub: list[dict] = []
         for listing in results:
             norm_cids = [_ncid(c) for c in listing.get("communities", [])]
             for part in parts:
@@ -905,40 +1174,38 @@ def get_public_listings(
                 except ValueError:
                     continue
                 if cid in norm_cids and cid in all_public_ids:
-                    filtered.append(listing)
+                    filtered_pub.append(listing)
                     break
-        results = filtered
+        results = filtered_pub
     else:
         results = [l for l in results if _is_public_listing(l)]
-
-    if search:
-        q = search.lower()
-        results = [
-            l for l in results
-            if q in l["title"].lower() or q in l["description"].lower()
-            or any(q in t.lower() for t in l.get("tags", []))
-        ]
 
     if tag and tag != "All":
         results = [l for l in results if tag.lower() in [t.lower() for t in l.get("tags", [])]]
 
-    # Filter by category
-    if category:
-        cat_list = [c.strip().lower() for c in category.split(",") if c.strip()]
-        if cat_list:
-            results = [
-                l for l in results
-                if l.get("category", "other").lower() in cat_list
-            ]
+    # ---------------------------------------------------------------------------
+    # Sorting + pagination (offset-based for stable ordering after Python sort)
+    # ---------------------------------------------------------------------------
+
+    next_cursor: str | None = None
 
     if sort == "price_low":
-        results.sort(key=lambda l: float(l.get("price", 0)))
+        results.sort(key=lambda l: (float(l.get("price", 0)), l.get("id", "")))
     elif sort == "price_high":
-        results.sort(key=lambda l: float(l.get("price", 0)), reverse=True)
+        results.sort(key=lambda l: (-float(l.get("price", 0)), l.get("id", "")))
     else:
-        results.sort(key=lambda l: l.get("postedAt", 0), reverse=True)
+        # Newest (default): posted_at desc, id desc (already in SQL order).
+        results.sort(key=lambda l: (-l.get("postedAt", 0), l.get("id", "")))
 
-    # Enrich
+    page = results[page_offset: page_offset + limit]
+    if page_offset + limit < len(results):
+        next_cursor = _encode_cursor({"offset": page_offset + limit})
+    results = page
+
+    # ---------------------------------------------------------------------------
+    # Enrich response (same shape as before)
+    # ---------------------------------------------------------------------------
+
     all_community_ids_set: set[int] = set()
     for l in results:
         for cid in l.get("communities", []):
@@ -954,8 +1221,7 @@ def get_public_listings(
     if pub_poster_ids:
         pub_poster_map = {u.id: u for u in db.query(User).filter(User.id.in_(pub_poster_ids)).all()}
 
-    # School-only circles for the signed-out feed: one query for all sellers,
-    # degree always None (no viewer), isMine always False.
+    # School-only circles for the signed-out feed.
     pub_circles_batch = public_seller_circles_batch(db, list(pub_poster_ids))
 
     enriched_pub = []
@@ -971,14 +1237,14 @@ def get_public_listings(
         all_comms = []
         for cid in l.get("communities", []):
             if isinstance(cid, int) and cid in pub_info:
-                # Only show public communities on unauthenticated endpoint
                 if pub_info[cid].get("is_public", True):
                     all_comms.append({**pub_info[cid], "is_mutual": False})
         all_comms.sort(key=lambda c: c["name"])
         listing_copy["allCommunities"] = all_comms
         listing_copy["circles"] = pub_circles_batch.get(seller_id, EMPTY_CIRCLES) if seller_id else EMPTY_CIRCLES
         enriched_pub.append(listing_copy)
-    return enriched_pub
+
+    return {"items": enriched_pub, "nextCursor": next_cursor}
 
 
 @router.get("/api/listings/mine")

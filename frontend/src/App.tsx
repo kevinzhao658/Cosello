@@ -1601,7 +1601,7 @@ export default function App() {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
-                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => (
+                  {market.listings.map((listing, idx) => (
                       <ListingCard
                         key={listing.id}
                         listing={listing}
@@ -1618,11 +1618,21 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* End sentinel — also drives the IntersectionObserver. */}
-                <div ref={market.sentinelRef} className="text-center py-8 text-sm text-muted italic">
-                  {market.visibleCount < market.listings.length
-                    ? "Loading more nearby…"
-                    : `You've reached the end · ${market.listings.length} ${market.listings.length === 1 ? "item" : "items"}`}
+                {/* Scroll sentinel — drives the IntersectionObserver for server pagination. */}
+                <div ref={market.sentinelRef} className="py-8 text-center text-sm text-muted">
+                  {market.fetchError && !market.isLoadingMore ? (
+                    <button
+                      type="button"
+                      onClick={market.retryLoadMore}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-hairline bg-surface-soft text-ink hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      Could not load more. Tap to retry.
+                    </button>
+                  ) : market.isLoadingMore ? (
+                    <span className="italic">Loading more nearby…</span>
+                  ) : !market.hasMore ? (
+                    <span className="italic">{`End of results. ${market.listings.length} ${market.listings.length === 1 ? "item" : "items"} loaded.`}</span>
+                  ) : null}
                 </div>
               </>
             )}

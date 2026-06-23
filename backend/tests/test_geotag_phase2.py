@@ -458,11 +458,24 @@ class TestFeedDoesNotCallDirections:
         from models import Listing as _Listing, ZipCentroid as _ZipCentroid, Community, CommunityMember
 
         class _EmptyFeedSession:
-            """Minimal mock for the feed's DB usage."""
+            """Minimal mock for the feed's DB usage.
+
+            Updated to support chained .order_by() / .limit() calls added
+            by the server-side pagination refactor.
+            """
             def query(self, model):
                 return self
 
             def filter(self, *a, **kw):
+                return self
+
+            def order_by(self, *a, **kw):
+                return self
+
+            def limit(self, n):
+                return self
+
+            def in_(self, vals):
                 return self
 
             def all(self):
@@ -486,7 +499,9 @@ class TestFeedDoesNotCallDirections:
         try:
             r = TestClient(main.app).get("/api/listings")
             assert r.status_code == 200
-            items = r.json() if isinstance(r.json(), list) else []
+            # New envelope: {items: [...], nextCursor: ...}
+            _feed = r.json()
+            items = _feed.get("items", []) if isinstance(_feed, dict) else []
             for item in items:
                 assert "walk_minutes" not in item, (
                     "walk_minutes must not appear in feed endpoint response"
