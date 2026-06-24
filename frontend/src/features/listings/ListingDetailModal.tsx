@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { X, MapPin, User, Loader2, Pencil, Check, ChevronLeft, ChevronRight, Navigation } from "lucide-react";
+import { ModalCloseButton } from "../../components/ui/ModalCloseButton";
 import { Button } from "../../components/ui/button";
 import { ModalShell } from "../../components/ui/ModalShell";
-import { formatTitle } from "../../lib/format";
+import { formatTitle, formatRelativeTime, formatWalkMinutes } from "../../lib/format";
 import { PLACEHOLDER_COMMUNITY } from "../../lib/listings";
 import { Tooltip } from "../../components/ui/tooltip";
 import { ListingMap } from "../../components/ListingMap";
@@ -10,6 +11,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { apiFetch } from "../../lib/api";
 import { CircleByline } from "../../components/CircleByline";
 import type { Listing } from "../../lib/types";
+import { useCategorySchemas } from "../../contexts/CategorySchemasContext";
 
 export type SellerProfile = {
   id: string;
@@ -32,42 +34,12 @@ type ListingDetailModalProps = {
   sellerProfile: SellerProfile | null;
   isLoadingSeller: boolean;
   buyerOrderStatus: BuyerOrderStatus;
-  categorySchemas: Record<string, { label: string }>;
   onOpenUserDashboard: (userId: string) => void;
   onOpenEdit: () => void;
   onOpenBuy: () => void;
   onEditPickupSlots: () => void;
   onSignInPrompt: () => void;
 };
-
-function relativeTimeFrom(epochSeconds: number): string {
-  const now = Date.now() / 1000;
-  const delta = Math.max(0, now - epochSeconds);
-  if (delta < 60) return "just now";
-  if (delta < 3600) return `${Math.floor(delta / 60)} min ago`;
-  if (delta < 86400) {
-    const h = Math.floor(delta / 3600);
-    return `${h} ${h === 1 ? "hour" : "hours"} ago`;
-  }
-  const days = Math.floor(delta / 86400);
-  if (days < 30) return `${days} ${days === 1 ? "day" : "days"} ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
-  const years = Math.floor(days / 365);
-  return `${years} ${years === 1 ? "year" : "years"} ago`;
-}
-
-/** Walking-estimate display: nearby reads as "<10 min"; past the hour reads
- *  as "~1 hr 5 min". The estimate targets the midpoint of the privacy circle. */
-function formatWalkMinutes(mins: number): string {
-  if (mins < 10) return "<10 min";
-  if (mins >= 60) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m > 0 ? `~${h} hr ${m} min` : `~${h} hr`;
-  }
-  return `~${mins} min`;
-}
 
 type DetailTab = "details" | "location";
 
@@ -198,13 +170,13 @@ export function ListingDetailModal({
   sellerProfile,
   isLoadingSeller,
   buyerOrderStatus,
-  categorySchemas,
   onOpenUserDashboard,
   onOpenEdit,
   onOpenBuy,
   onEditPickupSlots,
   onSignInPrompt,
 }: ListingDetailModalProps) {
+  const categorySchemas = useCategorySchemas();
   const [imageIndex, setImageIndex] = useState(0);
   const [tab, setTab] = useState<DetailTab>("details");
   const [locationDrawerOpen, setLocationDrawerOpen] = useState(false);
@@ -317,13 +289,7 @@ export function ListingDetailModal({
         role="dialog"
         aria-label={formatTitle(listing.brand, listing.name)}
       >
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 z-10 size-8 rounded-full bg-canvas border border-hairline inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <X className="size-4" />
-        </button>
+        <ModalCloseButton onClick={onClose} size={8} className="z-10 bg-canvas border border-hairline" />
 
         {/* Left: photos column — desktop only. On mobile the photo block is
             rendered inside the scroll region below so it scrolls away with
@@ -425,7 +391,7 @@ export function ListingDetailModal({
                 </>
               )}
               <span className="hidden md:inline" aria-hidden="true">·</span>
-              <span className="hidden md:inline truncate">Listed {relativeTimeFrom(listing.postedAt)}</span>
+              <span className="hidden md:inline truncate">Listed {formatRelativeTime(listing.postedAt)}</span>
             </div>
 
             {/* Title */}

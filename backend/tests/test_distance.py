@@ -101,22 +101,26 @@ def test_listings_returns_distance_and_filters(authed_client, test_user, db_sess
     override_auth_user(test_user)
 
     full = authed_client.get("/api/listings").json()
-    items = full if isinstance(full, list) else full.get("listings", full.get("results", []))
+    # New envelope: {items: [...], nextCursor: ...}
+    assert "items" in full and "nextCursor" in full
+    items = full["items"]
     by_name = {i["name"]: i for i in items}
     assert by_name["N-10014"]["distance_miles"] == 0.0
     assert by_name["N-10040"]["distance_miles"] > 5
 
     near = authed_client.get("/api/listings", params={"max_distance": 1}).json()
-    near_items = near if isinstance(near, list) else near.get("listings", near.get("results", []))
-    near_names = {i["name"] for i in near_items}
+    # New envelope
+    assert "items" in near and "nextCursor" in near
+    near_names = {i["name"] for i in near["items"]}
     assert "N-10014" in near_names and "N-10040" not in near_names
 
 
 def test_listings_distance_null_when_buyer_has_no_zip(authed_client, test_user, db_session, mock_storage):
     test_user.zip_code = None; db_session.commit()
     res = authed_client.get("/api/listings").json()
-    items = res if isinstance(res, list) else res.get("listings", res.get("results", []))
-    assert all(i.get("distance_miles") is None for i in items)
+    # New envelope: {items: [...], nextCursor: ...}
+    assert "items" in res and "nextCursor" in res
+    assert all(i.get("distance_miles") is None for i in res["items"])
 
 
 # ---------------------------------------------------------------------------

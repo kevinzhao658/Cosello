@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, Pencil, Plus, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { ModalCloseButton } from "./ui/ModalCloseButton";
 import { Input } from "./ui/input";
 import { PriceInput } from "./ui/price-input";
 import { ModalShell } from "./ui/ModalShell";
@@ -8,11 +9,11 @@ import { ListingImage } from "./ui/ListingImage";
 import { CategorySelector, CategoryAttributeFields } from "./CategoryFields";
 import { CONDITIONS } from "../lib/listings";
 import type {
-  CategorySchema,
   CategorySlug,
   Listing,
   ListingUpdatePatch,
 } from "../lib/types";
+import { useCategorySchemas } from "../contexts/CategorySchemasContext";
 
 type EditListingSource = Pick<
   Listing,
@@ -38,9 +39,6 @@ export type EditListingModalProps = {
   // relying on whatever stale value lives on the listing.
   location: string;
   onSave: (patch: ListingUpdatePatch) => Promise<void>;
-  // When omitted (or empty), the category section is hidden. Both Marketplace
-  // and MyAccount call sites pass this so the modal looks identical.
-  categorySchemas?: Record<string, CategorySchema>;
   // Z-index override (App.tsx uses z=260 to stack above listing detail).
   z?: number;
 };
@@ -58,9 +56,9 @@ export function EditListingModal({
   listing,
   location,
   onSave,
-  categorySchemas,
   z = 50,
 }: EditListingModalProps) {
+  const categorySchemas = useCategorySchemas();
   const [brand, setBrand] = useState(listing.brand || "");
   const [name, setName] = useState(listing.name || "");
   const [description, setDescription] = useState(listing.description || "");
@@ -74,7 +72,7 @@ export function EditListingModal({
   );
   const [isSaving, setIsSaving] = useState(false);
 
-  const showCategory = categorySchemas && Object.keys(categorySchemas).length > 0;
+  const showCategory = Object.keys(categorySchemas).length > 0;
   const previewUrls = listing.imageUrls && listing.imageUrls.length > 0
     ? listing.imageUrls
     : listing.imageUrl
@@ -106,13 +104,7 @@ export function EditListingModal({
   return (
     <ModalShell open={open} onClose={onClose} z={z}>
       <div className="relative bg-canvas border border-hairline rounded-xl p-6 max-w-md w-full mx-4 shadow-overlay max-h-[85vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 size-8 rounded-full inline-flex items-center justify-center text-muted hover:text-ink hover:bg-surface-soft transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <X className="size-4" />
-        </button>
+        <ModalCloseButton onClick={onClose} size={8} />
 
         <div className="flex items-center gap-3 mb-5">
           <div className="size-10 rounded-full bg-primary-soft inline-flex items-center justify-center">

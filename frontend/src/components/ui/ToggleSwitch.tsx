@@ -1,9 +1,7 @@
 // frontend/src/components/ui/ToggleSwitch.tsx
 // Shared accessible toggle-switch used in MyAccountPage (Settings panel) and
 // CircleSettings.  Props match both original inline implementations.
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../../lib/ui-constants";
 
 export interface ToggleSwitchProps {
   /** Whether the switch is in the "on" / checked state */

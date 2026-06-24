@@ -2,13 +2,9 @@ import { memo, useRef, useState, useMemo } from "react";
 import { Search, Menu, X } from "lucide-react";
 import { Tooltip } from "./ui/tooltip";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { useCategorySchemas } from "../contexts/CategorySchemasContext";
 
 type CategorySlug = "clothing" | "furniture" | "electronics" | "sports" | "collectibles" | "other";
-
-interface CategorySchema {
-  label: string;
-  fields: unknown[];
-}
 
 interface Community {
   id: number;
@@ -27,7 +23,6 @@ interface MarketplaceSidebarProps {
   filterCommunities: Community[];
   selectedMarketCommunities: number[];
   onToggleCommunity: (cid: number) => void;
-  categorySchemas: Record<string, CategorySchema>;
   selectedCategories: CategorySlug[];
   onToggleCategory: (slug: CategorySlug) => void;
   distanceMiles: number;
@@ -54,7 +49,6 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
   filterCommunities,
   selectedMarketCommunities,
   onToggleCommunity,
-  categorySchemas,
   selectedCategories,
   onToggleCategory,
   distanceMiles,
@@ -62,6 +56,7 @@ export const MarketplaceSidebar = memo(function MarketplaceSidebar({
   showMyListings,
   onToggleMyListings,
 }: MarketplaceSidebarProps) {
+  const categorySchemas = useCategorySchemas();
   const [commMenuOpen, setCommMenuOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   useClickOutside(popoverRef, () => setCommMenuOpen(false), commMenuOpen);

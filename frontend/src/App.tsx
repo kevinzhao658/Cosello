@@ -8,7 +8,10 @@ import { Tooltip } from "./components/ui/tooltip";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAuth, type AuthUser } from "./contexts/AuthContext";
 import { useOrderModals } from "./contexts/OrderModalsContext";
-import { FOCUS_RING } from "./pages/MyAccount/constants";
+import { CategorySchemasProvider } from "./contexts/CategorySchemasContext";
+import { CommunitiesProvider } from "./contexts/CommunitiesContext";
+import { FOCUS_RING } from "./lib/ui-constants";
+import { ModalCloseButton } from "./components/ui/ModalCloseButton";
 const SignInPage = lazy(() => import("./pages/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/SignUpPage"));
 const MyAccountPage = lazy(() => import("./pages/MyAccount/MyAccountPage"));
@@ -55,7 +58,7 @@ import type { CategorySlug, CommunitySummary, CategorySchema, OrderData } from "
 type Page = "home" | "market" | "terms" | "signin" | "signup" | "account" | "help" | "mission" | "newlisting";
 
 export default function App() {
-  const { isAuthenticated, user, token, needsRegistration, login, logout, updateUser, refreshUser } = useAuth();
+  const { isAuthenticated, authReady, user, token, needsRegistration, login, logout, updateUser, refreshUser } = useAuth();
   const { openOrderConfirmSummary, openOrderManagement, registerViewUserHandler } = useOrderModals();
 
   // Temporary token for new users who haven't completed profile yet
@@ -135,7 +138,7 @@ export default function App() {
 
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
-  const market = useMarketplaceBrowse({ page, isAuthenticated, token, isDesktop, userNeighborhood: user?.neighborhood });
+  const market = useMarketplaceBrowse({ page, isAuthenticated, authReady, token, isDesktop, userNeighborhood: user?.neighborhood });
 
   const handleToggleMarketCommunity = useCallback((cid: number) => {
     market.setSelectedCommunities((prev) =>
@@ -584,6 +587,8 @@ export default function App() {
   })();
 
   return (
+    <CategorySchemasProvider value={categorySchemas}>
+    <CommunitiesProvider value={{ publicCommunities, privateCommunities, fetchFilterCommunities }}>
     <div className="min-h-screen bg-canvas text-ink">
       {/* Navigation */}
       <nav className="sticky top-0 border-b border-hairline bg-canvas z-50">
@@ -953,12 +958,9 @@ export default function App() {
                   <Suspense fallback={null}>
                   <SellWizard
                     ref={sellWizardRef}
-                    categorySchemas={categorySchemas}
                     isActive={true}
                     mode={newListing.mode}
                     photosOnly={newListing.mode === "manual"}
-                    publicCommunities={publicCommunities}
-                    privateCommunities={privateCommunities}
                     onSwitchToBuy={() => { setTradeMode("buy"); setPage("home"); }}
                     onRequestSignIn={requestSignInForPublish}
                     onPosted={() => {
@@ -1525,7 +1527,6 @@ export default function App() {
             filterCommunities={filterCommunities}
             selectedMarketCommunities={market.selectedCommunities}
             onToggleCommunity={handleToggleMarketCommunity}
-            categorySchemas={categorySchemas}
             selectedCategories={market.selectedCategories}
             onToggleCategory={handleToggleCategory}
             distanceMiles={market.distanceMiles}
@@ -1600,7 +1601,7 @@ export default function App() {
             ) : (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mt-7">
-                  {market.listings.slice(0, market.visibleCount).map((listing, idx) => (
+                  {market.listings.map((listing, idx) => (
                       <ListingCard
                         key={listing.id}
                         listing={listing}
@@ -1617,11 +1618,21 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* End sentinel — also drives the IntersectionObserver. */}
-                <div ref={market.sentinelRef} className="text-center py-8 text-sm text-muted italic">
-                  {market.visibleCount < market.listings.length
-                    ? "Loading more nearby…"
-                    : `You've reached the end · ${market.listings.length} ${market.listings.length === 1 ? "item" : "items"}`}
+                {/* Scroll sentinel — drives the IntersectionObserver for server pagination. */}
+                <div ref={market.sentinelRef} className="py-8 text-center text-sm text-muted">
+                  {market.fetchError && !market.isLoadingMore ? (
+                    <button
+                      type="button"
+                      onClick={market.retryLoadMore}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-hairline bg-surface-soft text-ink hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      Could not load more. Tap to retry.
+                    </button>
+                  ) : market.isLoadingMore ? (
+                    <span className="italic">Loading more nearby…</span>
+                  ) : !market.hasMore ? (
+                    <span className="italic">{`End of results. ${market.listings.length} ${market.listings.length === 1 ? "item" : "items"} loaded.`}</span>
+                  ) : null}
                 </div>
               </>
             )}
@@ -1960,7 +1971,7 @@ export default function App() {
       {/* My Account Page */}
       {page === "account" && isAuthenticated && (
         <Suspense fallback={null}>
-          <MyAccountPage onNavigate={(p) => setPage(p as Page)} onCommunitiesChanged={fetchFilterCommunities} wishlistItems={wishlist.items} wishlist={wishlist.ids} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={detail.openListingDetail} onViewUser={detail.openUserDashboard} categorySchemas={categorySchemas} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
+          <MyAccountPage onNavigate={(p) => setPage(p as Page)} wishlistItems={wishlist.items} onToggleWishlist={(id) => { wishlist.toggle(id).then(() => wishlist.refetchItems()); }} pendingListingId={pendingListingId} onClearPendingListing={() => setPendingListingId(null)} onAddToHistory={addToHistory} openListingDetail={detail.openListingDetail} onViewUser={detail.openUserDashboard} requestedAccountTab={requestedAccountTab} onClearRequestedAccountTab={() => setRequestedAccountTab(null)} />
         </Suspense>
       )}
 
@@ -2045,7 +2056,6 @@ export default function App() {
         sellerProfile={detail.sellerProfile}
         isLoadingSeller={detail.isLoadingSeller}
         buyerOrderStatus={detail.buyerOrderStatus}
-        categorySchemas={categorySchemas}
         onOpenUserDashboard={detail.openUserDashboard}
         onOpenEdit={detail.openEdit}
         onOpenBuy={detail.openBuy}
@@ -2072,7 +2082,6 @@ export default function App() {
           listing={detail.listing}
           location={user?.neighborhood || detail.listing.location || ""}
           onSave={detail.saveListingEdit}
-          categorySchemas={categorySchemas}
           z={260}
         />
       )}
@@ -2095,14 +2104,7 @@ export default function App() {
       {changeLocation.open && (
         <ModalShell open onClose={changeLocation.close} z={210}>
           <div className="relative bg-canvas border border-hairline rounded-md w-full max-w-sm mx-4 p-6 shadow-overlay">
-            <button
-              type="button"
-              onClick={changeLocation.close}
-              aria-label="Close"
-              className="absolute top-3 right-3 size-8 rounded-full text-muted hover:text-ink hover:bg-surface-soft inline-flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            >
-              <X className="size-4" />
-            </button>
+            <ModalCloseButton onClick={changeLocation.close} size={8} />
             <h2 className="text-lg font-extrabold text-ink mb-1">Change location</h2>
             <p className="text-sm text-muted mb-4">
               Updates what you see in the marketplace.
@@ -2149,5 +2151,7 @@ export default function App() {
       )}
       <Analytics />
     </div>
+    </CommunitiesProvider>
+    </CategorySchemasProvider>
   );
 }

@@ -746,7 +746,9 @@ def test_exclusions_keeps_unrelated_listings(db_session, cleanup, now_ts):
 def _community_listing_ids(client, community_id: int) -> list[str]:
     resp = client.get(f"/api/listings?community={community_id}")
     assert resp.status_code == 200, resp.text
-    return [l["id"] for l in resp.json()]
+    # New envelope: {items: [...], nextCursor: ...}
+    payload = resp.json()
+    return [l["id"] for l in payload["items"]]
 
 
 def test_community_filter_path_ordering_unchanged(
@@ -824,7 +826,10 @@ def test_fyp_mode_excludes_not_interested_via_endpoint(
     override_auth_user(user)
     resp = client.get("/api/listings")
     assert resp.status_code == 200, resp.text
-    ids = [l["id"] for l in resp.json()]
+    # New envelope: {items: [...], nextCursor: ...}
+    payload = resp.json()
+    assert "items" in payload and "nextCursor" in payload
+    ids = [l["id"] for l in payload["items"]]
     assert keeper.id in ids
     assert skipped.id not in ids
 
@@ -846,8 +851,10 @@ def test_fyp_response_shape_has_no_score_field(
     override_auth_user(user)
     resp = client.get("/api/listings")
     assert resp.status_code == 200, resp.text
+    # New envelope: {items: [...], nextCursor: ...}
     payload = resp.json()
-    for l in payload:
+    assert "items" in payload and "nextCursor" in payload
+    for l in payload["items"]:
         assert "score" not in l
         assert "_score" not in l
         assert "fyp_score" not in l

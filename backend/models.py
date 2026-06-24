@@ -1,7 +1,7 @@
 import json
 import time
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Index, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -200,6 +200,13 @@ class Listing(Base):
     longitude = Column(Float, nullable=True)
     zip_code = Column(String(10), nullable=True)
     map_radius_mi = Column(Float, nullable=True)  # buyer map circle radius; NULL -> default
+
+    __table_args__ = (
+        # Composite index to accelerate the feed filter:
+        #   WHERE status != 'sold' AND posted_at >= <cutoff>
+        # Mirrors migration 0019_listings_feed_index.sql.
+        Index("ix_listings_status_posted_at", "status", "posted_at"),
+    )
 
     @property
     def title_str(self) -> str:

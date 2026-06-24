@@ -44,7 +44,10 @@ def test_feed_listing_exposes_circles_for_mutual_viewer(
     override_auth_user(viewer)
     resp = client.get("/api/listings")
     assert resp.status_code == 200
-    mine = next(l for l in resp.json() if l["id"] == listing.id)
+    # New envelope: {items: [...], nextCursor: ...}
+    payload = resp.json()
+    assert "items" in payload and "nextCursor" in payload
+    mine = next(l for l in payload["items"] if l["id"] == listing.id)
     # New circles shape: {connection:{degree}, school}
     # Neighborhood is no longer in the circles shape (spec rev 2026-06-20)
     assert "neighborhood" not in mine["circles"]
@@ -140,7 +143,10 @@ def test_public_feed_circles_use_new_shape(db_session, make_user, client, mock_s
     # Fetch the public (unauthenticated) feed.
     pub_resp = client.get("/api/listings/public")
     assert pub_resp.status_code == 200
-    items = pub_resp.json()
+    # New envelope: {items: [...], nextCursor: ...}
+    pub_payload = pub_resp.json()
+    assert "items" in pub_payload and "nextCursor" in pub_payload
+    items = pub_payload["items"]
     # Find our listing (may not exist if in-memory store was cleared, but at
     # minimum the endpoint must return 200 and every item must use "neighborhood").
     for item in items:
@@ -211,7 +217,10 @@ def test_public_feed_shows_school_for_seller_with_school(
     # Fetch the PUBLIC (unauthenticated) feed.
     pub_resp = client.get("/api/listings/public")
     assert pub_resp.status_code == 200
-    items = pub_resp.json()
+    # New envelope: {items: [...], nextCursor: ...}
+    pub_payload2 = pub_resp.json()
+    assert "items" in pub_payload2 and "nextCursor" in pub_payload2
+    items = pub_payload2["items"]
     seller_items = [i for i in items if i.get("userId") == seller.id]
     assert seller_items, "seller's listing not found in public feed"
     item = seller_items[0]

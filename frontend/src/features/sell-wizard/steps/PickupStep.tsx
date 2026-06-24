@@ -1,9 +1,7 @@
 import { Button } from "../../../components/ui/button";
 import { Loader2 } from "lucide-react";
 import { NYC_ZIPS } from "../../../lib/nycZips";
-
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
+import { FOCUS_RING } from "../../../lib/ui-constants";
 
 export interface PickupStepProps {
   bulkPickupLocation: string;

@@ -67,28 +67,92 @@ def _get_community_ids(user_id: str, db: Session) -> set[int]:
     return {r[0] for r in rows}
 
 
-def _count_mutual_friends(user_id: str, other_id: str, db: Session) -> int:
-    my_friends = _get_friend_ids(user_id, db)
-    their_friends = _get_friend_ids(other_id, db)
-    return len(my_friends & their_friends)
+def _bulk_friend_ids(user_ids: list[str], db: Session) -> dict[str, set[str]]:
+    """Return a mapping of user_id -> set[friend_id] for all users in *user_ids*.
+
+    Issues a single query over the Friendship table (filtered to the candidate
+    id set) instead of one query per user, eliminating the N+1 pattern that
+    ``_count_mutual_friends`` previously caused.
+    """
+    if not user_ids:
+        return {}
+    id_set = set(user_ids)
+    rows = (
+        db.query(Friendship)
+        .filter(
+            or_(
+                Friendship.user_id.in_(id_set),
+                Friendship.friend_id.in_(id_set),
+            ),
+            Friendship.status == "accepted",
+        )
+        .all()
+    )
+    result: dict[str, set[str]] = {uid: set() for uid in user_ids}
+    for r in rows:
+        if r.user_id in result:
+            result[r.user_id].add(r.friend_id)
+        if r.friend_id in result:
+            result[r.friend_id].add(r.user_id)
+    return result
 
 
-def _count_shared_communities(user_id: str, other_id: str, db: Session) -> int:
-    my_communities = _get_community_ids(user_id, db)
-    their_communities = _get_community_ids(other_id, db)
-    return len(my_communities & their_communities)
+def _bulk_community_ids(user_ids: list[str], db: Session) -> dict[str, set[int]]:
+    """Return a mapping of user_id -> set[community_id] for all users in *user_ids*.
+
+    Single query over CommunityMember instead of one per user.
+    """
+    if not user_ids:
+        return {}
+    id_set = set(user_ids)
+    rows = (
+        db.query(CommunityMember.user_id, CommunityMember.community_id)
+        .filter(CommunityMember.user_id.in_(id_set))
+        .all()
+    )
+    result: dict[str, set[int]] = {uid: set() for uid in user_ids}
+    for user_id, community_id in rows:
+        result[user_id].add(community_id)
+    return result
 
 
-def _user_to_friend_out(user: User, current_user_id: str, friend_ids: set[str], db: Session) -> dict:
-    return {
-        "id": user.id,
-        "display_name": user.display_name,
-        "neighborhood": user.neighborhood,
-        "profile_picture": user.profile_picture,
-        "is_friend": user.id in friend_ids,
-        "mutual_friends_count": _count_mutual_friends(current_user_id, user.id, db),
-        "shared_communities_count": _count_shared_communities(current_user_id, user.id, db),
-    }
+def _users_to_friend_out_batch(
+    users: list[User],
+    current_user_id: str,
+    my_friend_ids: set[str],
+    my_community_ids: set[int],
+    candidate_friend_map: dict[str, set[str]],
+    candidate_community_map: dict[str, set[int]],
+) -> list[dict]:
+    """Convert a list of User objects to FriendOut dicts using pre-fetched maps.
+
+    All mutual_friends_count and shared_communities_count values are computed
+    via in-Python set intersections — no additional DB queries are issued.
+    The output dict shape is byte-for-byte identical to the previous
+    ``_user_to_friend_out`` return value.
+
+    Args:
+        users: candidate users to convert.
+        current_user_id: the requesting user's id.
+        my_friend_ids: the requesting user's accepted friend ids.
+        my_community_ids: the requesting user's community ids.
+        candidate_friend_map: pre-fetched friend id sets keyed by candidate user_id.
+        candidate_community_map: pre-fetched community id sets keyed by candidate user_id.
+    """
+    out = []
+    for user in users:
+        their_friends = candidate_friend_map.get(user.id, set())
+        their_communities = candidate_community_map.get(user.id, set())
+        out.append({
+            "id": user.id,
+            "display_name": user.display_name,
+            "neighborhood": user.neighborhood,
+            "profile_picture": user.profile_picture,
+            "is_friend": user.id in my_friend_ids,
+            "mutual_friends_count": len(my_friend_ids & their_friends),
+            "shared_communities_count": len(my_community_ids & their_communities),
+        })
+    return out
 
 
 # ---------- Endpoints ----------
@@ -98,11 +162,18 @@ def list_friends(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    friend_ids = _get_friend_ids(current_user.id, db)
-    if not friend_ids:
+    my_friend_ids = _get_friend_ids(current_user.id, db)
+    if not my_friend_ids:
         return []
-    users = db.query(User).filter(User.id.in_(friend_ids)).all()
-    return [_user_to_friend_out(u, current_user.id, friend_ids, db) for u in users]
+    users = db.query(User).filter(User.id.in_(my_friend_ids)).all()
+    candidate_ids = [u.id for u in users]
+    my_community_ids = _get_community_ids(current_user.id, db)
+    candidate_friend_map = _bulk_friend_ids(candidate_ids, db)
+    candidate_community_map = _bulk_community_ids(candidate_ids, db)
+    return _users_to_friend_out_batch(
+        users, current_user.id, my_friend_ids, my_community_ids,
+        candidate_friend_map, candidate_community_map,
+    )
 
 
 @router.post("/add", response_model=FriendOut)
@@ -140,8 +211,15 @@ def add_friend(
     db.add(friendship)
     db.commit()
 
-    friend_ids = _get_friend_ids(current_user.id, db)
-    return _user_to_friend_out(target, current_user.id, friend_ids, db)
+    my_friend_ids = _get_friend_ids(current_user.id, db)
+    my_community_ids = _get_community_ids(current_user.id, db)
+    candidate_friend_map = _bulk_friend_ids([target.id], db)
+    candidate_community_map = _bulk_community_ids([target.id], db)
+    results = _users_to_friend_out_batch(
+        [target], current_user.id, my_friend_ids, my_community_ids,
+        candidate_friend_map, candidate_community_map,
+    )
+    return results[0]
 
 
 @router.delete("/{friend_id}")
@@ -189,8 +267,15 @@ def search_users(
         .all()
     )
 
-    friend_ids = _get_friend_ids(current_user.id, db)
-    results = [_user_to_friend_out(u, current_user.id, friend_ids, db) for u in users]
+    my_friend_ids = _get_friend_ids(current_user.id, db)
+    my_community_ids = _get_community_ids(current_user.id, db)
+    candidate_ids = [u.id for u in users]
+    candidate_friend_map = _bulk_friend_ids(candidate_ids, db)
+    candidate_community_map = _bulk_community_ids(candidate_ids, db)
+    results = _users_to_friend_out_batch(
+        users, current_user.id, my_friend_ids, my_community_ids,
+        candidate_friend_map, candidate_community_map,
+    )
 
     # Sort: friends first, then by mutual friends, then shared communities
     results.sort(
@@ -243,7 +328,13 @@ def recommended_friends(
         User.display_name != "",
     ).all()
 
-    results = [_user_to_friend_out(u, current_user.id, friend_ids, db) for u in users]
+    candidate_user_ids = [u.id for u in users]
+    candidate_friend_map = _bulk_friend_ids(candidate_user_ids, db)
+    candidate_community_map = _bulk_community_ids(candidate_user_ids, db)
+    results = _users_to_friend_out_batch(
+        users, current_user.id, friend_ids, my_community_ids,
+        candidate_friend_map, candidate_community_map,
+    )
     results.sort(
         key=lambda r: (-r["mutual_friends_count"], -r["shared_communities_count"])
     )
