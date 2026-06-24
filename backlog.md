@@ -15,8 +15,8 @@ Convention:
 **North star: ship `dev → main` — the first prod release of Circles + everything on `dev`.** Gated behind the queue below. Live working notes live in memory: `project_preprod_ux_bug_queue`, `project_chore_local_test_stack_punchlist`, `project_cosello_dev_test_target`.
 
 **Queue (in order):**
-1. **Prod test-data cleanup** — IN PROGRESS. Dry-run (2026-06-24): **447 orphaned `+15555` test users + 87 listings at the test coord (40.730,-74.000)** polluting PROD (accumulated from the suite historically running against prod). Tool: `cd backend && python scripts/cleanup_test_users.py --apply` (excludes the 3 seeds; cascades dependent rows incl. the listings). Awaiting go to run `--apply`.
-2. **Pre-prod UX bugs** (details in `project_preprod_ux_bug_queue`):
+1. **Prod test-data cleanup** — ✅ DONE (2026-06-24). Removed **447 orphaned `+15555` test users + their listings** (87 at the test coord (40.730,-74.000)) from PROD: 425 via `cleanup_test_users.py --apply`, the remaining 22 (which had orders/reviews/wishlist/notifications/friendships) via a full dynamic-FK sweep. Final verify: 0 orphans, 0 canary listings. *Follow-up:* extend `cleanup_test_users.py: _delete_public_deps` to also clear `purchase_orders`/`reviews`/`wishlist_*`/`notifications`/`friendships`/`join_requests` so a single `--apply` is complete next time.
+2. **← NEXT: Pre-prod UX bugs** (details in `project_preprod_ux_bug_queue`):
    a. **Neighborhood registration** — Koreatown/Astoria addresses can't register; Mapbox autocomplete neighborhood vs ZIP→neighborhood vs `MANHATTAN_NEIGHBORHOODS` curated set disagree (Astoria is Queens → never in the list). Reconcile to one canonical source.
    b. **Marketplace still slow** — pagination (PR #70) didn't deliver perceived speed; offset pagination re-fetches the 300/500 candidate window AND re-runs FYP `score_listings` per page. Re-measure + likely move to keyset / stop per-page re-scoring.
    c. **Single-listing confirmation** — legacy formatting still surfaces; no post-submission success confirmation appears.
