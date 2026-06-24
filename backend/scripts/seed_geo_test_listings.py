@@ -98,16 +98,22 @@ NEIGHBORHOOD_BY_ZIP = {
 
 
 def _verify_sellers(db) -> dict[str, str]:
-    """Confirm each seller UUID exists in public.users; exit if any missing."""
+    """Resolve each seller's CURRENT id by display_name.
+
+    Supabase Auth assigns user UUIDs at creation time, so they differ per
+    project (the hard-coded SELLERS ids are only valid on the env they were
+    captured from). Looking up by display_name makes this script portable to a
+    fresh project (e.g. cosello-dev) after seed_test_users has run.
+    """
     from models import User
     verified: dict[str, str] = {}
     missing: list[str] = []
-    for name, uid in SELLERS.items():
-        row = db.query(User).filter(User.id == uid).first()
+    for name in SELLERS:
+        row = db.query(User).filter(User.display_name == name).first()
         if row is None:
-            missing.append(f"  - {name} (expected id={uid})")
+            missing.append(f"  - {name}")
         else:
-            verified[name] = uid
+            verified[name] = row.id
     if missing:
         print("ERROR: The following test sellers are missing from public.users:")
         for m in missing:
@@ -157,7 +163,9 @@ def _run(db) -> None:
     rows: list[Listing] = []
     zip_list = [z for z in GEO_ZIPS if z in centroids]
 
-    for i, tmpl in enumerate(LISTING_TEMPLATES):
+    # Seed 2x the templates (~40 listings) so the default page size (24) is
+    # exceeded and infinite-scroll pagination is visibly exercised in the UI.
+    for i, tmpl in enumerate(LISTING_TEMPLATES * 2):
         zip_code = zip_list[i % len(zip_list)]
         lat, lng = centroids[zip_code]
         seller_id = seller_ids[i % len(seller_ids)]
