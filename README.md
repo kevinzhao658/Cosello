@@ -10,7 +10,8 @@ A neighborhood marketplace web app with AI-powered product listing.
 cd backend
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env and fill in ANTHROPIC_API_KEY and GOOGLE_APPLICATION_CREDENTIALS
+# Edit .env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL (Supavisor
+# pooler), plus ANTHROPIC_API_KEY and GOOGLE_APPLICATION_CREDENTIALS
 uvicorn main:app --reload
 ```
 
@@ -30,12 +31,63 @@ Access the site at: http://localhost:5173
 
 > The frontend proxies `/api` requests to the backend automatically.
 
+### 3. Local development against the `cosello-dev` test database
+
+By default the backend reads `backend/.env` (production Supabase). For local development and smoke testing, point **both** processes at the `cosello-dev` project so you never read or write prod data.
+
+**Backend** — set `ENV_FILE` so `main.py` overlays `backend/.env.test` (cosello-dev credentials) on top of the base env:
+
+```bash
+cd backend
+ENV_FILE=.env.test uvicorn main:app --reload --port 8000
+```
+
+`backend/.env.test` (gitignored) holds the cosello-dev `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `DATABASE_URL`. Use the **transaction pooler** connection string (`postgres.<ref>@aws-1-<region>.pooler.supabase.com:6543`) — the direct `db.<ref>.supabase.co` host is IPv6-only and won't resolve locally.
+
+**Frontend** — create `frontend/.env.local` (gitignored; overrides `.env`) with the cosello-dev values, then **restart Vite** (env files are read only at startup):
+
+```
+VITE_SUPABASE_URL=https://<cosello-dev-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<cosello-dev anon key>
+```
+
+> **Critical: the frontend and backend must point at the same Supabase project.** Sign-in mints a JWT from whichever project the *frontend* uses; the backend verifies it (JWKS + issuer) against whichever project *it* uses. A mismatch returns **`Invalid or expired token`** on every authenticated request. So if `frontend/.env.local` is on cosello-dev, you **must** start the backend with `ENV_FILE=.env.test`. (If a stale session lingers after switching projects, sign out / clear site data for `localhost:5173` and sign in again.)
+
+**Signing in — phone Test OTPs (no real SMS, no credit burn).** In the cosello-dev dashboard → Authentication → Providers → Phone → Test OTPs, add the numbers below (and ensure "Allow phone signups" is on):
+
+| Phone | Code | Lands in |
+|---|---|---|
+| `+15555550101` | `123456` | Feed as seeded seller Alice (zip 10011) — tests feed + distance slider |
+| `+15555550102` | `123456` | Feed as Bob (10012) |
+| `+15555550103` | `123456` | Feed as Carol (10013) |
+| `+15555550199` | `123456` | Registration wizard (fresh user, no profile) |
+
+**Seed the dev database** (from `backend/`, after `set -a && source .env.test && set +a`):
+
+```bash
+python -m scripts.seed_zip_centroids      # Manhattan ZIP centroids
+python -m scripts.seed_test_users         # sellers Alice / Bob / Carol
+python -m scripts.seed_geo_test_listings  # ~40 listings spread across ZIPs
+python -m scripts.seed_schools_fixture    # university list — curated, prod-consistent (registration wizard search)
+python -m scripts.seed_dev_storage        # create the public `cosello-images` Storage bucket (image uploads)
+```
+
+> Storage buckets aren't created by SQL migrations, so a fresh project has none — without `seed_dev_storage` the sell wizard's image upload fails with a 404/502 (`signed-upload-url` → "the related resource does not exist").
+
+> **School list consistency:** `seed_schools_fixture` loads `data/school_seed.csv` — a committed snapshot of the **curated** school list (normalized display names + short names + acronyms, e.g. `Columbia University` / `Columbia` / `CU`). This is the canonical per-environment seed and keeps every env identical to prod. Do **not** seed from the raw College Scorecard CSV (`scripts/seed_schools data/...`) for normal setup — that loads uncurated legal-long names. The raw pipeline (`seed_schools` → `normalize_school_names` → `backfill_school_short_names`/`acronyms`) is only for **regenerating** the fixture when the source data changes.
+
+Re-run the registration wizard for a number with `python -m scripts.reset_dev_new_user [+phone]` (defaults to `+15555550199`).
+
 ## Environment
 
 Backend env vars live in `backend/.env` (gitignored). Copy `backend/.env.example` to get started:
 
 | Variable | Purpose |
 |---|---|
+| `SUPABASE_URL` | Supabase project URL (Auth + JWKS for token verification) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key — **server-side only**, bypasses RLS |
+| `DATABASE_URL` | Postgres connection string — use the Supavisor **transaction pooler** host |
+| `SUPABASE_JWT_SECRET` | Optional — only for projects still signing JWTs with HS256 |
 | `ANTHROPIC_API_KEY` | Claude Sonnet 4.5 — listing scribe |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Absolute path to a GCP service account JSON with Vision API access |
 
@@ -52,8 +104,9 @@ Backend env vars live in `backend/.env` (gitignored). Copy `backend/.env.example
 
 ### Backend
 - **FastAPI** + **Uvicorn**
-- **SQLAlchemy** + **SQLite** (user database)
-- **PyJWT** (authentication tokens)
+- **SQLAlchemy** + **Supabase Postgres** (accessed via the Supavisor connection pooler)
+- **Supabase Auth** (phone OTP) + **PyJWT** (verifies Supabase-issued JWTs — HS256 shared secret or RS256/ES256 via JWKS)
+- **supabase** (Python admin client — user management, seeds)
 - **Anthropic SDK** (Claude Sonnet 4.5 — listing scribe)
 - **google-cloud-vision** (image retrieval layer — brand, OCR, labels, web matches)
 - **Pillow** (server-side image normalization / resize / JPEG conversion)
@@ -107,19 +160,10 @@ Cosello/
 
 ## Authentication
 
-Phone-based OTP authentication. Currently uses a **mock OTP** that prints the code to the backend console (no SMS sent).
+Authentication is handled by **Supabase Auth** with phone-based OTP. Supabase mints the session JWT — the backend never issues tokens; it **verifies** the Supabase-issued JWT on every request (`backend/auth.py: verify_supabase_jwt`), supporting both HS256 (shared `SUPABASE_JWT_SECRET`) and RS256/ES256 (verified against the project's JWKS). User identity lives in `auth.users`; the matching profile row in `public.users` is created by a DB trigger and linked by UUID.
 
-### Upgrade Options for Production SMS
-
-| Provider | Free Tier | Cost | Notes |
-|----------|-----------|------|-------|
-| **Firebase Auth** | 10,000 verifications/month | Free (Spark plan) | Google-managed, easiest free option |
-| **Supabase Auth** | Included in free tier | Free | Open-source, self-hostable |
-| **Twilio Verify** | ~$15 trial credits | ~$0.05/verification | Industry standard, most reliable |
-| **Twilio SMS** | ~$15 trial credits | ~$0.008/message + $1.15/mo for number | DIY OTP over raw SMS |
-| **AWS SNS** | 100 free SMS/month | ~$0.01/message after | Good if already on AWS |
-
-To upgrade, replace the `send_otp()` function in `backend/auth.py` with the chosen provider's SDK call. The rest of the auth flow (OTP storage, verification, JWT issuance) remains unchanged.
+- **Production:** OTP codes are delivered by the SMS provider (Twilio) configured in Supabase.
+- **Local dev:** use Supabase **Test OTPs** (static codes, no real SMS) — see [Local development against the cosello-dev test database](#3-local-development-against-the-cosello-dev-test-database).
 
 ## How Sell Mode Works
 

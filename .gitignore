@@ -9,6 +9,13 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 .env
 .env.local
+.env.test
+.env.*.local
+# Any other .env variant (e.g. .env.staging) — keep secrets out of git by default.
+.env.*
+# ...but keep example templates tracked so the expected shape is documented.
+!.env.example
+!.env.*.example
 .vite/
 backend/.secrets/
 *.serviceaccount.json

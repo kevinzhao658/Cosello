@@ -10,6 +10,54 @@ from typing import Optional
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
+# Optional env overlay for local/test runs: set ENV_FILE to point a run at a
+# different project (e.g. ENV_FILE=.env.test → cosello-dev) without editing the
+# base .env. Loaded AFTER the base file so its keys win, but only the keys it
+# defines (so prod's ANTHROPIC/GOOGLE/etc. carry through). Inert in production:
+# ENV_FILE is never set on Vercel. Non-absolute paths resolve against backend/.
+_ENV_FILE = os.getenv("ENV_FILE")
+if _ENV_FILE:
+    _overlay = Path(_ENV_FILE)
+    if not _overlay.is_absolute():
+        _overlay = Path(__file__).parent / _overlay
+    load_dotenv(_overlay, override=True)
+
+
+# --- Production DB safety guard ---
+# On a Vercel production deployment, fail fast (at import, before the DB engine
+# binds) if the app is pointed at a non-production Supabase project. Runtime env
+# vars come from the Vercel dashboard (Production scope); this catches a
+# misconfiguration before any traffic is served off the wrong database.
+# NOTE (chore/local-test-stack): pairs with the planned ENV_FILE injection hook;
+# keep the non-prod ref list in sync as new test/dev projects are created.
+_NON_PROD_SUPABASE_REFS = {
+    "nenrticefcpgnvpqehks",  # cosello-dev (ephemeral test target)
+}
+
+
+def _assert_prod_db_target() -> None:
+    if os.getenv("VERCEL_ENV") != "production":
+        return  # only enforce on real production deployments
+    db_url = os.getenv("DATABASE_URL", "")
+    supa_url = os.getenv("SUPABASE_URL", "")
+    for ref in _NON_PROD_SUPABASE_REFS:
+        if ref in db_url or ref in supa_url:
+            raise RuntimeError(
+                f"FATAL: production deployment is pointed at non-prod Supabase ref "
+                f"'{ref}'. Fix the Vercel Production env vars (DATABASE_URL / SUPABASE_URL)."
+            )
+    # Optional positive check: if the expected prod ref is configured in Vercel,
+    # require it to be present in both URLs.
+    expected = os.getenv("EXPECTED_SUPABASE_REF")
+    if expected and (expected not in supa_url or expected not in db_url):
+        raise RuntimeError(
+            f"FATAL: production deployment does not match EXPECTED_SUPABASE_REF "
+            f"'{expected}'. Check the Vercel Production env vars."
+        )
+
+
+_assert_prod_db_target()
+
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
