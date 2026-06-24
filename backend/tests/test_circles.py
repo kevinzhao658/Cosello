@@ -366,3 +366,30 @@ def test_ranking_overlap_building_kind_excluded(db_session, make_user):
     db_session.query(CommunityMember).filter(CommunityMember.community_id == b.id).delete()
     db_session.query(Community).filter(Community.id == b.id).delete()
     db_session.commit()
+
+
+from services.circles import search_schools as _search_schools
+
+
+def test_search_schools_exact_short_name_outranks_shorter_names(db_session):
+    """An exact short_name match must surface first, even when another match has a
+    shorter display name. Regression guard for: typing "Columbia" → "Columbia
+    University" (short_name "Columbia") ranking above "Columbia College"."""
+    rows = [
+        SchoolSeed(name="Zentestia University", state="NY", acronym="ZU", short_name="Zentestia"),
+        SchoolSeed(name="Zentestia College", state="NY", acronym="ZC", short_name="ZC"),
+        SchoolSeed(name="Zentestia Community College", state="NY", acronym="ZCC", short_name="ZCC"),
+    ]
+    db_session.add_all(rows)
+    db_session.commit()
+    ids = [r.id for r in rows]
+    try:
+        names = [s.name for s in _search_schools(db_session, "Zentestia", limit=5)]
+        # Exact short_name match wins despite "Zentestia College" being shorter.
+        assert names and names[0] == "Zentestia University", names
+        # Exact acronym match also goes to the top tier.
+        acr = [s.name for s in _search_schools(db_session, "ZCC", limit=5)]
+        assert acr and acr[0] == "Zentestia Community College", acr
+    finally:
+        db_session.query(SchoolSeed).filter(SchoolSeed.id.in_(ids)).delete(synchronize_session=False)
+        db_session.commit()

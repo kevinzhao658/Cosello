@@ -150,54 +150,57 @@ def search_schools(db: Session, query: str, limit: int = 10) -> list[SchoolSeed]
     "NYU" resolves to "New York University".
 
     Ranking order (lowest rank wins):
-      0 — name prefix match
-      1 — exact acronym match
+      0 — exact match on the curated display name, short name, or acronym
+      1 — name or short-name prefix match
       2 — acronym prefix match
-      3 — name substring (mid-string)
+      3 — substring match (mid-string, on name or short name)
 
-    Rows with no match on any criterion are excluded. Within each rank bucket
-    results are sorted alphabetically by name.
+    Within a rank bucket, shorter names sort first — so the canonical
+    "Columbia University" (short_name "Columbia") outranks "Columbia College
+    Chicago" for the query "Columbia" — then alphabetically. Rows matching no
+    criterion are excluded.
     """
     q = (query or "").strip()
     if not q:
         return []
     ql = q.lower()
 
-    # Build acronym candidate: uppercase letters/digits only, 2+ chars required.
+    # Acronym candidate: uppercase letters/digits only, 2+ chars required.
     qa = re.sub(r"[^A-Z0-9]", "", q.upper())
     use_acronym = len(qa) >= 2
 
-    # Name-based predicates.
-    name_prefix_pred = func.lower(SchoolSeed.name).like(ql + "%")
-    name_substr_pred = SchoolSeed.name.ilike(f"%{q}%")
+    name_l = func.lower(SchoolSeed.name)
+    short_l = func.lower(SchoolSeed.short_name)
 
+    exact_name = name_l == ql
+    exact_short = short_l == ql
+    name_prefix = name_l.like(ql + "%")
+    short_prefix = short_l.like(ql + "%")
+    name_substr = SchoolSeed.name.ilike(f"%{q}%")
+    short_substr = SchoolSeed.short_name.ilike(f"%{q}%")
+
+    match_preds = [name_substr, short_substr]
+    rank_whens = [
+        (or_(exact_name, exact_short), 0),
+        (or_(name_prefix, short_prefix), 1),
+    ]
     if use_acronym:
-        acronym_exact_pred = SchoolSeed.acronym == qa
-        acronym_prefix_pred = SchoolSeed.acronym.like(qa + "%")
+        acronym_exact = SchoolSeed.acronym == qa
+        acronym_prefix = SchoolSeed.acronym.like(qa + "%")
+        match_preds += [acronym_exact, acronym_prefix]
+        # An exact acronym is as strong a signal as an exact name (e.g. "NYU").
+        rank_whens = [
+            (or_(exact_name, exact_short, acronym_exact), 0),
+            (or_(name_prefix, short_prefix), 1),
+            (acronym_prefix, 2),
+        ]
 
-        filter_pred = or_(
-            name_substr_pred,
-            acronym_exact_pred,
-            acronym_prefix_pred,
-        )
-
-        rank = case(
-            (name_prefix_pred, 0),
-            (acronym_exact_pred, 1),
-            (acronym_prefix_pred, 2),
-            else_=3,
-        )
-    else:
-        filter_pred = name_substr_pred
-        rank = case(
-            (name_prefix_pred, 0),
-            else_=3,
-        )
+    rank = case(*rank_whens, else_=3)
 
     return (
         db.query(SchoolSeed)
-        .filter(filter_pred)
-        .order_by(rank, SchoolSeed.name)
+        .filter(or_(*match_preds))
+        .order_by(rank, func.length(SchoolSeed.name), SchoolSeed.name)
         .limit(limit)
         .all()
     )
