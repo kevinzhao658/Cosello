@@ -10,6 +10,29 @@ Convention:
 
 ---
 
+## Current priorities (updated 2026-06-24)
+
+**North star: ship `dev → main` — the first prod release of Circles + everything on `dev`.** Gated behind the queue below. Live working notes live in memory: `project_preprod_ux_bug_queue`, `project_chore_local_test_stack_punchlist`, `project_cosello_dev_test_target`.
+
+**Queue (in order):**
+1. **Prod test-data cleanup** — IN PROGRESS. Dry-run (2026-06-24): **447 orphaned `+15555` test users + 87 listings at the test coord (40.730,-74.000)** polluting PROD (accumulated from the suite historically running against prod). Tool: `cd backend && python scripts/cleanup_test_users.py --apply` (excludes the 3 seeds; cascades dependent rows incl. the listings). Awaiting go to run `--apply`.
+2. **Pre-prod UX bugs** (details in `project_preprod_ux_bug_queue`):
+   a. **Neighborhood registration** — Koreatown/Astoria addresses can't register; Mapbox autocomplete neighborhood vs ZIP→neighborhood vs `MANHATTAN_NEIGHBORHOODS` curated set disagree (Astoria is Queens → never in the list). Reconcile to one canonical source.
+   b. **Marketplace still slow** — pagination (PR #70) didn't deliver perceived speed; offset pagination re-fetches the 300/500 candidate window AND re-runs FYP `score_listings` per page. Re-measure + likely move to keyset / stop per-page re-scoring.
+   c. **Single-listing confirmation** — legacy formatting still surfaces; no post-submission success confirmation appears.
+   d. (more pre-prod UX bugs expected.)
+3. **`dev → main` release prep** — reconcile the **code↔DB skew**: prod DB already has the Circles schema + curated `school_seed`, but `main` branch has no Circles code. Confirm whether prod deploys from `dev` or migrations were applied ahead of code, so the release doesn't double-apply migrations. Then ship.
+
+**Recently shipped to `dev`** (awaiting the dev→main release):
+- Circles-cleanup tech-debt pass + **server-side feed pagination** (PR #70)
+- **School-search ranking** fix — exact name/short_name/acronym first (PR #71)
+- **Registration session retention** + `/api/searches/top` made public (PR #72)
+- **Test infra** — `ENV_FILE` hook + prod-DB safety guard in `main.py`, cosello-dev seeds (`seed_schools_fixture`, `seed_dev_storage`, `reset_dev_new_user`, portable `seed_geo_test_listings`), `data/school_seed.csv` fixture, dev-setup README section (committed directly to `dev`).
+
+**Smaller tech-debt follow-ups:** FYP `score_listings` perf (overlaps 2b) · `communities.school_seed_id` index · schema-drift audit (models vs migrations) · `seed_fyp_fixture` refresh · README full stack refresh (partial done) · httpx2 test client · `#signin` deep-link session hygiene · NavigationContext / App.tsx render extraction.
+
+---
+
 ## Product features
 
 ### Sell-flow community selector
