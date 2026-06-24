@@ -5,6 +5,7 @@ returns the most-searched normalized terms within a rolling time window.
 Read-only — no schema or logging changes.
 """
 import time
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user
+from auth import get_optional_user
 from models import SearchQuery, User
 
 router = APIRouter(prefix="/api", tags=["searches"])
@@ -31,7 +32,7 @@ class TopSearchesResponse(BaseModel):
 def top_searches(
     window_days: int = Query(7, ge=1, le=90),
     limit: int = Query(5, ge=1, le=20),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
     cutoff = time.time() - window_days * 86400
