@@ -417,10 +417,19 @@ export default function App() {
   // nav item, or restore a stale incomplete session), abandon registration:
   // sign out fully so no profile is created and they browse as a signed-out
   // visitor. We never treat the user as signed in until the wizard completes.
+  //
+  // "signin" is treated as part of the registration flow because OTP verify
+  // creates the Supabase session while page is still "signin" (before onSuccess
+  // navigates to "signup"). AuthContext's /me effect runs immediately after the
+  // token is set and returns a blank profile for new users, which flips
+  // needsRegistration true before the page transition happens. Without this
+  // guard, the effect would fire logout() during that brief window, destroying
+  // the session before the wizard even opens.
   useEffect(() => {
     if (!needsRegistration) return;
-    if (page === "signup") {
-      // Active in the wizard: backfill the token it needs (lost on reload).
+    if (page === "signup" || page === "signin") {
+      // Active in the flow (wizard open or OTP just verified): backfill the
+      // token the wizard needs in case it was lost on reload.
       if (!pendingSignupToken && token) setPendingSignupToken(token);
       return;
     }
