@@ -20,3 +20,47 @@ NEIGHBORHOOD_ZIP: dict[str, str] = {
     "Upper West Side": "10024", "Washington Heights": "10032", "West Village": "10014",
     "Yorkville": "10028",
 }
+
+# Representative ZIP for each commuter-belt neighborhood (append to NEIGHBORHOOD_ZIP above).
+NEIGHBORHOOD_ZIP.update({
+    "Long Island City": "11101", "Astoria": "11102", "Sunnyside": "11104",
+    "Woodside": "11377", "Jackson Heights": "11372", "Forest Hills": "11375",
+    "Greenpoint": "11222", "Williamsburg": "11211", "Bushwick": "11237",
+    "Bedford-Stuyvesant": "11216", "Clinton Hill": "11205", "DUMBO": "11201",
+    "Boerum Hill": "11217", "Prospect Heights": "11238", "Park Slope": "11215",
+    "Carroll Gardens": "11231", "Crown Heights": "11213",
+    "Prospect-Lefferts Gardens": "11225", "Flatbush": "11226",
+})
+
+# ZIP -> the single canonical neighborhood that contains it. Every value MUST be
+# a member of NYC_NEIGHBORHOODS (enforced by test_neighborhood_zips). Mirrors the
+# FE map in frontend/src/lib/nycZips.ts (keep the two in sync).
+ZIP_NEIGHBORHOOD: dict[str, str] = {
+    # --- Manhattan ---
+    "10001": "NoMad", "10002": "Lower East Side", "10003": "East Village",
+    "10004": "Financial District", "10005": "Financial District", "10006": "Financial District",
+    "10007": "Tribeca", "10009": "East Village", "10010": "Gramercy Park",
+    "10011": "Chelsea", "10012": "SoHo", "10013": "Tribeca", "10014": "West Village",
+    "10016": "Murray Hill", "10017": "Midtown East", "10018": "Midtown West",
+    "10019": "Hell's Kitchen", "10021": "Lenox Hill", "10022": "Midtown East",
+    "10023": "Lincoln Square", "10024": "Upper West Side", "10025": "Upper West Side",
+    "10026": "Harlem", "10027": "Morningside Heights", "10028": "Yorkville",
+    "10029": "East Harlem", "10030": "Harlem", "10031": "Hamilton Heights",
+    "10032": "Washington Heights", "10033": "Washington Heights", "10034": "Inwood",
+    "10035": "East Harlem", "10036": "Theater District", "10037": "Harlem",
+    "10038": "Financial District", "10039": "Harlem", "10040": "Inwood",
+    "10044": "Roosevelt Island", "10065": "Lenox Hill", "10075": "Upper East Side",
+    "10128": "Carnegie Hill", "10280": "Battery Park City",
+    # --- Queens (commuter belt) ---
+    "11101": "Long Island City", "11109": "Long Island City",
+    "11102": "Astoria", "11103": "Astoria", "11105": "Astoria", "11106": "Astoria",
+    "11104": "Sunnyside", "11377": "Woodside", "11372": "Jackson Heights",
+    "11375": "Forest Hills",
+    # --- Brooklyn (commuter belt) ---
+    "11222": "Greenpoint", "11211": "Williamsburg", "11249": "Williamsburg",
+    "11206": "Williamsburg", "11237": "Bushwick", "11221": "Bushwick",
+    "11216": "Bedford-Stuyvesant", "11233": "Bedford-Stuyvesant",
+    "11205": "Clinton Hill", "11201": "DUMBO", "11217": "Boerum Hill",
+    "11238": "Prospect Heights", "11215": "Park Slope", "11231": "Carroll Gardens",
+    "11213": "Crown Heights", "11225": "Prospect-Lefferts Gardens", "11226": "Flatbush",
+}
