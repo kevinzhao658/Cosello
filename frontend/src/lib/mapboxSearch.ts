@@ -4,7 +4,7 @@ export interface AddressSuggestion {
   label: string; // full_address from v6 properties
   lat: number;
   lng: number;
-  zip: string; // always one of the 42 seeded ZIPs
+  zip: string; // always one of the seeded NYC ZIPs
   city?: string;
   state?: string;
   neighborhood?: string;
@@ -40,15 +40,16 @@ interface MapboxV6Response {
 
 // -----------------------------------------
 
-const NYC_BBOX = "-74.03,40.68,-73.90,40.88"; // Manhattan-ish bounds
+const NYC_BBOX = "-74.03,40.63,-73.84,40.88"; // Manhattan + close-in Queens/Brooklyn belt
 const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
 export function hasMapboxToken(): boolean {
   return typeof TOKEN === "string" && TOKEN.length > 0;
 }
 
-/** Forward-geocode partial input. Only suggestions whose postcode is in our 42
- *  seeded Manhattan ZIPs are returned — selecting one is inherently valid. */
+/** Forward-geocode partial input. Only suggestions whose postcode is in our
+ *  seeded NYC ZIPs (Manhattan + commuter belt) are returned — selecting one
+ *  is inherently valid. */
 export async function searchAddresses(
   query: string,
   signal?: AbortSignal,
