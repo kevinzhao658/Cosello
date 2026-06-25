@@ -1,8 +1,8 @@
 from constants.neighborhoods import NYC_NEIGHBORHOODS
 from constants.neighborhood_zips import NEIGHBORHOOD_ZIP, ZIP_NEIGHBORHOOD
-from scripts.seed_zip_centroids import MANHATTAN_ZIPS
+from scripts.seed_zip_centroids import all_seed_zips
 
-_SEEDED = {z[0] for z in MANHATTAN_ZIPS}
+_SEEDED = set(all_seed_zips())
 
 def test_every_neighborhood_maps_to_a_seeded_zip():
     for n in NYC_NEIGHBORHOODS:

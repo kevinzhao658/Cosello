@@ -1,4 +1,4 @@
-"""Idempotent seed for Manhattan ZIP centroids. Static data — no runtime API.
+"""Idempotent seed for NYC ZIP centroids. Static data — no runtime API.
 Re-run safe (upsert by zip_code). Source: US Census ZCTA gazetteer (approx).
 Run: cd backend && python3 -m scripts.seed_zip_centroids
 """
@@ -22,18 +22,49 @@ MANHATTAN_ZIPS = [
     ("10075", 40.773, -73.956), ("10128", 40.781, -73.950), ("10280", 40.711, -74.016),
 ]
 
+QUEENS_ZIPS = [
+    ("11101", 40.745, -73.949), ("11109", 40.747, -73.958), ("11102", 40.772, -73.927),
+    ("11103", 40.763, -73.913), ("11105", 40.778, -73.908), ("11106", 40.762, -73.931),
+    ("11104", 40.745, -73.920), ("11377", 40.745, -73.905), ("11372", 40.751, -73.883),
+    ("11375", 40.721, -73.846),
+]
+
+BROOKLYN_ZIPS = [
+    ("11222", 40.728, -73.951), ("11211", 40.713, -73.957), ("11249", 40.711, -73.967),
+    ("11206", 40.701, -73.943), ("11237", 40.704, -73.921), ("11221", 40.691, -73.928),
+    ("11216", 40.681, -73.949), ("11233", 40.678, -73.920), ("11205", 40.694, -73.966),
+    ("11201", 40.694, -73.990), ("11217", 40.682, -73.979), ("11238", 40.679, -73.964),
+    ("11215", 40.667, -73.985), ("11231", 40.679, -74.000), ("11213", 40.670, -73.937),
+    ("11225", 40.663, -73.954), ("11226", 40.646, -73.957),
+]
+
+# (borough_label, zip_tuples) — drives both seeding and all_seed_zips().
+_SEED_GROUPS = [
+    ("Manhattan", MANHATTAN_ZIPS),
+    ("Queens", QUEENS_ZIPS),
+    ("Brooklyn", BROOKLYN_ZIPS),
+]
+
+
+def all_seed_zips() -> list[str]:
+    """Every ZIP string this seed manages (used by tests)."""
+    return [z for _, group in _SEED_GROUPS for (z, _lat, _lng) in group]
+
 
 def main() -> None:
     db = SessionLocal()
     try:
-        for zip_code, lat, lng in MANHATTAN_ZIPS:
-            row = db.get(ZipCentroid, zip_code)
-            if row is None:
-                db.add(ZipCentroid(zip_code=zip_code, latitude=lat, longitude=lng, borough="Manhattan"))
-            else:
-                row.latitude, row.longitude, row.borough = lat, lng, "Manhattan"
+        total = 0
+        for borough, group in _SEED_GROUPS:
+            for zip_code, lat, lng in group:
+                row = db.get(ZipCentroid, zip_code)
+                if row is None:
+                    db.add(ZipCentroid(zip_code=zip_code, latitude=lat, longitude=lng, borough=borough))
+                else:
+                    row.latitude, row.longitude, row.borough = lat, lng, borough
+                total += 1
         db.commit()
-        print(f"Seeded {len(MANHATTAN_ZIPS)} Manhattan ZIP centroids.")
+        print(f"Seeded {total} ZIP centroids across {len(_SEED_GROUPS)} boroughs.")
     finally:
         db.close()
 
