@@ -509,3 +509,12 @@ def test_update_profile_swaps_neighborhood_community(
         .first()
         is not None
     )
+
+
+def test_every_canonical_neighborhood_has_a_community(db_session):
+    """Each NYC_NEIGHBORHOODS entry must have a system-owned community row."""
+    from constants.neighborhoods import NYC_NEIGHBORHOODS
+    from services.neighborhood import get_neighborhood_community
+    missing = [n for n in NYC_NEIGHBORHOODS
+               if get_neighborhood_community(db_session, n) is None]
+    assert missing == [], f"neighborhoods with no community row: {missing}"
