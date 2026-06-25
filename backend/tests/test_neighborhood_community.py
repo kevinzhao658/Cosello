@@ -27,7 +27,7 @@ if str(BACKEND_ROOT) not in sys.path:
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
-from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
+from constants.neighborhoods import NYC_NEIGHBORHOODS
 from models import Community, CommunityMember, User
 from services.neighborhood import (
     SYSTEM_USER_ID,
@@ -170,7 +170,7 @@ def authed_user_factory(db_session, supabase_admin, override_auth_user, client):
         # set_user_neighborhood on first registration). Temporarily clear
         # user.neighborhood so set_user_neighborhood treats this as a new assignment
         # (not a no-op).
-        if neighborhood and neighborhood in MANHATTAN_NEIGHBORHOODS:
+        if neighborhood and neighborhood in NYC_NEIGHBORHOODS:
             user.neighborhood = None
             db_session.commit()
             set_user_neighborhood(db_session, user, neighborhood)
@@ -326,7 +326,7 @@ def test_seed_migration_covers_full_canonical_list(db: Session):
     """Guard against SQL migration / constants file divergence.
 
     Asserts that the number of system-owned communities equals the length
-    of MANHATTAN_NEIGHBORHOODS. If someone adds to the constants but forgets
+    of NYC_NEIGHBORHOODS. If someone adds to the constants but forgets
     to add a migration (or vice versa), this test fails loudly.
     """
     system_community_count = (
@@ -334,9 +334,9 @@ def test_seed_migration_covers_full_canonical_list(db: Session):
         .filter(Community.created_by == SYSTEM_USER_ID)
         .count()
     )
-    assert system_community_count == len(MANHATTAN_NEIGHBORHOODS), (
-        f"Expected {len(MANHATTAN_NEIGHBORHOODS)} system-owned communities "
-        f"(one per MANHATTAN_NEIGHBORHOODS entry), got {system_community_count}. "
+    assert system_community_count == len(NYC_NEIGHBORHOODS), (
+        f"Expected {len(NYC_NEIGHBORHOODS)} system-owned communities "
+        f"(one per NYC_NEIGHBORHOODS entry), got {system_community_count}. "
         f"Check 0007_neighborhood_communities.sql vs constants/neighborhoods.py."
     )
 
@@ -349,9 +349,11 @@ def test_get_neighborhoods_endpoint_returns_curated_list(client):
 
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) == 43
+    assert len(data) == 62
     assert "Chinatown" in data
     assert "West Village" in data
+    assert "Williamsburg" in data
+    assert "Astoria" in data
     assert "Not A Real Neighborhood" not in data
 
     # Alphabetically sorted (caller-friendly)

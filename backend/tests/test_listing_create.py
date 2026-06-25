@@ -22,7 +22,7 @@ Removed tests (intentionally):
 import json
 from sqlalchemy import text
 
-from constants.neighborhoods import MANHATTAN_NEIGHBORHOODS
+from constants.neighborhoods import NYC_NEIGHBORHOODS
 from services.neighborhood import set_user_neighborhood, get_neighborhood_community
 
 
