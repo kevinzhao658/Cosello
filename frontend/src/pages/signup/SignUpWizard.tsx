@@ -11,6 +11,7 @@ import { LocationStep } from "./steps/LocationStep";
 import { SchoolStep } from "./steps/SchoolStep";
 import { ReviewStep } from "./steps/ReviewStep";
 import { WelcomeStep } from "./steps/WelcomeStep";
+import { ZIP_NEIGHBORHOOD } from "../../lib/nycZips";
 
 export interface SignUpWizardProps {
   pendingToken: string;
@@ -71,7 +72,7 @@ export function SignUpWizard({
   const stepReady = (): boolean => {
     switch (currentStep) {
       case "name":     return !!firstName.trim() && !!lastName.trim();
-      case "location": return addrSelected;
+      case "location": return addrSelected && !!neighborhood.trim();
       case "school":   return true; // optional
       case "review":   return termsAccepted;
     }
@@ -234,9 +235,10 @@ export function SignUpWizard({
                 setZip(s.zip);
                 setCity(s.city ?? "");
                 setState(s.state ?? "");
-                setNeighborhood(s.neighborhood ?? "");
+                setNeighborhood(ZIP_NEIGHBORHOOD[s.zip] ?? ""); // canonical suggestion, not the Mapbox label
                 setAddrSelected(true);
               }}
+              onChangeNeighborhood={setNeighborhood}
             />
           )}
           {currentStep === "school" && (

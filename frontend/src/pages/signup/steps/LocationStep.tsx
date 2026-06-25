@@ -1,9 +1,11 @@
 // frontend/src/pages/signup/steps/LocationStep.tsx
-// Location step: address autocomplete → revealed read-only city/state/neighborhood/zip,
-// building disclosure always shown. Icon chip + TypedHeadline are in the wizard shell.
+// Location step: address autocomplete → revealed city/state/zip (read-only) +
+// neighborhood (editable canonical dropdown), building disclosure always shown.
+// Icon chip + TypedHeadline are in the wizard shell.
 import { ShieldCheck } from "lucide-react";
 import { AddressAutocompleteInput } from "../../../components/AddressAutocompleteInput";
 import type { AddressSuggestion } from "../../../lib/mapboxSearch";
+import { useNeighborhoods } from "../../../lib/useNeighborhoods";
 
 export interface LocationStepProps {
   address: string;
@@ -14,9 +16,10 @@ export interface LocationStepProps {
   addrSelected: boolean;
   onChangeText: (v: string) => void;
   onSelect: (s: AddressSuggestion) => void;
+  onChangeNeighborhood: (v: string) => void;
 }
 
-// Shared read-only field style
+// Shared field style — read-only inputs and the neighborhood select share the same look.
 const roInput =
   "w-full border-[1.5px] border-border-strong rounded-sm px-[13px] py-[11px] text-sm text-body bg-surface-soft font-sans";
 
@@ -29,7 +32,10 @@ export function LocationStep({
   addrSelected,
   onChangeText,
   onSelect,
+  onChangeNeighborhood,
 }: LocationStepProps) {
+  const { list: neighborhoods, isLoading: nbLoading } = useNeighborhoods();
+
   return (
     <div>
       {/* Street address autocomplete */}
@@ -58,7 +64,17 @@ export function LocationStep({
           </div>
           <div>
             <div className="text-[11px] font-semibold text-muted-soft mb-[5px]">Neighborhood</div>
-            <input className={roInput} value={neighborhood} readOnly />
+            <select
+              className={roInput}
+              value={neighborhood}
+              onChange={(e) => onChangeNeighborhood(e.target.value)}
+              disabled={nbLoading}
+            >
+              {!neighborhood && <option value="">Select a neighborhood</option>}
+              {(neighborhoods ?? []).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
           </div>
           <div>
             <div className="text-[11px] font-semibold text-muted-soft mb-[5px]">ZIP</div>
