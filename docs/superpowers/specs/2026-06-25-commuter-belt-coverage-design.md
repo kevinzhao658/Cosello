@@ -74,25 +74,29 @@ coarsened to the chosen label.
 
 ### Brooklyn (17 ZIPs → 13 circles)
 
-| ZIP | Neighborhood | Coarsened from |
-|---|---|---|
-| 11222 | Greenpoint | |
-| 11211 | Williamsburg | |
-| 11249 | Williamsburg | |
-| 11206 | Williamsburg | + East Williamsburg / Bushwick edge |
-| 11237 | Bushwick | |
-| 11221 | Bushwick | + Bed-Stuy edge |
-| 11216 | Bedford-Stuyvesant | |
-| 11233 | Bedford-Stuyvesant | + Crown Heights |
-| 11205 | Clinton Hill | + Fort Greene |
-| 11201 | DUMBO | + Brooklyn Heights / Downtown / Boerum Hill |
-| 11217 | Boerum Hill | + Gowanus / Park Slope north |
-| 11238 | Prospect Heights | + Clinton Hill |
-| 11215 | Park Slope | + Gowanus / Windsor Terrace |
-| 11231 | Carroll Gardens | + Cobble Hill / Red Hook |
-| 11213 | Crown Heights | |
-| 11225 | Prospect-Lefferts Gardens | + south Crown Heights |
-| 11226 | Flatbush | |
+Each ZIP maps to exactly one neighborhood (the single value below). Where a ZIP
+physically spans several areas, we pick one canonical label and the others are
+**not** part of the mapping.
+
+| ZIP | Neighborhood |
+|---|---|
+| 11222 | Greenpoint |
+| 11211 | Williamsburg |
+| 11249 | Williamsburg |
+| 11206 | Williamsburg |
+| 11237 | Bushwick |
+| 11221 | Bushwick |
+| 11216 | Bedford-Stuyvesant |
+| 11233 | Bedford-Stuyvesant |
+| 11205 | Clinton Hill |
+| 11201 | DUMBO |
+| 11217 | Boerum Hill |
+| 11238 | Prospect Heights |
+| 11215 | Park Slope |
+| 11231 | Carroll Gardens |
+| 11213 | Crown Heights |
+| 11225 | Prospect-Lefferts Gardens |
+| 11226 | Flatbush |
 
 **19 new neighborhood circles:** Long Island City, Astoria, Sunnyside, Woodside,
 Jackson Heights, Forest Hills, Greenpoint, Williamsburg, Bushwick,
