@@ -10,9 +10,17 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from constants.neighborhoods import NYC_NEIGHBORHOODS
+from constants.neighborhood_zips import ZIP_NEIGHBORHOOD
 from models import Community, CommunityMember, User
 
 SYSTEM_USER_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def neighborhood_for_zip(zip_code: str | None) -> str | None:
+    """Resolve a served ZIP to its single canonical neighborhood, or None."""
+    if not zip_code:
+        return None
+    return ZIP_NEIGHBORHOOD.get(zip_code.strip())
 
 
 def get_neighborhood_community(db: Session, neighborhood_name: str | None) -> Community | None:

@@ -9,7 +9,8 @@ from database import get_db
 from models import User
 from auth import get_current_user
 from services import storage
-from services.neighborhood import set_user_neighborhood, get_neighborhood_community
+from constants.neighborhoods import NYC_NEIGHBORHOODS
+from services.neighborhood import set_user_neighborhood, get_neighborhood_community, neighborhood_for_zip
 from services.circles import set_user_building, add_user_school, set_circle_consent, TooManySchools
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -126,9 +127,16 @@ def register(
         _validate_and_set_zip(db, existing, req.zip_code)
     db.commit()  # flush profile fields first
 
-    # Then handle neighborhood + auto-join membership in one tx
+    # Resolve the effective neighborhood: trust a canonical value; otherwise
+    # derive from the (validated) ZIP so a stale Mapbox label never 400s.
+    effective_neighborhood = req.neighborhood
+    if effective_neighborhood not in NYC_NEIGHBORHOODS:
+        derived = neighborhood_for_zip(req.zip_code)
+        if derived is not None:
+            effective_neighborhood = derived
+
     try:
-        set_user_neighborhood(db, existing, req.neighborhood)
+        set_user_neighborhood(db, existing, effective_neighborhood)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -137,7 +145,7 @@ def register(
 
     # Set neighborhood consent default-on (neighborhood replaces building as
     # the displayed local-trust circle per spec revision 2026-06-19).
-    neighborhood_community = get_neighborhood_community(db, req.neighborhood)
+    neighborhood_community = get_neighborhood_community(db, effective_neighborhood)
     if neighborhood_community is not None:
         set_circle_consent(db, existing.id, neighborhood_community.id, True)
 
@@ -172,8 +180,13 @@ def update_profile(
     db.commit()  # flush non-neighborhood fields first
 
     if req.neighborhood is not None:
+        effective = req.neighborhood
+        if effective not in NYC_NEIGHBORHOODS:
+            derived = neighborhood_for_zip(req.zip_code)
+            if derived is not None:
+                effective = derived
         try:
-            set_user_neighborhood(db, current_user, req.neighborhood)
+            set_user_neighborhood(db, current_user, effective)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
