@@ -128,8 +128,11 @@ Park Slope, Carroll Gardens, Crown Heights, Prospect-Lefferts Gardens, Flatbush.
   existing validation against `NYC_NEIGHBORHOODS` stands (now a backstop).
 - **`backend/routers/communities.py`** — keep `GET /neighborhoods` returning the
   plain `string[]` (do **not** change its shape; `useNeighborhoods` depends on
-  it). Add a companion `GET /api/communities/neighborhoods/suggest?zip=XXXXX` →
-  `{ "suggested": string | null }` resolving via `ZIP_NEIGHBORHOOD`.
+  it). **No new endpoint:** the FE already maintains a canonical
+  `ZIP_NEIGHBORHOOD` map in `nycZips.ts` (deliberately mirrored from the backend,
+  per the file's sync contract), so the prefill suggestion is derived locally on
+  the client. The backend `ZIP_NEIGHBORHOOD` (above) is used only for the
+  server-side registration backstop.
 
 ### Backend — migration
 
@@ -148,12 +151,12 @@ Park Slope, Carroll Gardens, Crown Heights, Prospect-Lefferts Gardens, Flatbush.
 - **`frontend/src/lib/nycZips.ts`** — add the 27 commuter-belt ZIP entries (kept
   in sync with the backend seed, per the file's existing contract).
 - **`frontend/src/pages/signup/steps/LocationStep.tsx`** — change the
-  neighborhood read-only input to an **editable dropdown** (reuse
-  `components/LocationCombobox.tsx`), prefilled to the ZIP `suggested` value,
-  options = full canonical list from `useNeighborhoods`. User can change to any
-  listed neighborhood.
-- **`frontend/src/pages/signup/SignUpWizard.tsx`** — on address select, fetch
-  the `suggest?zip=` value and set the neighborhood default; submit the chosen
+  neighborhood read-only input to an **editable native `<select>`** populated
+  from `useNeighborhoods` (full canonical list). (`LocationCombobox` is
+  ZIP-valued, not neighborhood-valued, so it is not reused here.) Prefilled to
+  the ZIP-derived suggestion. User can change to any listed neighborhood.
+- **`frontend/src/pages/signup/SignUpWizard.tsx`** — on address select, set the
+  neighborhood default from `ZIP_NEIGHBORHOOD[zip]` (local); submit the chosen
   (always-canonical) neighborhood. `ReviewStep` already displays it.
 - **Settings / Edit-Profile neighborhood control** — align to the same
   full-list combobox so registration and profile edit behave identically.
@@ -162,8 +165,8 @@ Park Slope, Carroll Gardens, Crown Heights, Prospect-Lefferts Gardens, Flatbush.
 
 1. User types address → Mapbox v6 forward-geocode → suggestion with `zip` (must
    be in expanded `NYC_ZIP_SET`).
-2. On select, FE calls `GET /neighborhoods/suggest?zip=<zip>` → prefill the
-   neighborhood dropdown with `suggested`.
+2. On select, FE derives the suggestion locally (`ZIP_NEIGHBORHOOD[zip]` from
+   `nycZips.ts`) → prefill the neighborhood dropdown with it.
 3. User keeps or changes the dropdown (full canonical list).
 4. `POST /api/auth/register` with `{ zip_code, neighborhood, … }`. Backend:
    neighborhood present → validate ∈ `NYC_NEIGHBORHOODS` (backstop); if blank →
@@ -175,13 +178,13 @@ Park Slope, Carroll Gardens, Crown Heights, Prospect-Lefferts Gardens, Flatbush.
 - Address whose ZIP is **not** served (e.g. Far Rockaway, deep Brooklyn) — not
   returned by autocomplete (filtered by `NYC_ZIP_SET`); no silent dead-end is in
   scope for this spec beyond existing behavior (logged as a follow-up if desired).
-- `suggest?zip=` for an unknown ZIP → `{ "suggested": null }`; dropdown falls
-  back to unselected and the user must pick (cannot submit empty — existing
-  required-field behavior).
-- Off-list neighborhood reaching the backend → 400 (backstop; not reachable via
-  the guarded dropdown).
-- `useNeighborhoods` / `suggest` fetch failure → existing error+retry pattern;
-  never blocks with a blank list silently.
+- `ZIP_NEIGHBORHOOD[zip]` miss for an unknown ZIP → dropdown falls back to
+  unselected and the user must pick (cannot continue empty — the step gate
+  requires a neighborhood).
+- Off-list neighborhood reaching the backend → corrected via the ZIP backstop if
+  the ZIP is known; otherwise 400 (not reachable via the guarded dropdown).
+- `useNeighborhoods` fetch failure → existing error+retry pattern; never blocks
+  with a blank list silently.
 
 ## Testing & QA criteria
 
@@ -195,8 +198,7 @@ Park Slope, Carroll Gardens, Crown Heights, Prospect-Lefferts Gardens, Flatbush.
   right neighborhood and auto-joins that community.
 - `register` with an explicit canonical neighborhood is honored.
 - `register`/`update_profile` with an off-list neighborhood still 400s.
-- `GET /neighborhoods/suggest?zip=11211` → `{ "suggested": "Williamsburg" }`;
-  unknown ZIP → `{ "suggested": null }`.
+- `neighborhood_for_zip("11211")` → `"Williamsburg"`; unknown ZIP → `None`.
 - Migration idempotency.
 
 ### Frontend / E2E
