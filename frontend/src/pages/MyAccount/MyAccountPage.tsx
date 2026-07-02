@@ -182,8 +182,6 @@ export default function MyAccountPage({ onNavigate, wishlistItems = [], onToggle
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const editProfileForm = useEditProfileForm(neighborhoods);
   const [showNeighborhoodChangeConfirm, setShowNeighborhoodChangeConfirm] = useState(false);
-  const editSuggestionsRef = useRef<HTMLDivElement>(null);
-  const editNeighborhoodRef = useRef<HTMLInputElement>(null);
 
   // Add Friends modal
   const [showAddFriendsModal, setShowAddFriendsModal] = useState(false);
@@ -1143,7 +1141,6 @@ export default function MyAccountPage({ onNavigate, wishlistItems = [], onToggle
     setShowEditProfileModal(true);
   };
 
-  useClickOutside([editNeighborhoodRef, editSuggestionsRef], () => editProfileForm.setField("showSuggestions", false), editProfileForm.fields.showSuggestions);
   useClickOutside([editCommunityNeighborhoodRef, editCommunitySuggestionsRef], () => setEditCommunityShowSuggestions(false), editCommunityShowSuggestions);
 
   // ── Derived data ───────────────────────────────────────
@@ -1410,21 +1407,17 @@ export default function MyAccountPage({ onNavigate, wishlistItems = [], onToggle
         editPickupAddress={editProfileForm.fields.pickupAddress}
         editNeighborhood={editProfileForm.fields.neighborhood}
         editZipCode={editProfileForm.fields.zipCode}
-        editShowSuggestions={editProfileForm.fields.showSuggestions}
-        editFilteredNeighborhoods={editProfileForm.filteredNeighborhoods}
         editIsValidNeighborhood={editProfileForm.isValidNeighborhood}
         editProfileError={editProfileForm.error}
         isUpdatingProfile={editProfileForm.pending}
         isLoadingNeighborhoods={isLoadingNeighborhoodsList}
         neighborhoodsError={neighborhoodsListError}
-        editNeighborhoodRef={editNeighborhoodRef}
-        editSuggestionsRef={editSuggestionsRef}
+        neighborhoods={neighborhoods}
         setEditFirstName={(v) => editProfileForm.setField("firstName", v)}
         setEditLastName={(v) => editProfileForm.setField("lastName", v)}
         setEditPickupAddress={(v) => editProfileForm.setField("pickupAddress", v)}
         setEditNeighborhood={(v) => editProfileForm.setField("neighborhood", v)}
         setEditZipCode={(v) => editProfileForm.setField("zipCode", v)}
-        setEditShowSuggestions={(v) => editProfileForm.setField("showSuggestions", v)}
         onClose={() => setShowEditProfileModal(false)}
         onSubmit={handleUpdateProfile}
       />

@@ -3,13 +3,18 @@ import { ModalShell } from "../../../components/ui/ModalShell";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { User, Loader2 } from "lucide-react";
-import { FOCUS_RING, MODAL_TITLE } from "../constants";
-import { NYC_ZIPS, NYC_ZIP_SET } from "../../../lib/nycZips";
+import { MODAL_TITLE } from "../constants";
 import { AvatarUploadButton } from "../../../components/ui/AvatarUploadButton";
 import { ModalCloseButton } from "../../../components/ui/ModalCloseButton";
+import { AddressAutocompleteInput } from "../../../components/AddressAutocompleteInput";
+import type { AddressSuggestion } from "../../../lib/mapboxSearch";
+import { ZIP_NEIGHBORHOOD } from "../../../lib/nycZips";
 
 const LABEL_CLASS =
   "block text-[11px] font-semibold text-muted mb-1.5";
+
+const SELECT_CLASS =
+  "w-full rounded-md border border-border-strong bg-canvas px-3 py-2 text-sm text-ink shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas";
 
 export interface EditProfileModalProps {
   open: boolean;
@@ -25,21 +30,17 @@ export interface EditProfileModalProps {
   editPickupAddress: string;
   editNeighborhood: string;
   editZipCode: string;
-  editShowSuggestions: boolean;
-  editFilteredNeighborhoods: readonly string[];
   editIsValidNeighborhood: boolean;
   editProfileError: string;
   isUpdatingProfile: boolean;
   isLoadingNeighborhoods: boolean;
   neighborhoodsError: string | null;
-  editNeighborhoodRef: React.RefObject<HTMLInputElement>;
-  editSuggestionsRef: React.RefObject<HTMLDivElement>;
+  neighborhoods: readonly string[];
   setEditFirstName: (s: string) => void;
   setEditLastName: (s: string) => void;
   setEditPickupAddress: (s: string) => void;
   setEditNeighborhood: (s: string) => void;
   setEditZipCode: (s: string) => void;
-  setEditShowSuggestions: (b: boolean) => void;
   onClose: () => void;
   onSubmit: () => void;
 }
@@ -47,13 +48,20 @@ export interface EditProfileModalProps {
 export function EditProfileModal({
   open, avatarUrl, isUploadingAvatar, avatarUploadError, onAvatarChange, onAvatarErrorClear,
   editFirstName, editLastName, editPickupAddress, editNeighborhood, editZipCode,
-  editShowSuggestions, editFilteredNeighborhoods, editIsValidNeighborhood,
+  editIsValidNeighborhood,
   editProfileError, isUpdatingProfile, isLoadingNeighborhoods, neighborhoodsError,
-  editNeighborhoodRef, editSuggestionsRef,
+  neighborhoods,
   setEditFirstName, setEditLastName, setEditPickupAddress, setEditNeighborhood,
-  setEditZipCode, setEditShowSuggestions, onClose, onSubmit,
+  setEditZipCode, onClose, onSubmit,
 }: EditProfileModalProps) {
   if (!open) return null;
+
+  function handleAddressSelect(s: AddressSuggestion): void {
+    setEditPickupAddress(s.label);
+    setEditZipCode(s.zip);
+    setEditNeighborhood(ZIP_NEIGHBORHOOD[s.zip] ?? "");
+  }
+
   return (
     <ModalShell open onClose={onClose} z={50}>
       <div className="relative bg-canvas border border-hairline rounded-md max-w-sm w-full mx-4 shadow-overlay max-h-[90vh] flex flex-col">
@@ -104,18 +112,19 @@ export function EditProfileModal({
 
           <div>
             <label className={LABEL_CLASS}>Pickup Address</label>
-            <Input
-              type="text"
-              placeholder="Street address"
+            <AddressAutocompleteInput
+              id="edit-profile-address"
+              placeholder="Start typing your address"
               value={editPickupAddress}
-              onChange={(e) => setEditPickupAddress(e.target.value)}
+              onChangeText={setEditPickupAddress}
+              onSelect={handleAddressSelect}
             />
             <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
               Your address will never be visible to buyers without your consent. It will be used to group listings by local geography.
             </p>
           </div>
 
-          <div className="relative">
+          <div>
             <label className={LABEL_CLASS}>Neighborhood</label>
             {isLoadingNeighborhoods ? (
               <div className="text-sm text-muted py-2 flex items-center gap-2">
@@ -127,53 +136,18 @@ export function EditProfileModal({
                 Couldn't load neighborhoods. Other fields still editable.
               </div>
             ) : (
-              <>
-                <Input
-                  ref={editNeighborhoodRef}
-                  type="text"
-                  placeholder="e.g., Chelsea"
-                  value={editNeighborhood}
-                  onChange={(e) => {
-                    setEditNeighborhood(e.target.value);
-                    setEditShowSuggestions(true);
-                  }}
-                  onFocus={() => setEditShowSuggestions(true)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && editIsValidNeighborhood) onSubmit();
-                  }}
-                />
-
-                {editShowSuggestions && editFilteredNeighborhoods.length > 0 && (
-                  <div
-                    ref={editSuggestionsRef}
-                    className="absolute z-50 mt-1 w-full max-h-40 overflow-y-auto rounded-md border border-hairline bg-canvas shadow-overlay"
-                  >
-                    {editFilteredNeighborhoods.map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => {
-                          setEditNeighborhood(n);
-                          setEditShowSuggestions(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-soft transition-colors ${
-                          n.toLowerCase() === editNeighborhood.trim().toLowerCase()
-                            ? "text-primary font-semibold"
-                            : "text-ink"
-                        } ${FOCUS_RING}`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
+              <select
+                value={editNeighborhood}
+                onChange={(e) => setEditNeighborhood(e.target.value)}
+                className={SELECT_CLASS}
+              >
+                {!editNeighborhood && (
+                  <option value="">Select a neighborhood</option>
                 )}
-
-                {editShowSuggestions && editFilteredNeighborhoods.length === 0 && editNeighborhood.trim() && (
-                  <div className="absolute z-50 mt-1 w-full rounded-md border border-hairline bg-canvas shadow-overlay px-3 py-2 text-sm text-muted">
-                    No matching neighborhoods
-                  </div>
-                )}
-              </>
+                {neighborhoods.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
             )}
           </div>
 
@@ -189,17 +163,13 @@ export function EditProfileModal({
           </div>
 
           <div>
-            <label className={LABEL_CLASS}>Zip Code</label>
-            <select
-              value={NYC_ZIP_SET.has(editZipCode) ? editZipCode : ""}
-              onChange={(e) => setEditZipCode(e.target.value)}
-              className="w-full rounded-md border border-input bg-canvas px-3 py-2 text-sm text-ink shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            >
-              <option value="" disabled>Select ZIP</option>
-              {NYC_ZIPS.map(({ zip, neighborhood }) => (
-                <option key={zip} value={zip}>{zip} — {neighborhood}</option>
-              ))}
-            </select>
+            <label className={LABEL_CLASS}>ZIP Code</label>
+            <Input
+              type="text"
+              value={editZipCode || ""}
+              placeholder="Derived from address"
+              disabled
+            />
           </div>
 
           {editProfileError && <p className="text-sm text-error">{editProfileError}</p>}
